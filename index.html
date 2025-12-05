@@ -27,21 +27,19 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             min-width: 200px;
             text-align: left;
+            cursor: pointer;
+            transition: box-shadow 0.2s;
         }
         
-        .character-panel h2 {
-            margin-top: 0;
-            margin-bottom: 15px;
-            color: #333;
-            font-size: 18px;
+        .character-panel:hover {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
         }
         
-        .character-panel p {
-            margin: 8px 0;
-            color: #555;
+        .character-panel.active-turn {
+            box-shadow: 0 0 0 3px #4CAF50;
         }
         
-        .status-panel {
+        .character-panel-2 {
             position: absolute;
             top: 20px;
             left: 280px;
@@ -49,13 +47,170 @@
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            font-size: 32px;
+            min-width: 200px;
+            text-align: left;
+            display: none;
+            cursor: pointer;
+            transition: box-shadow 0.2s;
+        }
+        
+        .character-panel-2:hover {
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        
+        .character-panel-2.active-turn {
+            box-shadow: 0 0 0 3px #4CAF50;
+        }
+        
+        .character-panel-2.show {
+            display: block;
+        }
+        
+        .ap-indicator {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background-color: #FF9800;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        
+        .ap-indicator.spent {
+            background-color: #9E9E9E;
+        }
+        
+        .add-player-btn {
+            position: absolute;
+            top: 110px;
+            left: 252px;
+            width: 30px;
+            height: 30px;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 20px;
+            line-height: 1;
+            padding: 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .add-player-btn:hover {
+            background: #45a049;
+        }
+        
+        .add-player-btn.hidden {
             display: none;
         }
         
-        .status-panel.show {
-            display: block;
+        .link-btn {
+            position: absolute;
+            top: 105px;
+            left: 248px;
+            width: 40px;
+            height: 40px;
+            background: transparent !important;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 32px;
+            line-height: 1;
+            padding: 0;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s;
+            z-index: 10;
         }
+        
+        .link-btn.show {
+            display: flex;
+        }
+        
+        .link-btn:hover {
+            transform: scale(1.2);
+            background: transparent !important;
+        }
+        
+        .link-btn:focus {
+            outline: none;
+            background: transparent !important;
+        }
+        
+        .link-btn:active {
+            background: transparent !important;
+        }
+        
+        .link-btn.unlinked {
+            opacity: 0;
+        }
+        
+        .link-btn.unlinked:hover {
+            opacity: 0.4;
+            transform: scale(1.2);
+        }
+        
+        .link-btn.disabled {
+            opacity: 0.2 !important;
+        }
+        
+        .link-btn.disabled:hover {
+            opacity: 0.2 !important;
+            transform: none;
+        }
+        
+        .character-panel h2,
+        .character-panel-2 h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 18px;
+            cursor: pointer;
+            user-select: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .tired-indicator {
+            font-size: 20px;
+            display: none;
+        }
+        
+        .tired-indicator.show {
+            display: inline;
+        }
+        
+        .character-panel h2:hover,
+        .character-panel-2 h2:hover {
+            color: #4CAF50;
+        }
+        
+        .character-panel input.name-edit,
+        .character-panel-2 input.name-edit {
+            margin-top: 0;
+            margin-bottom: 15px;
+            font-size: 18px;
+            font-weight: bold;
+            border: 2px solid #4CAF50;
+            padding: 4px;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        
+        .character-panel p,
+        .character-panel-2 p {
+            margin: 8px 0;
+            color: #555;
+        }
+        
         
         .food-card {
             position: absolute;
@@ -182,6 +337,12 @@
             outline-offset: -3px;
         }
         
+        .map-key-icon.player2 {
+            background-color: white;
+            outline: 3px solid #29496b;
+            outline-offset: -3px;
+        }
+        
         .map-key-icon.berry {
             background-color: #a8326d;
             color: white;
@@ -193,8 +354,8 @@
         }
         
         .map-key-icon.natural-shelter {
-            background-color: #FFD700;
-            color: white;
+            background-color: #8B4513;
+            color: black;
         }
         
         .map-grid {
@@ -278,11 +439,11 @@
             left: 0;
             width: 50%;
             height: 50%;
-            background-color: #FFD700;
+            background-color: #8B4513;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
+            color: black;
             font-weight: bold;
             font-size: 7px;
         }
@@ -490,11 +651,49 @@
         .tired-content button:hover {
             background-color: #45a049;
         }
+        
+        .day-transition-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(25, 25, 112, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 9999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 1.2s ease-in-out;
+        }
+        
+        .day-transition-overlay.active {
+            opacity: 1;
+            pointer-events: all;
+        }
+        
+        .day-transition-text {
+            color: white;
+            font-size: 48px;
+            font-weight: bold;
+            text-align: center;
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out;
+        }
+        
+        .day-transition-text.show {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
-    <div class="character-panel">
-        <h2 id="player-name">Player name: Albert</h2>
+    <div class="day-transition-overlay" id="day-transition-overlay">
+        <div class="day-transition-text" id="day-transition-text">Day 1</div>
+    </div>
+    <div class="character-panel" id="character-panel-1">
+        <div class="ap-indicator" id="ap-indicator-1"></div>
+        <h2 id="player-name"><span class="name-text">Albert</span><span class="tired-indicator" id="tired-indicator-1">🥱</span></h2>
         <p id="hp-display">HP: 4</p>
         <p id="fp-display">FP: 4</p>
         <p id="item1-display">Item 1: none</p>
@@ -502,7 +701,19 @@
         <p id="item3-display">Item 3: none</p>
     </div>
     
-    <div class="status-panel" id="status-panel">🥱</div>
+    <button class="add-player-btn" id="add-player-btn">+</button>
+    
+    <button class="link-btn" id="link-btn" title="Link/Unlink players">🔗</button>
+    
+    <div class="character-panel-2" id="character-panel-2">
+        <div class="ap-indicator" id="ap-indicator-2"></div>
+        <h2 id="player-name-2"><span class="name-text">Bio</span><span class="tired-indicator" id="tired-indicator-2">🥱</span></h2>
+        <p id="hp-display-2">HP: 4</p>
+        <p id="fp-display-2">FP: 4</p>
+        <p id="item1-display-2">Item 1: none</p>
+        <p id="item2-display-2">Item 2: none</p>
+        <p id="item3-display-2">Item 3: none</p>
+    </div>
     
     <div class="food-card">
         <span class="food-text" id="food-text">Food: 0</span>
@@ -520,7 +731,11 @@
         <div class="map-key-title">Key:</div>
         <div class="map-key-item">
             <div class="map-key-icon player"></div>
-            <span>Player</span>
+            <span id="map-key-name-1">Albert</span>
+        </div>
+        <div class="map-key-item" id="player2-key" style="display: none;">
+            <div class="map-key-icon player2"></div>
+            <span id="map-key-name-2">Bio</span>
         </div>
         <div class="map-key-item">
             <div class="map-key-icon berry">●</div>
@@ -541,6 +756,7 @@
     <div class="game-container">
         <div class="container">
             <h1>Today's activity?</h1>
+            <p id="current-player-display" style="margin-top: -15px; margin-bottom: 20px; color: #666; font-size: 18px;"></p>
             <button id="build-shelter">1. Build Shelter</button>
             <button id="gather-food">2. Gather Food</button>
             <button id="explore">3. Explore</button>
@@ -564,7 +780,7 @@
     
     <div class="modal-overlay" id="tired-overlay">
         <div class="tired-content">
-            <h2>Sleeping on the ground, you get very little rest.</h2>
+            <h2>You slept like shit.</h2>
             <p>Status gained: Tired</p>
             <p>Movement penalty: -1</p>
             <button id="tired-ok">Ok</button>
@@ -580,7 +796,20 @@
             fp: 4,
             inventory: [null, null, null],
             position: { row: 15, col: 0 }, // Bottom left (0-indexed, row 15 = bottom)
-            tired: false
+            tired: false,
+            ap: 1 // Action points
+        };
+        
+        // Second character model
+        const character2 = {
+            name: "Bio",
+            hp: 4,
+            fp: 4,
+            inventory: [null, null, null],
+            position: { row: 15, col: 0 }, // Will be set when player 2 is added
+            tired: false,
+            active: false, // Track if second player is active
+            ap: 1 // Action points
         };
 
         // Game state
@@ -597,7 +826,9 @@
             isExploring: false,
             movesRemaining: 0,
             food: 0, // Food storage (not part of character)
-            hasSeenTiredMessage: false // Track if player has seen tired message this game
+            hasSeenTiredMessage: false, // Track if player has seen tired message this game
+            playersLinked: true, // Track if players are linked (move together) or separate
+            currentTurn: 1 // Track whose turn it is (1 or 2)
         };
         
         // Helper function to create a tile key
@@ -912,8 +1143,20 @@
         // Mark the starting position as visited
         gameState.visitedTiles.add(getTileKey(startPos.row, startPos.col));
         
-        // Reveal surrounding tiles at start
-        revealSurroundingTiles(startPos.row, startPos.col);
+        // Function to find valid starting position for player 2 (near player 1)
+        function findValidStartPositionForPlayer2() {
+            // Players start in the same tile
+            return { row: character.position.row, col: character.position.col };
+        }
+        
+        // Check if players are on the same tile
+        function playersOnSameTile() {
+            return character2.active && 
+                   character.position.row === character2.position.row && 
+                   character.position.col === character2.position.col;
+        }
+        
+        // Tiles are now dynamically revealed based on player position
         
         // Initialize natural shelters on load
         initializeNaturalShelters();
@@ -923,8 +1166,9 @@
         
         // Check if a tile is adjacent (including diagonals) or current
         function isAdjacentOrCurrent(row, col) {
-            const rowDiff = Math.abs(row - character.position.row);
-            const colDiff = Math.abs(col - character.position.col);
+            const exploringPlayer = gameState.exploringPlayer === 2 ? character2 : character;
+            const rowDiff = Math.abs(row - exploringPlayer.position.row);
+            const colDiff = Math.abs(col - exploringPlayer.position.col);
             const isAdjacent = rowDiff <= 1 && colDiff <= 1;
             
             // Also check if it's a land tile
@@ -935,18 +1179,25 @@
         }
         
         // Reveal tiles around the player (8 surrounding tiles)
-        function revealSurroundingTiles(row, col) {
-            for (let dr = -1; dr <= 1; dr++) {
-                for (let dc = -1; dc <= 1; dc++) {
-                    const newRow = row + dr;
-                    const newCol = col + dc;
-                    
-                    if (newRow >= 0 && newRow < gameState.mapSize && 
-                        newCol >= 0 && newCol < gameState.mapSize) {
-                        gameState.seenTiles.add(getTileKey(newRow, newCol));
-                    }
+        // Check if a tile is currently adjacent to any player (for dynamic fog of war)
+        function isTileAdjacentToAnyPlayer(row, col) {
+            // Check if adjacent to player 1
+            const rowDiff1 = Math.abs(row - character.position.row);
+            const colDiff1 = Math.abs(col - character.position.col);
+            if (rowDiff1 <= 1 && colDiff1 <= 1) {
+                return true;
+            }
+            
+            // Check if adjacent to player 2 (if active)
+            if (character2.active) {
+                const rowDiff2 = Math.abs(row - character2.position.row);
+                const colDiff2 = Math.abs(col - character2.position.col);
+                if (rowDiff2 <= 1 && colDiff2 <= 1) {
+                    return true;
                 }
             }
+            
+            return false;
         }
         
         // Check if a land tile touches water (making it a beach)
@@ -994,8 +1245,47 @@
             gameState.bushesGatheredToday.clear();
         }
         
+        // Show day transition animation
+        function showDayTransition(oldDay, newDay) {
+            return new Promise((resolve) => {
+                const overlay = document.getElementById('day-transition-overlay');
+                const text = document.getElementById('day-transition-text');
+                
+                // Hide text and show overlay
+                text.classList.remove('show');
+                text.textContent = `Day ${oldDay}`;
+                overlay.classList.add('active');
+                
+                // After blue fades in (1200ms), show text
+                setTimeout(() => {
+                    text.classList.add('show');
+                }, 1200);
+                
+                // After showing old day (800ms), switch to new day
+                setTimeout(() => {
+                    text.textContent = `Day ${newDay}`;
+                }, 2000);
+                
+                // After showing new day (800ms more), fade out text then overlay
+                setTimeout(() => {
+                    text.classList.remove('show');
+                }, 2800);
+                
+                setTimeout(() => {
+                    overlay.classList.remove('active');
+                    setTimeout(resolve, 1200); // Wait for fade out to complete
+                }, 3300);
+            });
+        }
+        
         // Pass the day and check for death conditions
-        function passDayAndCheckDeath() {
+        async function passDayAndCheckDeath() {
+            // Show day transition animation
+            const oldDay = gameState.day;
+            const newDay = gameState.day + 1;
+            await showDayTransition(oldDay, newDay);
+            
+            // Process player 1
             const currentTileKey = getTileKey(character.position.row, character.position.col);
             let becameTired = false;
             
@@ -1011,10 +1301,24 @@
                 character.tired = true;
             }
             
-            gameState.day++;
+            // Process player 2 if active
+            if (character2.active) {
+                const currentTileKey2 = getTileKey(character2.position.row, character2.position.col);
+                
+                if (gameState.shelters.has(currentTileKey2) || gameState.naturalShelters.has(currentTileKey2)) {
+                    character2.tired = false;
+                } else {
+                    if (!character2.tired) {
+                        becameTired = true;
+                    }
+                    character2.tired = true;
+                }
+            }
+            
+            gameState.day = newDay;
             progressBerryBushes();
             
-            // Check FP first
+            // Process FP/HP for player 1
             if (character.fp <= 0) {
                 // Out of FP: try to auto-eat or lose HP
                 if (gameState.food > 0) {
@@ -1030,8 +1334,21 @@
                 character.fp = Math.max(0, character.fp - 1);
             }
             
-            // Check if dead
-            if (character.hp <= 0) {
+            // Process FP/HP for player 2 if active
+            if (character2.active) {
+                if (character2.fp <= 0) {
+                    if (gameState.food > 0) {
+                        gameState.food = Math.max(0, gameState.food - 1);
+                    } else {
+                        character2.hp = Math.max(0, character2.hp - 1);
+                    }
+                } else {
+                    character2.fp = Math.max(0, character2.fp - 1);
+                }
+            }
+            
+            // Check if either player is dead
+            if (character.hp <= 0 || (character2.active && character2.hp <= 0)) {
                 // Game over
                 document.getElementById('game-over-overlay').classList.add('active');
             } else if (becameTired && !gameState.hasSeenTiredMessage) {
@@ -1055,16 +1372,16 @@
                     
                     const tileKey = getTileKey(row, col);
                     const isLand = gameState.landTiles.has(tileKey);
-                    const isSeen = gameState.seenTiles.has(tileKey);
+                    const isSeen = isTileAdjacentToAnyPlayer(row, col); // Dynamic visibility check
                     const isVisited = gameState.visitedTiles.has(tileKey);
                     const isBeach = isLand ? isBeachTile(row, col) : false;
                     
                     // Determine tile state for rendering
-                    if (!isSeen) {
-                        // FOGGED - very dark grey
+                    if (!isSeen && !isVisited) {
+                        // FOGGED - very dark grey (not adjacent and not previously visited)
                         tile.classList.add('fogged');
-                    } else if (isLand && !isVisited) {
-                        // SEEN LAND - dark color (beach or grass)
+                    } else if (isLand && !isVisited && isSeen) {
+                        // SEEN LAND - dark color (beach or grass) - currently adjacent but not visited
                         if (isBeach) {
                             tile.classList.add('seen-beach');
                         } else {
@@ -1112,20 +1429,35 @@
                         tile.classList.add('seen-water');
                     }
                     
-                        // Outline player's current tile
-                    if (row === character.position.row && col === character.position.col) {
+                    // Outline player's current tile(s)
+                    const isPlayer1Here = (row === character.position.row && col === character.position.col);
+                    const isPlayer2Here = (character2.active && row === character2.position.row && col === character2.position.col);
+                    
+                    if (isPlayer1Here && isPlayer2Here) {
+                        // Both players on same tile - split border colors
+                        tile.style.borderTop = '3px solid #d95555';
+                        tile.style.borderRight = '3px solid #29496b';
+                        tile.style.borderBottom = '3px solid #d95555';
+                        tile.style.borderLeft = '3px solid #29496b';
+                    } else if (isPlayer1Here) {
+                        // Only player 1
                         tile.style.outline = '3px solid #d95555';
+                        tile.style.outlineOffset = '-3px';
+                    } else if (isPlayer2Here) {
+                        // Only player 2
+                        tile.style.outline = '3px solid #29496b';
                         tile.style.outlineOffset = '-3px';
                     }
                     
                     // Add click handler if exploring
                     if (gameState.isExploring) {
+                        const exploringPlayer = gameState.exploringPlayer === 2 ? character2 : character;
                         if (isAdjacentOrCurrent(row, col)) {
                             tile.style.cursor = 'pointer';
                             tile.addEventListener('click', () => handleTileClick(row, col));
                             
                             // Add hover class based on whether it's current or adjacent
-                            if (row === character.position.row && col === character.position.col) {
+                            if (row === exploringPlayer.position.row && col === exploringPlayer.position.col) {
                                 tile.classList.add('clickable-current');
                             } else {
                                 tile.classList.add('clickable-adjacent');
@@ -1141,6 +1473,7 @@
         // Function to handle tile clicks during exploration
         function handleTileClick(row, col) {
             const targetKey = getTileKey(row, col);
+            const exploringPlayer = gameState.exploringPlayer === 2 ? character2 : character;
             
             // Don't allow moving to water tiles
             if (!gameState.landTiles.has(targetKey)) {
@@ -1148,13 +1481,20 @@
             }
             
             // Move player if not current position
-            if (row !== character.position.row || col !== character.position.col) {
-                character.position.row = row;
-                character.position.col = col;
+            if (row !== exploringPlayer.position.row || col !== exploringPlayer.position.col) {
+                exploringPlayer.position.row = row;
+                exploringPlayer.position.col = col;
+                
+                // If players are linked, move both players together
+                if (character2.active && gameState.playersLinked) {
+                    character.position.row = row;
+                    character.position.col = col;
+                    character2.position.row = row;
+                    character2.position.col = col;
+                }
+                
                 // Mark tile as visited (revealed)
                 gameState.visitedTiles.add(getTileKey(row, col));
-                // Reveal surrounding 8 tiles
-                revealSurroundingTiles(row, col);
             }
             
             // Decrement moves
@@ -1172,15 +1512,27 @@
         function endExploration() {
             gameState.isExploring = false;
             gameState.movesRemaining = 0;
+            gameState.exploringPlayer = null;
             document.getElementById('map-panel').classList.remove('exploring');
             document.getElementById('moves-remaining').style.display = 'none';
             
-            passDayAndCheckDeath();
+            // Update display to show newly revealed tiles before day transition
+            updateDisplay();
+            
+            // Small delay to ensure map renders before animation starts
+            setTimeout(() => {
+                endTurn();
+            }, 50);
         }
         
         // Function to update the display based on the character model
         function updateDisplay() {
-            document.getElementById('player-name').textContent = `Player name: ${character.name}`;
+            const nameText1 = document.querySelector('#player-name .name-text');
+            // Only update if it's not currently being edited
+            if (nameText1) {
+                nameText1.textContent = character.name;
+            }
+            
             document.getElementById('hp-display').textContent = `HP: ${character.hp}`;
             document.getElementById('fp-display').textContent = `FP: ${character.fp}`;
             document.getElementById('item1-display').textContent = `Item 1: ${character.inventory[0] || 'none'}`;
@@ -1189,12 +1541,35 @@
             document.getElementById('day-display').textContent = `Day ${gameState.day}`;
             document.getElementById('food-text').textContent = `Food: ${Math.min(99, Math.max(0, gameState.food))}`;
             
-            // Update status panel visibility
-            const statusPanel = document.getElementById('status-panel');
+            // Update second character display if active
+            if (character2.active) {
+                const nameText2 = document.querySelector('#player-name-2 .name-text');
+                // Only update if it's not currently being edited
+                if (nameText2) {
+                    nameText2.textContent = character2.name;
+                }
+                document.getElementById('hp-display-2').textContent = `HP: ${character2.hp}`;
+                document.getElementById('fp-display-2').textContent = `FP: ${character2.fp}`;
+                document.getElementById('item1-display-2').textContent = `Item 1: ${character2.inventory[0] || 'none'}`;
+                document.getElementById('item2-display-2').textContent = `Item 2: ${character2.inventory[1] || 'none'}`;
+                document.getElementById('item3-display-2').textContent = `Item 3: ${character2.inventory[2] || 'none'}`;
+            }
+            
+            // Update tired indicators
+            const tiredIndicator1 = document.getElementById('tired-indicator-1');
             if (character.tired) {
-                statusPanel.classList.add('show');
+                tiredIndicator1.classList.add('show');
             } else {
-                statusPanel.classList.remove('show');
+                tiredIndicator1.classList.remove('show');
+            }
+            
+            if (character2.active) {
+                const tiredIndicator2 = document.getElementById('tired-indicator-2');
+                if (character2.tired) {
+                    tiredIndicator2.classList.add('show');
+                } else {
+                    tiredIndicator2.classList.remove('show');
+                }
             }
             
             // Update eat button state
@@ -1213,34 +1588,142 @@
                 document.getElementById('moves-remaining').style.display = 'none';
             }
             
-            // Check if there's already a shelter at current position (built or natural)
-            const currentTileKey = getTileKey(character.position.row, character.position.col);
-            const buildShelterButton = document.getElementById('build-shelter');
-            if (gameState.shelters.has(currentTileKey) || gameState.naturalShelters.has(currentTileKey)) {
-                buildShelterButton.disabled = true;
+            // Update current player display
+            const currentPlayerDisplay = document.getElementById('current-player-display');
+            if (character2.active) {
+                const currentPlayer = gameState.currentTurn === 1 ? character : character2;
+                currentPlayerDisplay.textContent = `[${currentPlayer.name}]`;
+                currentPlayerDisplay.style.display = 'block';
             } else {
-                buildShelterButton.disabled = false;
+                currentPlayerDisplay.style.display = 'none';
+            }
+            
+            // Update AP indicators
+            const ap1Indicator = document.getElementById('ap-indicator-1');
+            const ap2Indicator = document.getElementById('ap-indicator-2');
+            
+            // Always show player 1's AP indicator
+            ap1Indicator.style.display = 'block';
+            if (character.ap > 0) {
+                ap1Indicator.classList.remove('spent');
+            } else {
+                ap1Indicator.classList.add('spent');
+            }
+            
+            if (character2.active) {
+                // Show player 2's AP indicator in multiplayer
+                ap2Indicator.style.display = 'block';
+                
+                // Update AP status for player 2
+                if (character2.ap > 0) {
+                    ap2Indicator.classList.remove('spent');
+                } else {
+                    ap2Indicator.classList.add('spent');
+                }
+                
+                // Highlight active player's panel
+                const panel1 = document.getElementById('character-panel-1');
+                const panel2 = document.getElementById('character-panel-2');
+                
+                if (gameState.currentTurn === 1) {
+                    panel1.classList.add('active-turn');
+                    panel2.classList.remove('active-turn');
+                } else {
+                    panel1.classList.remove('active-turn');
+                    panel2.classList.add('active-turn');
+                }
+            } else {
+                // Hide player 2's AP indicator in single player
+                ap2Indicator.style.display = 'none';
+                document.getElementById('character-panel-1').classList.remove('active-turn');
+            }
+            
+            // Check if there's already a shelter at current position (built or natural)
+            const currentPlayer = character2.active && gameState.currentTurn === 2 ? character2 : character;
+            const currentTileKey = getTileKey(currentPlayer.position.row, currentPlayer.position.col);
+            const buildShelterButton = document.getElementById('build-shelter');
+            const gatherFoodButton = document.getElementById('gather-food');
+            const exploreButton = document.getElementById('explore');
+            
+            // Disable all action buttons during exploration
+            if (gameState.isExploring) {
+                buildShelterButton.disabled = true;
+                gatherFoodButton.disabled = true;
+                exploreButton.disabled = true;
+            } else {
+                // Normal button state logic when not exploring
+                if (gameState.shelters.has(currentTileKey) || gameState.naturalShelters.has(currentTileKey)) {
+                    buildShelterButton.disabled = true;
+                } else {
+                    buildShelterButton.disabled = false;
+                }
+                gatherFoodButton.disabled = false;
+                exploreButton.disabled = false;
+            }
+            
+            // Update link button
+            if (character2.active) {
+                updateLinkButton();
+            }
+            
+            // Update map key player names
+            document.getElementById('map-key-name-1').textContent = character.name;
+            if (character2.active) {
+                document.getElementById('map-key-name-2').textContent = character2.name;
             }
             
             renderMap();
         }
 
+        // Function to end current player's turn
+        function endTurn() {
+            // Spend the current player's AP
+            const currentPlayer = character2.active && gameState.currentTurn === 2 ? character2 : character;
+            currentPlayer.ap = 0;
+            
+            if (!character2.active) {
+                // Single player mode - just pass the day and reset AP
+                character.ap = 1;
+                passDayAndCheckDeath();
+                return;
+            }
+            
+            // Check if both players have spent their AP
+            if (character.ap === 0 && character2.ap === 0) {
+                // Both players have acted, pass the day and reset AP
+                character.ap = 1;
+                character2.ap = 1;
+                gameState.currentTurn = 1;
+                passDayAndCheckDeath();
+            } else {
+                // Find next player with AP
+                if (gameState.currentTurn === 1 && character2.ap > 0) {
+                    gameState.currentTurn = 2;
+                } else if (gameState.currentTurn === 2 && character.ap > 0) {
+                    gameState.currentTurn = 1;
+                }
+                updateDisplay();
+            }
+        }
+
         // Button click handlers
         document.getElementById('build-shelter').addEventListener('click', () => {
             if (!gameState.isExploring) {
-                const currentTileKey = getTileKey(character.position.row, character.position.col);
+                const currentPlayer = character2.active && gameState.currentTurn === 2 ? character2 : character;
+                const currentTileKey = getTileKey(currentPlayer.position.row, currentPlayer.position.col);
                 
                 // Only build if there's no shelter already (built or natural)
                 if (!gameState.shelters.has(currentTileKey) && !gameState.naturalShelters.has(currentTileKey)) {
                     gameState.shelters.add(currentTileKey);
-                    passDayAndCheckDeath();
+                    endTurn();
                 }
             }
         });
 
         document.getElementById('gather-food').addEventListener('click', () => {
             if (!gameState.isExploring) {
-                const currentTileKey = getTileKey(character.position.row, character.position.col);
+                const currentPlayer = character2.active && gameState.currentTurn === 2 ? character2 : character;
+                const currentTileKey = getTileKey(currentPlayer.position.row, currentPlayer.position.col);
                 let foodFound = 0;
                 let gatheredFromBush = false;
                 
@@ -1283,9 +1766,11 @@
 
         document.getElementById('explore').addEventListener('click', () => {
             if (!gameState.isExploring) {
+                const currentPlayer = character2.active && gameState.currentTurn === 2 ? character2 : character;
                 gameState.isExploring = true;
+                gameState.exploringPlayer = gameState.currentTurn; // Track which player is exploring
                 // Tired players only get 1 move
-                gameState.movesRemaining = character.tired ? 1 : 2;
+                gameState.movesRemaining = currentPlayer.tired ? 1 : 2;
                 document.getElementById('map-panel').classList.add('exploring');
                 updateDisplay();
             }
@@ -1298,6 +1783,25 @@
             character.fp = 4;
             character.inventory = [null, null, null];
             character.tired = false;
+            character.ap = 1;
+            
+            // Reset second character
+            character2.hp = 4;
+            character2.fp = 4;
+            character2.inventory = [null, null, null];
+            character2.tired = false;
+            character2.active = false;
+            character2.ap = 1;
+            
+            // Hide second character panel and show add button
+            document.getElementById('character-panel-2').classList.remove('show');
+            document.getElementById('add-player-btn').classList.remove('hidden');
+            document.getElementById('player2-key').style.display = 'none';
+            document.getElementById('link-btn').classList.remove('show');
+            
+            // Reset players linked state
+            gameState.playersLinked = true;
+            updateLinkButton();
             
             // Reset game state
             gameState.day = 1;
@@ -1310,6 +1814,8 @@
             gameState.movesRemaining = 0;
             gameState.food = 0;
             gameState.hasSeenTiredMessage = false;
+            gameState.currentTurn = 1;
+            gameState.exploringPlayer = null;
             
             // Generate new random seed for new island shape
             islandSeed = Math.random() * 100000;
@@ -1343,10 +1849,10 @@
             
             const startPos = findValidStartPositionReset();
             character.position = startPos;
+            character2.position = startPos; // Reset character 2 position
             gameState.visitedTiles.add(getTileKey(startPos.row, startPos.col));
             
-            // Reveal surrounding tiles at start
-            revealSurroundingTiles(startPos.row, startPos.col);
+            // Tiles are now dynamically revealed based on player position
             
             // Reinitialize natural shelters and berry bushes
             initializeNaturalShelters();
@@ -1392,11 +1898,151 @@
             // Hide modal
             document.getElementById('modal-overlay').classList.remove('active');
             
-            passDayAndCheckDeath();
+            endTurn();
+        });
+        
+        // Add player button handler
+        document.getElementById('add-player-btn').addEventListener('click', () => {
+            character2.active = true;
+            document.getElementById('character-panel-2').classList.add('show');
+            document.getElementById('add-player-btn').classList.add('hidden');
+            document.getElementById('player2-key').style.display = 'flex';
+            document.getElementById('link-btn').classList.add('show');
+            
+            // Ensure character 2 starts on a valid land tile
+            const startPos2 = findValidStartPositionForPlayer2();
+            character2.position = startPos2;
+            
+            // Mark starting position as visited
+            gameState.visitedTiles.add(getTileKey(startPos2.row, startPos2.col));
+            
+            // Attach click handler for second player name
+            const nameText2 = document.querySelector('#player-name-2 .name-text');
+            if (nameText2 && !nameText2.dataset.hasClickHandler) {
+                nameText2.addEventListener('click', (e) => {
+                    e.stopPropagation(); // Prevent panel click
+                    makeNameEditable('player-name-2', character2);
+                });
+                nameText2.dataset.hasClickHandler = 'true';
+            }
+            
+            updateDisplay();
+        });
+        
+        // Link button handler
+        document.getElementById('link-btn').addEventListener('click', () => {
+            // Only allow linking/unlinking when players are on same tile
+            if (playersOnSameTile()) {
+                gameState.playersLinked = !gameState.playersLinked;
+                updateLinkButton();
+            }
+        });
+        
+        // Function to update link button appearance
+        function updateLinkButton() {
+            const linkBtn = document.getElementById('link-btn');
+            linkBtn.textContent = '🔗';
+            
+            // Remove inline opacity to let CSS classes handle it
+            linkBtn.style.opacity = '';
+            
+            if (!playersOnSameTile()) {
+                // Players not on same tile - can't link, show grayed out
+                linkBtn.classList.add('unlinked');
+                linkBtn.classList.add('disabled');
+                linkBtn.style.cursor = 'not-allowed';
+                linkBtn.title = 'Players must be on the same tile to link';
+            } else if (gameState.playersLinked) {
+                linkBtn.classList.remove('unlinked');
+                linkBtn.classList.remove('disabled');
+                linkBtn.style.cursor = 'pointer';
+                linkBtn.title = 'Players linked (click to unlink)';
+            } else {
+                linkBtn.classList.add('unlinked');
+                linkBtn.classList.remove('disabled');
+                linkBtn.style.cursor = 'pointer';
+                linkBtn.title = 'Players unlinked (click to link)';
+            }
+        }
+        
+        // Function to make name editable
+        function makeNameEditable(elementId, characterObj) {
+            const nameElement = document.getElementById(elementId);
+            const nameTextSpan = nameElement.querySelector('.name-text');
+            const currentName = characterObj.name;
+            
+            // Create input element
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.value = currentName;
+            input.className = 'name-edit';
+            input.style.flex = '0 1 auto';
+            
+            // Replace name span with input
+            nameTextSpan.parentNode.replaceChild(input, nameTextSpan);
+            input.focus();
+            input.select();
+            
+            // Function to save and restore
+            function saveAndRestore() {
+                const newName = input.value.trim();
+                if (newName) {
+                    characterObj.name = newName;
+                }
+                
+                // Create new name span
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'name-text';
+                nameSpan.textContent = characterObj.name;
+                
+                // Replace input with name span
+                input.parentNode.replaceChild(nameSpan, input);
+                
+                // Re-attach click handler
+                nameSpan.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    makeNameEditable(elementId, characterObj);
+                });
+                
+                // Update display to refresh map key names
+                updateDisplay();
+            }
+            
+            // Save on Enter
+            input.addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') {
+                    saveAndRestore();
+                }
+            });
+            
+            // Save on blur (clicking away)
+            input.addEventListener('blur', saveAndRestore);
+        }
+        
+        // Add click handler to first player name text
+        document.querySelector('#player-name .name-text').addEventListener('click', (e) => {
+            e.stopPropagation(); // Prevent panel click
+            makeNameEditable('player-name', character);
+        });
+        
+        // Add click handlers to character panels for switching turns
+        document.getElementById('character-panel-1').addEventListener('click', () => {
+            if (character2.active && character.ap > 0 && !gameState.isExploring) {
+                gameState.currentTurn = 1;
+                updateDisplay();
+            }
+        });
+        
+        document.getElementById('character-panel-2').addEventListener('click', () => {
+            if (character2.active && character2.ap > 0 && !gameState.isExploring) {
+                gameState.currentTurn = 2;
+                updateDisplay();
+            }
         });
 
         // Initialize display
         updateDisplay();
+        updateLinkButton();
     </script>
 </body>
 </html>
