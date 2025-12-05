@@ -141,6 +141,56 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
+        .map-key {
+            position: absolute;
+            top: 400px;
+            right: 20px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 14px;
+        }
+        
+        .map-key-title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .map-key-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+            color: #555;
+        }
+        
+        .map-key-icon {
+            width: 20px;
+            height: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 8px;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        
+        .map-key-icon.player {
+            background-color: #4CAF50;
+            color: white;
+        }
+        
+        .map-key-icon.berry {
+            background-color: #a8326d;
+            color: white;
+        }
+        
+        .map-key-icon.shelter {
+            background-color: #8B4513;
+            color: white;
+        }
+        
         .map-grid {
             display: grid;
             grid-template-columns: repeat(4, 80px);
@@ -425,11 +475,27 @@
     </div>
     <div class="moves-remaining" id="moves-remaining" style="display: none;"></div>
     
+    <div class="map-key">
+        <div class="map-key-title">Key:</div>
+        <div class="map-key-item">
+            <div class="map-key-icon player">P</div>
+            <span>Player</span>
+        </div>
+        <div class="map-key-item">
+            <div class="map-key-icon berry">●</div>
+            <span>Berry Bush</span>
+        </div>
+        <div class="map-key-item">
+            <div class="map-key-icon shelter">▲</div>
+            <span>Shelter</span>
+        </div>
+    </div>
+    
     <button class="reset-button" id="reset-button">Reset Game</button>
     
     <div class="game-container">
         <div class="container">
-            <h1>Allocate today's AP</h1>
+            <h1>What will you do today?</h1>
             <button id="build-shelter">1. Build Shelter</button>
             <button id="gather-food">2. Gather Food</button>
             <button id="explore">3. Explore</button>
