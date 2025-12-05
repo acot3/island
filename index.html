@@ -129,8 +129,8 @@
         
         .moves-remaining {
             position: absolute;
-            top: 400px;
-            right: 200px;
+            top: 550px;
+            right: 275px;
             transform: translateX(50%);
             text-align: center;
             font-weight: bold;
@@ -143,7 +143,7 @@
         
         .map-key {
             position: absolute;
-            top: 400px;
+            top: 550px;
             right: 20px;
             background: white;
             padding: 15px;
@@ -177,8 +177,9 @@
         }
         
         .map-key-icon.player {
-            background-color: #4CAF50;
-            color: white;
+            background-color: white;
+            outline: 3px solid #d95555;
+            outline-offset: -3px;
         }
         
         .map-key-icon.berry {
@@ -191,21 +192,46 @@
             color: white;
         }
         
+        .map-key-icon.natural-shelter {
+            background-color: #FFD700;
+            color: white;
+        }
+        
         .map-grid {
             display: grid;
-            grid-template-columns: repeat(4, 80px);
-            grid-template-rows: repeat(4, 80px);
-            gap: 4px;
+            grid-template-columns: repeat(16, 30px);
+            grid-template-rows: repeat(16, 30px);
+            gap: 0px;
         }
         
         .map-tile {
-            background-color: #555;
+            background-color: #424242;
             border: 1px solid #999;
             position: relative;
         }
         
-        .map-tile.visible {
-            background-color: #f0f0f0;
+        .map-tile.fogged {
+            background-color: #424242;
+        }
+        
+        .map-tile.seen-beach {
+            background-color: #8f816f;
+        }
+        
+        .map-tile.revealed-beach {
+            background-color: #e6d1b5;
+        }
+        
+        .map-tile.seen-grass {
+            background-color: #244f27;
+        }
+        
+        .map-tile.revealed-grass {
+            background-color: #4ea354;
+        }
+        
+        .map-tile.seen-water {
+            background-color: #4a90e2;
         }
         
         .map-tile.clickable-adjacent:hover {
@@ -222,13 +248,13 @@
             right: 0;
             width: 50%;
             height: 50%;
-            background-color: #4CAF50;
+            background-color: #d95555;
             display: flex;
             align-items: center;
             justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 18px;
+            font-size: 7px;
         }
         
         .shelter-marker {
@@ -243,7 +269,22 @@
             justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 18px;
+            font-size: 7px;
+        }
+        
+        .natural-shelter-marker {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50%;
+            height: 50%;
+            background-color: #FFD700;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 7px;
         }
         
         .berry-marker {
@@ -258,7 +299,7 @@
             justify-content: center;
             color: white;
             font-weight: bold;
-            font-size: 18px;
+            font-size: 7px;
         }
         
         .berry-marker.picked {
@@ -478,7 +519,7 @@
     <div class="map-key">
         <div class="map-key-title">Key:</div>
         <div class="map-key-item">
-            <div class="map-key-icon player">P</div>
+            <div class="map-key-icon player"></div>
             <span>Player</span>
         </div>
         <div class="map-key-item">
@@ -486,8 +527,12 @@
             <span>Berry Bush</span>
         </div>
         <div class="map-key-item">
+            <div class="map-key-icon natural-shelter">▲</div>
+            <span>Natural Shelter</span>
+        </div>
+        <div class="map-key-item">
             <div class="map-key-icon shelter">▲</div>
-            <span>Shelter</span>
+            <span>Built Shelter</span>
         </div>
     </div>
     
@@ -534,16 +579,19 @@
             hp: 4,
             fp: 4,
             inventory: [null, null, null],
-            position: { row: 3, col: 0 }, // Bottom left (0-indexed, row 3 = bottom)
+            position: { row: 15, col: 0 }, // Bottom left (0-indexed, row 15 = bottom)
             tired: false
         };
 
         // Game state
         const gameState = {
             day: 1,
-            mapSize: 4, // 4x4 grid
-            visitedTiles: new Set(), // Track which tiles have been visited
-            shelters: new Set(), // Track which tiles have shelters
+            mapSize: 16, // 16x16 grid
+            visitedTiles: new Set(), // Track which tiles have been visited (revealed)
+            seenTiles: new Set(), // Track which tiles the player has seen (but maybe not visited)
+            landTiles: new Set(), // Track which tiles are land vs water
+            shelters: new Set(), // Track which tiles have built shelters
+            naturalShelters: new Set(), // Track which tiles have natural shelters
             berryBushes: new Map(), // Track berry bushes and their states: 'full', 'picked', 'barren1', 'barren2'
             bushesGatheredToday: new Set(), // Track which bushes were gathered from today
             isExploring: false,
@@ -557,30 +605,318 @@
             return `${row},${col}`;
         }
         
-        // Initialize berry bushes randomly
-        function initializeBerryBushes() {
-            gameState.berryBushes.clear();
-            const numBushes = Math.floor(Math.random() * 7) + 4; // 4-10 bushes
-            const allTiles = [];
+        // Random seed for island generation
+        let islandSeed = Math.random() * 100000;
+        
+        // Simple noise function
+        function simpleNoise(x, y) {
+            const n = Math.sin(x * 12.9898 + y * 78.233 + islandSeed) * 43758.5453;
+            return (n - Math.floor(n)) * 2 - 1;
+        }
+        
+        // Multi-octave noise for more natural terrain
+        function multiOctaveNoise(x, y) {
+            let value = 0;
+            let amplitude = 1;
+            let frequency = 1;
             
-            // Create array of all possible tiles
-            for (let row = 0; row < gameState.mapSize; row++) {
-                for (let col = 0; col < gameState.mapSize; col++) {
-                    allTiles.push(getTileKey(row, col));
+            for (let i = 0; i < 3; i++) {
+                value += simpleNoise(x * frequency, y * frequency) * amplitude;
+                amplitude *= 0.5;
+                frequency *= 2;
+            }
+            
+            return value / 1.75; // Normalize
+        }
+        
+        // Flood fill to find connected land tiles
+        function floodFill(startKey, landTiles) {
+            const visited = new Set();
+            const queue = [startKey];
+            visited.add(startKey);
+            
+            while (queue.length > 0) {
+                const current = queue.shift();
+                const [row, col] = current.split(',').map(Number);
+                
+                // Check all 4 cardinal directions (not diagonals for island connection)
+                const neighbors = [
+                    [row - 1, col],
+                    [row + 1, col],
+                    [row, col - 1],
+                    [row, col + 1]
+                ];
+                
+                for (const [nRow, nCol] of neighbors) {
+                    if (nRow >= 0 && nRow < gameState.mapSize && nCol >= 0 && nCol < gameState.mapSize) {
+                        const neighborKey = getTileKey(nRow, nCol);
+                        if (landTiles.has(neighborKey) && !visited.has(neighborKey)) {
+                            visited.add(neighborKey);
+                            queue.push(neighborKey);
+                        }
+                    }
                 }
             }
             
-            // Randomly select tiles for berry bushes (all start as 'full')
-            for (let i = 0; i < numBushes && allTiles.length > 0; i++) {
-                const randomIndex = Math.floor(Math.random() * allTiles.length);
-                const selectedTile = allTiles[randomIndex];
-                gameState.berryBushes.set(selectedTile, 'full');
-                allTiles.splice(randomIndex, 1); // Remove so we don't duplicate
+            return visited;
+        }
+        
+        // Find the largest connected landmass
+        function findLargestIsland(landTiles) {
+            const allLand = new Set(landTiles);
+            let largestIsland = new Set();
+            
+            while (allLand.size > 0) {
+                const startKey = allLand.values().next().value;
+                const island = floodFill(startKey, landTiles);
+                
+                if (island.size > largestIsland.size) {
+                    largestIsland = island;
+                }
+                
+                // Remove this island from consideration
+                for (const tile of island) {
+                    allLand.delete(tile);
+                }
+            }
+            
+            return largestIsland;
+        }
+        
+        // Fill interior water holes (lakes) to make solid island
+        function fillInteriorWater(landTiles) {
+            const waterTiles = new Set();
+            
+            // Find all water tiles
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    const key = getTileKey(row, col);
+                    if (!landTiles.has(key)) {
+                        waterTiles.add(key);
+                    }
+                }
+            }
+            
+            // Find water connected to edges (ocean)
+            const oceanTiles = new Set();
+            const edgeWaterTiles = [];
+            
+            // Collect water tiles on edges
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    if (row === 0 || row === gameState.mapSize - 1 || 
+                        col === 0 || col === gameState.mapSize - 1) {
+                        const key = getTileKey(row, col);
+                        if (waterTiles.has(key)) {
+                            edgeWaterTiles.push(key);
+                        }
+                    }
+                }
+            }
+            
+            // Flood fill from edge water to find all ocean tiles
+            for (const startKey of edgeWaterTiles) {
+                if (!oceanTiles.has(startKey)) {
+                    const connected = floodFill(startKey, waterTiles);
+                    for (const tile of connected) {
+                        oceanTiles.add(tile);
+                    }
+                }
+            }
+            
+            // Any water not connected to ocean is interior - convert to land
+            const filledLand = new Set(landTiles);
+            for (const waterTile of waterTiles) {
+                if (!oceanTiles.has(waterTile)) {
+                    filledLand.add(waterTile);
+                }
+            }
+            
+            return filledLand;
+        }
+        
+        // Generate island shape using noise
+        function generateIsland() {
+            const totalTiles = gameState.mapSize * gameState.mapSize;
+            const targetLandTiles = Math.floor(totalTiles * 0.8); // 80% land
+            
+            let attempts = 0;
+            const maxAttempts = 10;
+            
+            while (attempts < maxAttempts) {
+                const landTiles = new Set();
+                
+                // Parameters - scale varies with map size, add randomness
+                const noiseScale = 0.15 + Math.random() * 0.1; // 0.15-0.25 (lower for bigger features)
+                const threshold = -0.5 - Math.random() * 0.2; // -0.5 to -0.7 (more land)
+                const falloffStrength = 0.3 + Math.random() * 0.2; // 0.3-0.5 (varied edge shapes)
+                
+                for (let row = 0; row < gameState.mapSize; row++) {
+                    for (let col = 0; col < gameState.mapSize; col++) {
+                        // Skip border tiles - they must always be water
+                        if (row === 0 || row === gameState.mapSize - 1 || 
+                            col === 0 || col === gameState.mapSize - 1) {
+                            continue; // Border is always water
+                        }
+                        
+                        // Get noise value (-1 to 1)
+                        const noiseValue = multiOctaveNoise(col * noiseScale, row * noiseScale);
+                        
+                        // Distance from center (creates circular falloff)
+                        const centerX = gameState.mapSize / 2;
+                        const centerY = gameState.mapSize / 2;
+                        const dx = col - centerX;
+                        const dy = row - centerY;
+                        const distanceFromCenter = Math.sqrt(dx * dx + dy * dy);
+                        const normalizedDistance = distanceFromCenter / (gameState.mapSize / 2);
+                        
+                        // Combine noise with radial gradient
+                        const heightValue = noiseValue - (normalizedDistance * falloffStrength);
+                        
+                        // If above threshold, it's land
+                        if (heightValue > threshold) {
+                            landTiles.add(getTileKey(row, col));
+                        }
+                    }
+                }
+                
+                // Keep only the largest connected island
+                const largestIsland = findLargestIsland(landTiles);
+                
+                // Fill any interior water pockets/holes
+                const solidIsland = fillInteriorWater(largestIsland);
+                
+                // Check if we have enough land (at least 65% of target - more lenient)
+                if (solidIsland.size >= targetLandTiles * 0.65) {
+                    return solidIsland;
+                }
+                
+                attempts++;
+            }
+            
+            // Fallback: create a simple circular island if generation failed
+            const fallbackIsland = new Set();
+            const center = gameState.mapSize / 2;
+            const radius = gameState.mapSize * 0.4; // Smaller to avoid edges
+            
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    // Skip borders
+                    if (row === 0 || row === gameState.mapSize - 1 || 
+                        col === 0 || col === gameState.mapSize - 1) {
+                        continue;
+                    }
+                    
+                    const dx = col - center;
+                    const dy = row - center;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < radius) {
+                        fallbackIsland.add(getTileKey(row, col));
+                    }
+                }
+            }
+            
+            // Fill any interior water holes in fallback too
+            return fillInteriorWater(fallbackIsland);
+        }
+        
+        // Initialize natural shelters randomly (20-25% of land tiles)
+        function initializeNaturalShelters() {
+            gameState.naturalShelters.clear();
+            const allLandTiles = [];
+            
+            // Create array of all land tiles only
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    const tileKey = getTileKey(row, col);
+                    if (gameState.landTiles.has(tileKey)) {
+                        allLandTiles.push(tileKey);
+                    }
+                }
+            }
+            
+            // Calculate 20-25% of land tiles
+            const shelterPercentage = 0.2 + Math.random() * 0.05; // 0.2 to 0.25
+            const numShelters = Math.floor(allLandTiles.length * shelterPercentage);
+            
+            // Randomly select land tiles for natural shelters
+            const shelterCount = Math.min(numShelters, allLandTiles.length);
+            for (let i = 0; i < shelterCount && allLandTiles.length > 0; i++) {
+                const randomIndex = Math.floor(Math.random() * allLandTiles.length);
+                const selectedTile = allLandTiles[randomIndex];
+                gameState.naturalShelters.add(selectedTile);
+                allLandTiles.splice(randomIndex, 1); // Remove so we don't duplicate
             }
         }
         
+        // Initialize berry bushes randomly (20-25% of land tiles)
+        function initializeBerryBushes() {
+            gameState.berryBushes.clear();
+            const allLandTiles = [];
+            
+            // Create array of all land tiles only
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    const tileKey = getTileKey(row, col);
+                    if (gameState.landTiles.has(tileKey)) {
+                        allLandTiles.push(tileKey);
+                    }
+                }
+            }
+            
+            // Calculate 20-25% of land tiles
+            const berryPercentage = 0.2 + Math.random() * 0.05; // 0.2 to 0.25
+            const numBushes = Math.floor(allLandTiles.length * berryPercentage);
+            
+            // Randomly select land tiles for berry bushes (all start as 'full')
+            const bushCount = Math.min(numBushes, allLandTiles.length);
+            for (let i = 0; i < bushCount && allLandTiles.length > 0; i++) {
+                const randomIndex = Math.floor(Math.random() * allLandTiles.length);
+                const selectedTile = allLandTiles[randomIndex];
+                gameState.berryBushes.set(selectedTile, 'full');
+                allLandTiles.splice(randomIndex, 1); // Remove so we don't duplicate
+            }
+        }
+        
+        // Generate island
+        gameState.landTiles = generateIsland();
+        
+        // Ensure starting position is on land (never on border)
+        function findValidStartPosition() {
+            // Find nearest land tile from bottom-left (but not on border)
+            for (let col = 1; col < gameState.mapSize - 1; col++) {
+                for (let row = gameState.mapSize - 2; row >= 1; row--) {
+                    const key = getTileKey(row, col);
+                    if (gameState.landTiles.has(key)) {
+                        return { row, col };
+                    }
+                }
+            }
+            
+            // Fallback: find any land tile (not on border)
+            for (const key of gameState.landTiles) {
+                const [row, col] = key.split(',').map(Number);
+                if (row > 0 && row < gameState.mapSize - 1 && 
+                    col > 0 && col < gameState.mapSize - 1) {
+                    return { row, col };
+                }
+            }
+            
+            return { row: 8, col: 8 }; // Ultimate fallback (center)
+        }
+        
+        const startPos = findValidStartPosition();
+        character.position = startPos;
+        
         // Mark the starting position as visited
-        gameState.visitedTiles.add(getTileKey(3, 0));
+        gameState.visitedTiles.add(getTileKey(startPos.row, startPos.col));
+        
+        // Reveal surrounding tiles at start
+        revealSurroundingTiles(startPos.row, startPos.col);
+        
+        // Initialize natural shelters on load
+        initializeNaturalShelters();
         
         // Initialize berry bushes on load
         initializeBerryBushes();
@@ -589,7 +925,54 @@
         function isAdjacentOrCurrent(row, col) {
             const rowDiff = Math.abs(row - character.position.row);
             const colDiff = Math.abs(col - character.position.col);
-            return rowDiff <= 1 && colDiff <= 1;
+            const isAdjacent = rowDiff <= 1 && colDiff <= 1;
+            
+            // Also check if it's a land tile
+            const tileKey = getTileKey(row, col);
+            const isLand = gameState.landTiles.has(tileKey);
+            
+            return isAdjacent && isLand;
+        }
+        
+        // Reveal tiles around the player (8 surrounding tiles)
+        function revealSurroundingTiles(row, col) {
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    const newRow = row + dr;
+                    const newCol = col + dc;
+                    
+                    if (newRow >= 0 && newRow < gameState.mapSize && 
+                        newCol >= 0 && newCol < gameState.mapSize) {
+                        gameState.seenTiles.add(getTileKey(newRow, newCol));
+                    }
+                }
+            }
+        }
+        
+        // Check if a land tile touches water (making it a beach)
+        function isBeachTile(row, col) {
+            // Check all 8 surrounding tiles
+            for (let dr = -1; dr <= 1; dr++) {
+                for (let dc = -1; dc <= 1; dc++) {
+                    if (dr === 0 && dc === 0) continue; // Skip center
+                    
+                    const newRow = row + dr;
+                    const newCol = col + dc;
+                    
+                    // Check if this neighbor is water (or out of bounds, which counts as water)
+                    if (newRow < 0 || newRow >= gameState.mapSize || 
+                        newCol < 0 || newCol >= gameState.mapSize) {
+                        return true; // Edge of map = water
+                    }
+                    
+                    const neighborKey = getTileKey(newRow, newCol);
+                    if (!gameState.landTiles.has(neighborKey)) {
+                        return true; // Neighbor is water
+                    }
+                }
+            }
+            
+            return false; // No water neighbors = grass/interior
         }
         
         // Progress berry bush states when day passes
@@ -616,8 +999,8 @@
             const currentTileKey = getTileKey(character.position.row, character.position.col);
             let becameTired = false;
             
-            // Check if on a shelter tile
-            if (gameState.shelters.has(currentTileKey)) {
+            // Check if on a shelter tile (built or natural)
+            if (gameState.shelters.has(currentTileKey) || gameState.naturalShelters.has(currentTileKey)) {
                 // Slept in shelter - not tired
                 character.tired = false;
             } else {
@@ -633,8 +1016,15 @@
             
             // Check FP first
             if (character.fp <= 0) {
-                // Out of FP: lose HP
-                character.hp = Math.max(0, character.hp - 1);
+                // Out of FP: try to auto-eat or lose HP
+                if (gameState.food > 0) {
+                    // Auto-eat: consume food to prevent HP loss
+                    gameState.food = Math.max(0, gameState.food - 1);
+                    // FP stays at 0
+                } else {
+                    // No food: lose HP
+                    character.hp = Math.max(0, character.hp - 1);
+                }
             } else {
                 // Have FP: consume it
                 character.fp = Math.max(0, character.fp - 1);
@@ -663,40 +1053,69 @@
                     const tile = document.createElement('div');
                     tile.className = 'map-tile';
                     
-                    // Check if this tile has been visited
                     const tileKey = getTileKey(row, col);
-                    if (gameState.visitedTiles.has(tileKey)) {
-                        tile.classList.add('visible');
-                    }
+                    const isLand = gameState.landTiles.has(tileKey);
+                    const isSeen = gameState.seenTiles.has(tileKey);
+                    const isVisited = gameState.visitedTiles.has(tileKey);
+                    const isBeach = isLand ? isBeachTile(row, col) : false;
                     
-                    // Check if this tile has a shelter
-                    if (gameState.shelters.has(tileKey)) {
-                        const shelterMarker = document.createElement('div');
-                        shelterMarker.className = 'shelter-marker';
-                        shelterMarker.textContent = '▲';
-                        tile.appendChild(shelterMarker);
-                    }
-                    
-                    // Check if this tile has a berry bush (only show on visible tiles)
-                    if (gameState.visitedTiles.has(tileKey) && gameState.berryBushes.has(tileKey)) {
-                        const berryMarker = document.createElement('div');
-                        berryMarker.className = 'berry-marker';
-                        const bushState = gameState.berryBushes.get(tileKey);
-                        if (bushState === 'picked') {
-                            berryMarker.classList.add('picked');
-                        } else if (bushState === 'barren1' || bushState === 'barren2') {
-                            berryMarker.classList.add('barren');
+                    // Determine tile state for rendering
+                    if (!isSeen) {
+                        // FOGGED - very dark grey
+                        tile.classList.add('fogged');
+                    } else if (isLand && !isVisited) {
+                        // SEEN LAND - dark color (beach or grass)
+                        if (isBeach) {
+                            tile.classList.add('seen-beach');
+                        } else {
+                            tile.classList.add('seen-grass');
                         }
-                        berryMarker.textContent = '●';
-                        tile.appendChild(berryMarker);
+                    } else if (isLand && isVisited) {
+                        // REVEALED LAND - light color (beach or grass)
+                        if (isBeach) {
+                            tile.classList.add('revealed-beach');
+                        } else {
+                            tile.classList.add('revealed-grass');
+                        }
+                        
+                        // Show natural shelter if on revealed land
+                        if (gameState.naturalShelters.has(tileKey)) {
+                            const naturalShelterMarker = document.createElement('div');
+                            naturalShelterMarker.className = 'natural-shelter-marker';
+                            naturalShelterMarker.textContent = '▲';
+                            tile.appendChild(naturalShelterMarker);
+                        }
+                        
+                        // Show built shelter if on revealed land
+                        if (gameState.shelters.has(tileKey)) {
+                            const shelterMarker = document.createElement('div');
+                            shelterMarker.className = 'shelter-marker';
+                            shelterMarker.textContent = '▲';
+                            tile.appendChild(shelterMarker);
+                        }
+                        
+                        // Show berry bush only on revealed tiles
+                        if (gameState.berryBushes.has(tileKey)) {
+                            const berryMarker = document.createElement('div');
+                            berryMarker.className = 'berry-marker';
+                            const bushState = gameState.berryBushes.get(tileKey);
+                            if (bushState === 'picked') {
+                                berryMarker.classList.add('picked');
+                            } else if (bushState === 'barren1' || bushState === 'barren2') {
+                                berryMarker.classList.add('barren');
+                            }
+                            berryMarker.textContent = '●';
+                            tile.appendChild(berryMarker);
+                        }
+                    } else if (!isLand && isSeen) {
+                        // SEEN WATER - blue
+                        tile.classList.add('seen-water');
                     }
                     
-                    // Check if this is the player's position
+                        // Outline player's current tile
                     if (row === character.position.row && col === character.position.col) {
-                        const playerMarker = document.createElement('div');
-                        playerMarker.className = 'player-marker';
-                        playerMarker.textContent = 'P';
-                        tile.appendChild(playerMarker);
+                        tile.style.outline = '3px solid #d95555';
+                        tile.style.outlineOffset = '-3px';
                     }
                     
                     // Add click handler if exploring
@@ -721,12 +1140,21 @@
 
         // Function to handle tile clicks during exploration
         function handleTileClick(row, col) {
+            const targetKey = getTileKey(row, col);
+            
+            // Don't allow moving to water tiles
+            if (!gameState.landTiles.has(targetKey)) {
+                return; // Can't move to water
+            }
+            
             // Move player if not current position
             if (row !== character.position.row || col !== character.position.col) {
                 character.position.row = row;
                 character.position.col = col;
-                // Reveal the new tile
+                // Mark tile as visited (revealed)
                 gameState.visitedTiles.add(getTileKey(row, col));
+                // Reveal surrounding 8 tiles
+                revealSurroundingTiles(row, col);
             }
             
             // Decrement moves
@@ -785,10 +1213,10 @@
                 document.getElementById('moves-remaining').style.display = 'none';
             }
             
-            // Check if there's already a shelter at current position
+            // Check if there's already a shelter at current position (built or natural)
             const currentTileKey = getTileKey(character.position.row, character.position.col);
             const buildShelterButton = document.getElementById('build-shelter');
-            if (gameState.shelters.has(currentTileKey)) {
+            if (gameState.shelters.has(currentTileKey) || gameState.naturalShelters.has(currentTileKey)) {
                 buildShelterButton.disabled = true;
             } else {
                 buildShelterButton.disabled = false;
@@ -802,8 +1230,8 @@
             if (!gameState.isExploring) {
                 const currentTileKey = getTileKey(character.position.row, character.position.col);
                 
-                // Only build if there's no shelter already
-                if (!gameState.shelters.has(currentTileKey)) {
+                // Only build if there's no shelter already (built or natural)
+                if (!gameState.shelters.has(currentTileKey) && !gameState.naturalShelters.has(currentTileKey)) {
                     gameState.shelters.add(currentTileKey);
                     passDayAndCheckDeath();
                 }
@@ -869,21 +1297,59 @@
             character.hp = 4;
             character.fp = 4;
             character.inventory = [null, null, null];
-            character.position = { row: 3, col: 0 };
             character.tired = false;
             
             // Reset game state
             gameState.day = 1;
             gameState.visitedTiles.clear();
-            gameState.visitedTiles.add(getTileKey(3, 0));
+            gameState.seenTiles.clear();
             gameState.shelters.clear();
+            gameState.naturalShelters.clear();
             gameState.bushesGatheredToday.clear();
             gameState.isExploring = false;
             gameState.movesRemaining = 0;
             gameState.food = 0;
             gameState.hasSeenTiredMessage = false;
             
-            // Reinitialize berry bushes
+            // Generate new random seed for new island shape
+            islandSeed = Math.random() * 100000;
+            
+            // Regenerate island
+            gameState.landTiles = generateIsland();
+            
+            // Find valid starting position
+            function findValidStartPositionReset() {
+                // Find nearest land tile from bottom-left (but not on border)
+                for (let col = 1; col < gameState.mapSize - 1; col++) {
+                    for (let row = gameState.mapSize - 2; row >= 1; row--) {
+                        const key = getTileKey(row, col);
+                        if (gameState.landTiles.has(key)) {
+                            return { row, col };
+                        }
+                    }
+                }
+                
+                // Fallback: find any land tile (not on border)
+                for (const key of gameState.landTiles) {
+                    const [row, col] = key.split(',').map(Number);
+                    if (row > 0 && row < gameState.mapSize - 1 && 
+                        col > 0 && col < gameState.mapSize - 1) {
+                        return { row, col };
+                    }
+                }
+                
+                return { row: 8, col: 8 }; // Ultimate fallback (center)
+            }
+            
+            const startPos = findValidStartPositionReset();
+            character.position = startPos;
+            gameState.visitedTiles.add(getTileKey(startPos.row, startPos.col));
+            
+            // Reveal surrounding tiles at start
+            revealSurroundingTiles(startPos.row, startPos.col);
+            
+            // Reinitialize natural shelters and berry bushes
+            initializeNaturalShelters();
             initializeBerryBushes();
             
             // Clear exploration UI
