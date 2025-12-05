@@ -1,0 +1,202 @@
+Island Game
+
+Contents
+3-5		Onboard Flow/Character Model
+6-12	Basic Game Structure (Rounds)
+13		Personal Screen
+14-18	Overall Game Progression (Phases)
+19-24	Lore and World-Building
+25-26	Misc Ideas
+27-28	Misc Notes		
+
+At least one user needs an account
+User makes lobby, generates code
+Other players go to url, enter code, sign-in if they have an account
+To create a basic character model, new players have two simple options (can also add MBTI, etc. here):
+Onboard flow
+Physical(Brawn)
+Mental(Brains)
+Social(Swagger)
+6 Points Total
+
+ExampleP 3M 1S 2
+OR (for more 
+casual players)
+I’m a very physical person. I like exercise and moving my body.
+Which fits you best?
+I’m a thinker. I live in the world of ideas.
+I’m the life of the party. I love being around people.
+(Each sets a 4-1-1 matrix)
+
+Why attribute-based character creation?
+Starting with D&D, pretty much every role-playing game (RPG) works the same way. You have background attributes that determine two things: accuracy and efficacy. Most of the time, this means chance of hitting and damage dealt. Final Fantasy is like this, Pokemon is like this… it’s all the same model. There’s also always a core randomization, which makes games fun by not letting them be predictable.D&D-Style ExampleA. Smith wants to break down the door. This requires STRENGTH. Smith’s STRENGTH attribute is 15, giving them a +3 to STRENGTH rolls. Does Smith succeed? Breaking down a door is a hard thing to do, so it requires a roll of 15 or higher.
+ROLL (13) + STRENGTH MODIFIER (3) = 16 >= DIFFICULTY (15); Smith succeeds at breaking down the door.
+B. Jones wants to break down the door. This requires STRENGTH. Smith’s STRENGTH attribute is 8, giving them a -1 to STRENGTH rolls. Does Jones succeed?
+ROLL (13) + STRENGTH MODIFIER (-1) = 12 =< DIFFICULTY (15); Jones fails to break down the door.
+
+In the context of the Island Game
+With this at its core, the AI can determine bounded random outcomes. Our algorithm can be more sophisticated than the D&D model, incorporating personality traits, etc.Sometimes, outcomes will be determined by mini-game performance. Sometimes, they will be determined by real-world consensus between players. At other times, they will be determined by player attempts in certain scenarios. In this last one, the attribute-based model is operative.
+
+Basic Game Structure: Rounds of…
++1
+Scenario
+Choices (group and/or individual)
+Mini-Game
+(group or individual)
+
+Outcomes
+
+Scenario
+AI-generated images, story-book style, narrator tells everyone what is going on and what challenges need to be faced
+
+Example.“On the beach, busted pieces of the wreckage are strewn about the sand around the shipwrecked passengers. Bio is the first to open his eyes.
+[Bio is making personal choices]”
+
+Scenario
+Example (cont.)
+On Bio’s screen only:
+“You see that the other group members are unconscious but still breathing. You could probably rouse them if you try. You also notice that, while most of the flotsam on the beach consists of broken pieces of wood, there is something large and shiny under a nearby piece of mast.”
+
+
+
+
+Choices
+Example (cont.)
+On Bio’s screen only:
+“You see that the other group members are unconscious but still breathing. You could probably rouse them if you try. You also notice that, while most of the flotsam on the beach consists of broken pieces of wood, there is something large and shiny under a nearby piece of mast.
+What do you do?
+Begin waking up the other passengers.
+Investigate the shiny object.”
+
+Scenario/Choices (Group)
+“Bio begins to rouse the other survivors. Aside from Manu, who has a large gash on his leg, everyone seems unharmed. Once everyone is awake, you all take stock of what has happened: your boat has been destroyed, and you are stranded on a strange island. You can see no signs that anyone lives here, though the island is too big to take in with a single glance.
+Under a nearby piece of broken mast, there is a large, shiny object.
+As a group, decide on your next course of action.1. Tend to Manu’s leg.2. Look for supplies among the wreckage.3. Investigate the shiny object.4. Embark on an exploration of the island, looking for signs of civilization.”
+
+Mini-game
+Eventually, as the result of choices made, the group will play a mini-game, either as a group or as individuals.Mini-game performance may result in state changes (e.g. injury, temporary buff, loss of health), item loss/gain, and/or information loss/gain.
+Example
+Bio is trying to catch rabbits. He has to tap on bushes as soon as they begin to shake, but he must also avoid snakes, which can be seen below on the ground
+✅ Create list of mini-games
+
+Outcomes
+In a screen somewhat similar to the scenario one, the outcomes from the various mini-games are revealed. There may be secret outcomes that players choose not to share.
+Example
+Bio reports catching a rabbit and adds it to the group’s store of food. [In fact, Bio also found a honeycomb but keeps this to himself.]
+
+Personal Screen
+Shows: name, health, hunger, attributes, items, traits/states
+
+Note: The game often pits a player’s individual self-interest against that of the group. Items may be found but not declared, and information can be shared or withheld. The personal screen facilitates this.
+Albert
+herbalist
+insomniac
+
+Overall Game Progression (Phases)
+Early Game
+1st Rescue 
+Opportunity (RO)
+~ 30m
+Mid Game
+~ 20m
+2nd Rescue 
+Opportunity (RO)
+Late Game
+< 30m
+Escape
+Settle
+All dead
+💡 Need to figure out pacing. What does a round represent? A day? A year? Maybe it differs by phase.
+
+Endings
+1st RO: players take advantage of an early opportunity to be rescued- FREE REPLAY (potentially at a later date)- impressive achievement with streak counter- should be extremely difficult, requiring intense efficiency and cooperation
+2nd RO: players take advantage of a later opportunity to be rescued- might be related to the 1st RO (e.g. you see a ship passing by but fail to get its attention the first time… but you know that this is a route now, so you try again the next time)
+Escape: players devise a way of escaping the island- may involve risk (might end up dead)- examples: build a boat, build a plane, send a message in a bottle
+Settle: players devise a sustainable way of living a good life on the island- grow old, maybe have children
+All Dead: players all die before growing old
+
+Endings
+The different endings are in tension with one another, and this could produce engaging group dynamics.
+Examples:
+1st RO runs are extremely hard to pull off; gunning for one of these will make survival very difficult if the opportunity is missed
+Exploration is generally in tension with settling (and survival more broadly) and escape, though it definitely might help either
+Settling is in tension with escaping/rescue
+Settling and escape/rescue may have different cross-game consequences that could be interestingly in tension (e.g. keep items if you get off the island, boost stats in “next life” if you settle)
+There might actually be interesting benefits to dying, if the after-death gameplay is robust enough (e.g. collect special spirit items, get resurrected, escape island with items)
+
+After-Death
+The way the game is structured right now, some players will die far earlier than end-game. We want to keep them engaged.Proposal: keep playing as spirit/ghost
+- can’t vote in the same ways as live players
+- much more individual/secret
+- range of ways of interacting with live players (e.g. guardian angel, possession, life-swap); each of these will have multiple steps required in after-death gameplay (e.g. maybe you have to possess a player before life-swap, giving that player a chance to fight you off - interesting “mafia”-style deception dynamics)
+
+Cross-Session
+The game has added appeal if certain things besides stats persist across sessions
+Attributes: every character starts with 6 ability points to assign; it may be possible to add ability points to your character in a permanent way (should be slow - perhaps fractional - to maintain game balance); a level system might also be an option
+Items: certain high-value, functional items may increase performance on future sessions; these can be taken TO the island (at risk of loss) or taken OFF the island (at least in rescue and escape… not sure about settle)  
+Traits: users may gain or lose positive or negative traits in a given run (e.g. “Lying awake looking at the stars, Albert feels a calm sense of contentment. He no longer has trouble sleeping. [Albert loses the trait: insomniac]
+
+Lore
+I think it is possible to have the game both feature (1) immediate appeal and accessibility (shallow engagement) and (2) deep lore and intrigue (deep engagement).This needs considerable development. Lost is the best example I can think of right now. Basically, the idea is to sprinkle bread crumbs around the game that suggest more might be going on here. If done well, this will build a following of dedicated explorers who want to play multiple sessions to delve deeper into the island’s mystery. At the same time, it will be unobtrusive, so casual users can always enjoy a basic “shipwrecked and stranded” survival game. Dedicated players might then recruit some of these more casual users to help them, deepening our fanbase.
+
+Lore
+I don’t have much yet, but here are some early sketches:The Orb. This is the shiny object I used in the previous example. Players are nudged to find this early on. Part magic 8-ball, part narrator, part mystery.The Spirit Realm. A solution to what happens if a player dies early in the session, this parallel game world may be tied to the meta-game (see next slide).
+Scrying EyeBaldur’s Gate 3
+Aang in spirit formAvatar: The Last Airbender
+
+Meta-Game
+Certain highly successful games (e.g. Doki Doki Literature Club; Inscryption) have a meta aspect to them: the game is aware of itself as a game. For example, in Inscryption, you learn that you are playing a copy of a cursed floppy disc game that was buried in Stanley Park due to in-game reasons. The game makers actually buried a floppy in the park. There were hints in the game that led people to figure this out in an online community of sleuths, until a user actually dug it up. Pulling this off not only makes for a legendary game development achievement (Inscryption has a 5.0 on steam with 72k reviews, est. copies sold at 3M) but also immortalizes the game development company, making spin-offs hugely valuable.I don’t quite see how it works yet, but I think that the AI aspect we have might be able to figure into a meta-game and into the multi-session nature of the product in an interesting way. Why do we keep going back to the same island? How do we come back from the dead? I even though it’d be cool if there were some (extremely rare) way of ending up on another group’s island, live and mid-session.
+
+Meta-Game (cont)
+Continuing to brainstorm. The AI-takeover plot is hackneyed at this point, but maybe something like it can still be pulled off if it’s creative and interesting. One initial thought: the islands are highly advanced machine learning (think super CAPTCHA), where AI is learning about how to survive in hostile conditions.Another possibility is to incorporate the multi-verse/branching idea (e.g. Everything Everywhere All at Once). This is an interesting possibility because of the way you make choices (and don’t make others).
+
+Recurring Elements/Characters
+We need to study Random Number Generator (RNG) games. The modern genre of rogue games uses this a lot. Basically, the model is to mix random creation (“a procedurally generated, new map every time!!”) with recurring elements. This balances randomness with design in a very satisfying way when done well.
+
+Recurring Elements/Characters
+Brainstorm:
+Parrot character
+Magical cave
+Sasquatch-style monster
+Wise old turtle
+Pirates
+Evidence of previous players
+Game show contestants
+Stranded scientist
+Aliens
+
+Abandoned village
+Ancient ruins
+Mines
+Mummies
+Hidden treasures
+Tiger
+
+Misc Ideas
+Choose your initial vessel: fishing boat, ecological survey, pleasure cruise
+Each has different stuff on it and therefore different flotsam
+E.g. fishing boat has rods and bait → easier to find food, while ecological survey boat has discovery tools → easier to explore
+Solo runs
+Have to be careful with this to not break game balance, but some users might want to try to improve their character or find items in solo runs
+Lower cost
+Potential for whale-players (super high spenders)
+Item market (lobby world)
+Players might be able to trade items with each other, even potentially for real-money tokens
+This is an interesting twist on pay-for-perks model
+Cosmetic market (lobby world)
+Pay real-money tokens for cosmetic, non-functional features
+
+Misc Ideas
+Doubloons might be a fun way to represent tokens
+Might be able to find these on the island, too
+Each run produces a record, a permanent storybook/journal-style memento from the run
+available only for users with accounts; incentive to make one
+Treasure-map pieces can be found across sessions to produce a map
+
+
+Misc Notes
+I haven’t figured out how and where AI content generation comes in. This is a fundamental piece of the game, for sure, though I think it should be used sparingly and judiciously. There are a number of reasons for this. One, it’s a significant cost. Two, there’s liability involved in allowing content we didn’t create (like how current models are prevented from doing certain things, e.g., provide bomb-creation instructions). Three, ceding creative control to the AI gives us less control over our world-building, which is a distinctive, inimitable business advantage (e.g. my Insight LSAT videos stave off competition this way).
+I like your idea of a fixed map, though I haven’t really integrated it yet. It would be cool if a map were revealed gradually through exploration. This would help players make decisions during the scenario phase.
+
+Misc Notes
+I would like to think more about how to incorporate core action types (e.g. build fire, build shelter); I went more in the choose-your-own-adventure direction, but we should definitely rein this in with some stable gameplay loops… this is very important, especially for accessibility/casual players

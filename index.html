@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Island Game</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            min-height: 100vh;
+            margin: 0;
+            background-image: url('bg.png');
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+            position: relative;
+        }
+        
+        .character-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-width: 200px;
+            text-align: left;
+        }
+        
+        .character-panel h2 {
+            margin-top: 0;
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 18px;
+        }
+        
+        .character-panel p {
+            margin: 8px 0;
+            color: #555;
+        }
+        
+        .status-panel {
+            position: absolute;
+            top: 20px;
+            left: 280px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 32px;
+            display: none;
+        }
+        
+        .status-panel.show {
+            display: block;
+        }
+        
+        .food-card {
+            position: absolute;
+            top: 230px;
+            left: 20px;
+            background: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            min-width: 200px;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .food-text {
+            color: #555;
+            font-weight: bold;
+        }
+        
+        .eat-circle {
+            padding: 5px 10px;
+            background-color: #FF9800;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            width: fit-content;
+        }
+        
+        .eat-circle:hover:not(:disabled) {
+            background-color: #F57C00;
+        }
+        
+        .eat-circle:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .day-display {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-size: 20px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .map-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            transition: box-shadow 0.3s;
+        }
+        
+        .map-panel.exploring {
+            box-shadow: 0 0 0 4px gold;
+        }
+        
+        .moves-remaining {
+            position: absolute;
+            top: 400px;
+            right: 200px;
+            transform: translateX(50%);
+            text-align: center;
+            font-weight: bold;
+            color: #333;
+            background: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .map-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 80px);
+            grid-template-rows: repeat(4, 80px);
+            gap: 4px;
+        }
+        
+        .map-tile {
+            background-color: #555;
+            border: 1px solid #999;
+            position: relative;
+        }
+        
+        .map-tile.visible {
+            background-color: #f0f0f0;
+        }
+        
+        .map-tile.clickable-adjacent:hover {
+            background-color: #87CEEB;
+        }
+        
+        .map-tile.clickable-current:hover {
+            background-color: #4682B4;
+        }
+        
+        .player-marker {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 50%;
+            height: 50%;
+            background-color: #4CAF50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .shelter-marker {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50%;
+            height: 50%;
+            background-color: #8B4513;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .berry-marker {
+            position: absolute;
+            top: 0;
+            right: 0;
+            width: 50%;
+            height: 50%;
+            background-color: #a8326d;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 18px;
+        }
+        
+        .berry-marker.picked {
+            background-color: #d4a5ba;
+        }
+        
+        .berry-marker.barren {
+            background-color: #888;
+        }
+        
+        .game-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        
+        h1 {
+            margin-bottom: 30px;
+            color: #333;
+        }
+        
+        button {
+            display: block;
+            width: 200px;
+            padding: 15px;
+            margin: 10px auto;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        button:hover {
+            background-color: #45a049;
+        }
+        
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+        
+        .reset-button {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            font-size: 14px;
+            background-color: #f44336;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            width: auto;
+        }
+        
+        .reset-button:hover {
+            background-color: #da190b;
+        }
+        
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 400px;
+        }
+        
+        .modal-content p {
+            margin: 0 0 20px 0;
+            font-size: 18px;
+            color: #333;
+        }
+        
+        .modal-content button {
+            width: 100px;
+            padding: 10px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .modal-content button:hover {
+            background-color: #45a049;
+        }
+        
+        .game-over-content {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 400px;
+        }
+        
+        .game-over-content h1 {
+            margin: 0 0 20px 0;
+            font-size: 48px;
+            color: #d32f2f;
+        }
+        
+        .game-over-content p {
+            margin: 0 0 30px 0;
+            font-size: 24px;
+            color: #333;
+        }
+        
+        .game-over-content button {
+            width: 150px;
+            padding: 12px;
+            font-size: 18px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .game-over-content button:hover {
+            background-color: #45a049;
+        }
+        
+        .tired-content {
+            background: white;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 500px;
+        }
+        
+        .tired-content h2 {
+            margin: 0 0 20px 0;
+            font-size: 32px;
+            color: #333;
+        }
+        
+        .tired-content p {
+            margin: 10px 0;
+            font-size: 18px;
+            color: #555;
+        }
+        
+        .tired-content button {
+            margin-top: 20px;
+            width: 100px;
+            padding: 10px;
+            font-size: 16px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .tired-content button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="character-panel">
+        <h2 id="player-name">Player name: Albert</h2>
+        <p id="hp-display">HP: 4</p>
+        <p id="fp-display">FP: 4</p>
+        <p id="item1-display">Item 1: none</p>
+        <p id="item2-display">Item 2: none</p>
+        <p id="item3-display">Item 3: none</p>
+    </div>
+    
+    <div class="status-panel" id="status-panel">🥱</div>
+    
+    <div class="food-card">
+        <span class="food-text" id="food-text">Food: 0</span>
+        <button class="eat-circle" id="eat-circle">Eat</button>
+    </div>
+    
+    <div class="day-display" id="day-display">Day 1</div>
+    
+    <div class="map-panel" id="map-panel">
+        <div class="map-grid" id="map-grid"></div>
+    </div>
+    <div class="moves-remaining" id="moves-remaining" style="display: none;"></div>
+    
+    <button class="reset-button" id="reset-button">Reset Game</button>
+    
+    <div class="game-container">
+        <div class="container">
+            <h1>Allocate today's AP</h1>
+            <button id="build-shelter">1. Build Shelter</button>
+            <button id="gather-food">2. Gather Food</button>
+            <button id="explore">3. Explore</button>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="modal-overlay">
+        <div class="modal-content">
+            <p id="modal-message"></p>
+            <button id="modal-ok">Ok</button>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="game-over-overlay">
+        <div class="game-over-content">
+            <h1>Game Over</h1>
+            <p>You've died!</p>
+            <button id="try-again">Try Again</button>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="tired-overlay">
+        <div class="tired-content">
+            <h2>Sleeping on the ground, you very little rest.</h2>
+            <p>Status gained: Tired</p>
+            <p>Movement penalty: -1</p>
+            <button id="tired-ok">Ok</button>
+            <p>(Sleep in a shelter to avoid this.)</p>
+        </div>
+    </div>
+
+    <script>
+        // Character model
+        const character = {
+            name: "Albert",
+            hp: 4,
+            fp: 4,
+            inventory: [null, null, null],
+            position: { row: 3, col: 0 }, // Bottom left (0-indexed, row 3 = bottom)
+            tired: false
+        };
+
+        // Game state
+        const gameState = {
+            day: 1,
+            mapSize: 4, // 4x4 grid
+            visitedTiles: new Set(), // Track which tiles have been visited
+            shelters: new Set(), // Track which tiles have shelters
+            berryBushes: new Map(), // Track berry bushes and their states: 'full', 'picked', 'barren1', 'barren2'
+            bushesGatheredToday: new Set(), // Track which bushes were gathered from today
+            isExploring: false,
+            movesRemaining: 0,
+            food: 0, // Food storage (not part of character)
+            hasSeenTiredMessage: false // Track if player has seen tired message this game
+        };
+        
+        // Helper function to create a tile key
+        function getTileKey(row, col) {
+            return `${row},${col}`;
+        }
+        
+        // Initialize berry bushes randomly
+        function initializeBerryBushes() {
+            gameState.berryBushes.clear();
+            const numBushes = Math.floor(Math.random() * 7) + 4; // 4-10 bushes
+            const allTiles = [];
+            
+            // Create array of all possible tiles
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    allTiles.push(getTileKey(row, col));
+                }
+            }
+            
+            // Randomly select tiles for berry bushes (all start as 'full')
+            for (let i = 0; i < numBushes && allTiles.length > 0; i++) {
+                const randomIndex = Math.floor(Math.random() * allTiles.length);
+                const selectedTile = allTiles[randomIndex];
+                gameState.berryBushes.set(selectedTile, 'full');
+                allTiles.splice(randomIndex, 1); // Remove so we don't duplicate
+            }
+        }
+        
+        // Mark the starting position as visited
+        gameState.visitedTiles.add(getTileKey(3, 0));
+        
+        // Initialize berry bushes on load
+        initializeBerryBushes();
+        
+        // Check if a tile is adjacent (including diagonals) or current
+        function isAdjacentOrCurrent(row, col) {
+            const rowDiff = Math.abs(row - character.position.row);
+            const colDiff = Math.abs(col - character.position.col);
+            return rowDiff <= 1 && colDiff <= 1;
+        }
+        
+        // Progress berry bush states when day passes
+        function progressBerryBushes() {
+            for (const [tileKey, state] of gameState.berryBushes) {
+                // Only progress if this bush wasn't gathered from today
+                if (!gameState.bushesGatheredToday.has(tileKey)) {
+                    if (state === 'barren1') {
+                        gameState.berryBushes.set(tileKey, 'barren2');
+                    } else if (state === 'barren2') {
+                        gameState.berryBushes.set(tileKey, 'picked');
+                    } else if (state === 'picked') {
+                        gameState.berryBushes.set(tileKey, 'full');
+                    }
+                    // 'full' stays 'full' unless gathered from
+                }
+            }
+            // Clear the gathered list for the new day
+            gameState.bushesGatheredToday.clear();
+        }
+        
+        // Pass the day and check for death conditions
+        function passDayAndCheckDeath() {
+            const currentTileKey = getTileKey(character.position.row, character.position.col);
+            let becameTired = false;
+            
+            // Check if on a shelter tile
+            if (gameState.shelters.has(currentTileKey)) {
+                // Slept in shelter - not tired
+                character.tired = false;
+            } else {
+                // No shelter - become tired (if not already tired)
+                if (!character.tired) {
+                    becameTired = true;
+                }
+                character.tired = true;
+            }
+            
+            gameState.day++;
+            progressBerryBushes();
+            
+            // Check FP first
+            if (character.fp <= 0) {
+                // Out of FP: lose HP
+                character.hp = Math.max(0, character.hp - 1);
+            } else {
+                // Have FP: consume it
+                character.fp = Math.max(0, character.fp - 1);
+            }
+            
+            // Check if dead
+            if (character.hp <= 0) {
+                // Game over
+                document.getElementById('game-over-overlay').classList.add('active');
+            } else if (becameTired && !gameState.hasSeenTiredMessage) {
+                // Show tired message only first time
+                gameState.hasSeenTiredMessage = true;
+                document.getElementById('tired-overlay').classList.add('active');
+            }
+            
+            updateDisplay();
+        }
+
+        // Function to render the map
+        function renderMap() {
+            const mapGrid = document.getElementById('map-grid');
+            mapGrid.innerHTML = ''; // Clear existing tiles
+            
+            for (let row = 0; row < gameState.mapSize; row++) {
+                for (let col = 0; col < gameState.mapSize; col++) {
+                    const tile = document.createElement('div');
+                    tile.className = 'map-tile';
+                    
+                    // Check if this tile has been visited
+                    const tileKey = getTileKey(row, col);
+                    if (gameState.visitedTiles.has(tileKey)) {
+                        tile.classList.add('visible');
+                    }
+                    
+                    // Check if this tile has a shelter
+                    if (gameState.shelters.has(tileKey)) {
+                        const shelterMarker = document.createElement('div');
+                        shelterMarker.className = 'shelter-marker';
+                        shelterMarker.textContent = '▲';
+                        tile.appendChild(shelterMarker);
+                    }
+                    
+                    // Check if this tile has a berry bush (only show on visible tiles)
+                    if (gameState.visitedTiles.has(tileKey) && gameState.berryBushes.has(tileKey)) {
+                        const berryMarker = document.createElement('div');
+                        berryMarker.className = 'berry-marker';
+                        const bushState = gameState.berryBushes.get(tileKey);
+                        if (bushState === 'picked') {
+                            berryMarker.classList.add('picked');
+                        } else if (bushState === 'barren1' || bushState === 'barren2') {
+                            berryMarker.classList.add('barren');
+                        }
+                        berryMarker.textContent = '●';
+                        tile.appendChild(berryMarker);
+                    }
+                    
+                    // Check if this is the player's position
+                    if (row === character.position.row && col === character.position.col) {
+                        const playerMarker = document.createElement('div');
+                        playerMarker.className = 'player-marker';
+                        playerMarker.textContent = 'P';
+                        tile.appendChild(playerMarker);
+                    }
+                    
+                    // Add click handler if exploring
+                    if (gameState.isExploring) {
+                        if (isAdjacentOrCurrent(row, col)) {
+                            tile.style.cursor = 'pointer';
+                            tile.addEventListener('click', () => handleTileClick(row, col));
+                            
+                            // Add hover class based on whether it's current or adjacent
+                            if (row === character.position.row && col === character.position.col) {
+                                tile.classList.add('clickable-current');
+                            } else {
+                                tile.classList.add('clickable-adjacent');
+                            }
+                        }
+                    }
+                    
+                    mapGrid.appendChild(tile);
+                }
+            }
+        }
+
+        // Function to handle tile clicks during exploration
+        function handleTileClick(row, col) {
+            // Move player if not current position
+            if (row !== character.position.row || col !== character.position.col) {
+                character.position.row = row;
+                character.position.col = col;
+                // Reveal the new tile
+                gameState.visitedTiles.add(getTileKey(row, col));
+            }
+            
+            // Decrement moves
+            gameState.movesRemaining--;
+            
+            // Check if exploration is done
+            if (gameState.movesRemaining <= 0) {
+                endExploration();
+            } else {
+                updateDisplay();
+            }
+        }
+        
+        // End exploration and pass the day
+        function endExploration() {
+            gameState.isExploring = false;
+            gameState.movesRemaining = 0;
+            document.getElementById('map-panel').classList.remove('exploring');
+            document.getElementById('moves-remaining').style.display = 'none';
+            
+            passDayAndCheckDeath();
+        }
+        
+        // Function to update the display based on the character model
+        function updateDisplay() {
+            document.getElementById('player-name').textContent = `Player name: ${character.name}`;
+            document.getElementById('hp-display').textContent = `HP: ${character.hp}`;
+            document.getElementById('fp-display').textContent = `FP: ${character.fp}`;
+            document.getElementById('item1-display').textContent = `Item 1: ${character.inventory[0] || 'none'}`;
+            document.getElementById('item2-display').textContent = `Item 2: ${character.inventory[1] || 'none'}`;
+            document.getElementById('item3-display').textContent = `Item 3: ${character.inventory[2] || 'none'}`;
+            document.getElementById('day-display').textContent = `Day ${gameState.day}`;
+            document.getElementById('food-text').textContent = `Food: ${Math.min(99, Math.max(0, gameState.food))}`;
+            
+            // Update status panel visibility
+            const statusPanel = document.getElementById('status-panel');
+            if (character.tired) {
+                statusPanel.classList.add('show');
+            } else {
+                statusPanel.classList.remove('show');
+            }
+            
+            // Update eat button state
+            const eatCircle = document.getElementById('eat-circle');
+            if (character.fp >= 4 || gameState.food <= 0) {
+                eatCircle.disabled = true;
+            } else {
+                eatCircle.disabled = false;
+            }
+            
+            // Update moves remaining display
+            if (gameState.isExploring) {
+                document.getElementById('moves-remaining').textContent = `${gameState.movesRemaining} moves remaining`;
+                document.getElementById('moves-remaining').style.display = 'block';
+            } else {
+                document.getElementById('moves-remaining').style.display = 'none';
+            }
+            
+            // Check if there's already a shelter at current position
+            const currentTileKey = getTileKey(character.position.row, character.position.col);
+            const buildShelterButton = document.getElementById('build-shelter');
+            if (gameState.shelters.has(currentTileKey)) {
+                buildShelterButton.disabled = true;
+            } else {
+                buildShelterButton.disabled = false;
+            }
+            
+            renderMap();
+        }
+
+        // Button click handlers
+        document.getElementById('build-shelter').addEventListener('click', () => {
+            if (!gameState.isExploring) {
+                const currentTileKey = getTileKey(character.position.row, character.position.col);
+                
+                // Only build if there's no shelter already
+                if (!gameState.shelters.has(currentTileKey)) {
+                    gameState.shelters.add(currentTileKey);
+                    passDayAndCheckDeath();
+                }
+            }
+        });
+
+        document.getElementById('gather-food').addEventListener('click', () => {
+            if (!gameState.isExploring) {
+                const currentTileKey = getTileKey(character.position.row, character.position.col);
+                let foodFound = 0;
+                let gatheredFromBush = false;
+                
+                // Check if on a berry bush
+                if (gameState.berryBushes.has(currentTileKey)) {
+                    const bushState = gameState.berryBushes.get(currentTileKey);
+                    
+                    if (bushState === 'full') {
+                        // Full bush: 4-8 food, becomes picked
+                        foodFound = Math.floor(Math.random() * 5) + 4;
+                        gameState.berryBushes.set(currentTileKey, 'picked');
+                        gameState.bushesGatheredToday.add(currentTileKey);
+                        gatheredFromBush = true;
+                    } else if (bushState === 'picked') {
+                        // Picked bush: 2-4 food, becomes barren1
+                        foodFound = Math.floor(Math.random() * 3) + 2;
+                        gameState.berryBushes.set(currentTileKey, 'barren1');
+                        gameState.bushesGatheredToday.add(currentTileKey);
+                        gatheredFromBush = true;
+                    }
+                    // Barren bushes (barren1, barren2): ignore the bush, gather normally, let it regenerate
+                }
+                
+                // If didn't gather from bush (no bush, or barren bush), use regular gathering
+                if (!gatheredFromBush) {
+                    foodFound = Math.floor(Math.random() * 3);
+                }
+                
+                // Add to food storage (capped at 99)
+                gameState.food = Math.min(99, gameState.food + foodFound);
+                
+                // Show modal
+                document.getElementById('modal-message').textContent = `You've found ${foodFound} units of food!`;
+                document.getElementById('modal-overlay').classList.add('active');
+                
+                // Update display to show new food count
+                updateDisplay();
+            }
+        });
+
+        document.getElementById('explore').addEventListener('click', () => {
+            if (!gameState.isExploring) {
+                gameState.isExploring = true;
+                // Tired players only get 1 move
+                gameState.movesRemaining = character.tired ? 1 : 2;
+                document.getElementById('map-panel').classList.add('exploring');
+                updateDisplay();
+            }
+        });
+
+        // Function to reset the game
+        function resetGame() {
+            // Reset character
+            character.hp = 4;
+            character.fp = 4;
+            character.inventory = [null, null, null];
+            character.position = { row: 3, col: 0 };
+            character.tired = false;
+            
+            // Reset game state
+            gameState.day = 1;
+            gameState.visitedTiles.clear();
+            gameState.visitedTiles.add(getTileKey(3, 0));
+            gameState.shelters.clear();
+            gameState.bushesGatheredToday.clear();
+            gameState.isExploring = false;
+            gameState.movesRemaining = 0;
+            gameState.food = 0;
+            gameState.hasSeenTiredMessage = false;
+            
+            // Reinitialize berry bushes
+            initializeBerryBushes();
+            
+            // Clear exploration UI
+            document.getElementById('map-panel').classList.remove('exploring');
+            document.getElementById('moves-remaining').style.display = 'none';
+            
+            // Hide game over screen if showing
+            document.getElementById('game-over-overlay').classList.remove('active');
+            
+            // Update display
+            updateDisplay();
+        }
+
+        // Reset button handler
+        document.getElementById('reset-button').addEventListener('click', () => {
+            resetGame();
+        });
+        
+        // Try again button handler
+        document.getElementById('try-again').addEventListener('click', () => {
+            resetGame();
+        });
+        
+        // Tired Ok button handler
+        document.getElementById('tired-ok').addEventListener('click', () => {
+            document.getElementById('tired-overlay').classList.remove('active');
+        });
+
+        // Eat button handler
+        document.getElementById('eat-circle').addEventListener('click', () => {
+            if (gameState.food > 0 && character.fp < 4) {
+                gameState.food--;
+                character.fp = Math.min(4, character.fp + 1);
+                updateDisplay();
+            }
+        });
+
+        // Modal Ok button handler
+        document.getElementById('modal-ok').addEventListener('click', () => {
+            // Hide modal
+            document.getElementById('modal-overlay').classList.remove('active');
+            
+            passDayAndCheckDeath();
+        });
+
+        // Initialize display
+        updateDisplay();
+    </script>
+</body>
+</html>
+
