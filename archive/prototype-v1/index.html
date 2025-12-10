@@ -788,6 +788,38 @@
         </div>
     </div>
 
+    <!-- Firebase SDK -->
+    <script type="module">
+        // Import Firebase SDK
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js';
+        import { getDatabase, ref, set, onValue, update, get } from 'https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js';
+        
+        // Firebase configuration - you'll need to add your Firebase project details here
+        // To get these values:
+        // 1. Go to https://console.firebase.google.com/
+        // 2. Create a new project (or use existing)
+        // 3. Go to Project Settings > Your apps > Web app
+        // 4. Copy the config object
+        const firebaseConfig = {
+            apiKey: "YOUR_API_KEY_HERE",
+            authDomain: "YOUR_PROJECT.firebaseapp.com",
+            databaseURL: "https://YOUR_PROJECT.firebaseio.com",
+            projectId: "YOUR_PROJECT_ID",
+            storageBucket: "YOUR_PROJECT.appspot.com",
+            messagingSenderId: "YOUR_MESSAGING_ID",
+            appId: "YOUR_APP_ID"
+        };
+        
+        // Initialize Firebase (commented out until you add your config)
+        // const app = initializeApp(firebaseConfig);
+        // const database = getDatabase(app);
+        
+        // Make Firebase available to the main script
+        window.firebaseApp = null; // Will be set when you add config
+        window.firebaseDatabase = null; // Will be set when you add config
+        window.firebaseReady = false;
+    </script>
+
     <script>
         // Character model
         const character = {
@@ -1715,7 +1747,14 @@
                 // Only build if there's no shelter already (built or natural)
                 if (!gameState.shelters.has(currentTileKey) && !gameState.naturalShelters.has(currentTileKey)) {
                     gameState.shelters.add(currentTileKey);
-                    endTurn();
+                    
+                    // Update display to show new shelter before day transition
+                    updateDisplay();
+                    
+                    // Small delay to ensure map renders before animation starts
+                    setTimeout(() => {
+                        endTurn();
+                    }, 50);
                 }
             }
         });
@@ -1898,7 +1937,13 @@
             // Hide modal
             document.getElementById('modal-overlay').classList.remove('active');
             
-            endTurn();
+            // Update display to show berry bush state changes before day transition
+            updateDisplay();
+            
+            // Small delay to ensure map renders before animation starts
+            setTimeout(() => {
+                endTurn();
+            }, 50);
         });
         
         // Add player button handler
