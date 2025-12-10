@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 
@@ -9,6 +9,7 @@ interface Player {
   id: string;
   name: string;
   isReady: boolean;
+  health: number;
   joinedAt: number;
 }
 
@@ -22,6 +23,13 @@ export default function GameRoom() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
+  const [currentDay, setCurrentDay] = useState(1);
+  const [showDayTransition, setShowDayTransition] = useState(false);
+  const [isTransitionActive, setIsTransitionActive] = useState(false);
+  const [transitionText, setTransitionText] = useState('');
+  const [food, setFood] = useState(0);
+  const [water, setWater] = useState(0);
+  const justAdvancedDayRef = useRef(false);
   
   // Map state
   const [mapData, setMapData] = useState<{
@@ -45,10 +53,13 @@ export default function GameRoom() {
     setMyPlayerId(socketInstance.id);
 
     // Listen for room updates
-    socketInstance.on('room-update', ({ players, gameStarted }) => {
+    socketInstance.on('room-update', ({ players, gameStarted, currentDay, food, water }) => {
       console.log('Room update received:', players);
       setPlayers(players);
       setGameStarted(gameStarted);
+      if (currentDay) setCurrentDay(currentDay);
+      if (food !== undefined) setFood(food);
+      if (water !== undefined) setWater(water);
     });
 
     // Listen for game start
@@ -56,6 +67,27 @@ export default function GameRoom() {
       console.log('Game starting!', players);
       setPlayers(players);
       setGameStarted(true);
+      setCurrentDay(1); // Reset to day 1 when game starts
+      justAdvancedDayRef.current = true; // Prevent animation on initial load
+    });
+
+    // Listen for day advancement
+    socketInstance.on('day-advanced', async ({ currentDay, players, food, water }) => {
+      console.log('Day advanced to:', currentDay);
+      
+      // Only show animation if this player didn't initiate the change AND game has already started
+      if (!justAdvancedDayRef.current && currentDay > 1) {
+        const oldDay = currentDay - 1;
+        await showDayTransitionAnimation(oldDay, currentDay);
+      }
+      
+      // Reset the flag
+      justAdvancedDayRef.current = false;
+      
+      setCurrentDay(currentDay);
+      setPlayers(players);
+      if (food !== undefined) setFood(food);
+      if (water !== undefined) setWater(water);
     });
 
     // Cleanup on unmount
@@ -87,6 +119,63 @@ export default function GameRoom() {
     if (socket) {
       socket.emit('toggle-ready');
     }
+  };
+
+  const handleAdvanceDay = async () => {
+    if (socket) {
+      // Trigger the animation before sending event
+      const oldDay = currentDay;
+      const newDay = currentDay + 1;
+      
+      // Mark that this player initiated the day change
+      justAdvancedDayRef.current = true;
+      
+      // Show day transition animation
+      await showDayTransitionAnimation(oldDay, newDay);
+      
+      // After animation, send event to server
+      socket.emit('advance-day');
+    }
+  };
+
+  const showDayTransitionAnimation = (oldDay: number, newDay: number): Promise<void> => {
+    return new Promise((resolve) => {
+      // Start: Show overlay and old day
+      setTransitionText(`Day ${oldDay}`);
+      setShowDayTransition(true);
+      
+      // After a brief moment, activate the transition (triggers fade-in)
+      setTimeout(() => {
+        setIsTransitionActive(true);
+      }, 10);
+      
+      // After overlay fades in (1200ms), show text
+      setTimeout(() => {
+        const textElement = document.querySelector('.day-transition-text');
+        if (textElement) textElement.classList.add('show');
+      }, 1200);
+      
+      // After showing old day (800ms), switch to new day
+      setTimeout(() => {
+        setTransitionText(`Day ${newDay}`);
+      }, 2000);
+      
+      // After showing new day (800ms more), fade out text
+      setTimeout(() => {
+        const textElement = document.querySelector('.day-transition-text');
+        if (textElement) textElement.classList.remove('show');
+      }, 2800);
+      
+      // After text fades out, fade out overlay
+      setTimeout(() => {
+        setIsTransitionActive(false);
+        // Wait for fade out to complete, then remove from DOM
+        setTimeout(() => {
+          setShowDayTransition(false);
+          resolve();
+        }, 1200);
+      }, 3300);
+    });
   };
 
   // Get current player's ready state
@@ -441,15 +530,25 @@ export default function GameRoom() {
   // If game has started, show game screen
   if (gameStarted) {
     return (
-      <div style={{ 
-        display: 'flex', 
-        flexDirection: 'column',
-        height: '100vh',
-        width: '100vw',
-        fontFamily: 'Arial, sans-serif',
-        backgroundColor: '#f5f5f5',
-        overflow: 'hidden'
-      }}>
+      <>
+        {/* Day transition overlay - only render when active */}
+        {showDayTransition && (
+          <div className={`day-transition-overlay ${isTransitionActive ? 'active' : ''}`}>
+            <div className="day-transition-text">
+              {transitionText}
+            </div>
+          </div>
+        )}
+
+        <div style={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          height: '100vh',
+          width: '100vw',
+          fontFamily: 'Arial, sans-serif',
+          backgroundColor: '#f5f5f5',
+          overflow: 'hidden'
+        }}>
         {/* Top section - 75% height, split into left (66.67%) and right (33.33%) */}
         <div style={{
           display: 'flex',
@@ -466,8 +565,8 @@ export default function GameRoom() {
             overflow: 'auto',
             boxSizing: 'border-box'
           }}>
-            <h2 style={{ color: '#333', marginBottom: '10px' }}>Main Game Area</h2>
-            <p style={{ color: '#666' }}>Map, exploration, etc. will go here</p>
+            <h2 style={{ color: '#333', marginBottom: '10px' }}>Day {currentDay}</h2>
+            <p style={{ color: '#666' }}>Narration and choices will appear here</p>
           </div>
 
           {/* Right section - 1/3 width, split into top and bottom halves */}
@@ -489,8 +588,6 @@ export default function GameRoom() {
               flexDirection: 'column',
               alignItems: 'center'
             }}>
-              <h2 style={{ color: '#333', marginBottom: '15px', fontSize: '18px' }}>Island Map</h2>
-              
               {mapData ? (
                 <div style={{
                   display: 'grid',
@@ -578,26 +675,88 @@ export default function GameRoom() {
               border: '2px solid #4CAF50',
               padding: '20px',
               overflow: 'auto',
-              boxSizing: 'border-box'
+              boxSizing: 'border-box',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center'
             }}>
-              <h2 style={{ color: '#333', marginBottom: '15px', fontSize: '18px' }}>Players</h2>
-              {players.map((player) => (
-                <div 
-                  key={player.id}
-                  style={{
-                    padding: '8px',
-                    backgroundColor: 'white',
-                    borderRadius: '4px',
-                    marginBottom: '8px',
-                    fontSize: '14px'
-                  }}
-                >
-                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>●</span> {player.name}
-                  {player.name === playerName && (
-                    <span style={{ color: '#666', fontSize: '12px', marginLeft: '8px' }}>(you)</span>
-                  )}
+              <div style={{
+                display: 'flex',
+                gap: '35px',
+                alignItems: 'center'
+              }}>
+                {/* Food Resource */}
+                <div style={{
+                  position: 'relative',
+                  width: '80px',
+                  height: '80px'
+                }}>
+                  <img 
+                    src="/carrot.png" 
+                    alt="Food"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain'
+                    }}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '5px',
+                    right: '5px',
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    backgroundColor: '#4CAF50',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    border: '2px solid white',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                    {food}
+                  </div>
                 </div>
-              ))}
+
+                {/* Water Resource */}
+                <div style={{
+                  position: 'relative',
+                  width: '80px',
+                  height: '80px'
+                }}>
+                  <img 
+                    src="/water.png" 
+                    alt="Water"
+                    style={{
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'contain'
+                    }}
+                  />
+                  <div style={{
+                    position: 'absolute',
+                    bottom: '5px',
+                    right: '5px',
+                    width: '28px',
+                    height: '28px',
+                    borderRadius: '50%',
+                    backgroundColor: '#2196F3',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    border: '2px solid white',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                  }}>
+                    {water}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -610,27 +769,99 @@ export default function GameRoom() {
           border: '2px solid #FF9800',
           padding: '20px',
           overflow: 'auto',
-          boxSizing: 'border-box'
+          boxSizing: 'border-box',
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          position: 'relative'
         }}>
-          <h2 style={{ color: '#333', marginBottom: '10px' }}>Bottom Action Bar</h2>
-          <p style={{ color: '#666' }}>Actions, controls, current activity info will go here</p>
+          {/* Next Day button - positioned on right side, vertically centered */}
           <button
-            onClick={handleLeaveRoom}
+            onClick={handleAdvanceDay}
             style={{
-              marginTop: '10px',
+              position: 'absolute',
+              right: '20px',
+              top: '50%',
+              transform: 'translateY(-50%)',
               padding: '10px 20px',
               fontSize: '14px',
-              backgroundColor: '#f44336',
+              fontWeight: 'bold',
+              backgroundColor: '#2196F3',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              zIndex: 10
             }}
           >
-            Leave Game
+            Next Day →
           </button>
+          
+          {/* Player cards container */}
+          <div style={{
+            display: 'flex',
+            gap: '22px',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            height: '100%'
+          }}>
+            {players.map((player) => (
+              <div
+                key={player.id}
+                style={{
+                  backgroundColor: 'white',
+                  padding: '22px',
+                  borderRadius: '12px',
+                  border: '2px solid #ddd',
+                  minWidth: '200px',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                }}
+              >
+                {/* Player name */}
+                <div style={{
+                  fontSize: '24px',
+                  fontWeight: 'bold',
+                  marginBottom: '15px',
+                  color: '#333'
+                }}>
+                  {player.name}
+                  {player.name === playerName && (
+                    <span style={{ color: '#666', fontSize: '18px', marginLeft: '8px', fontWeight: 'normal' }}>(you)</span>
+                  )}
+                </div>
+
+                {/* Health label */}
+                <div style={{
+                  fontSize: '18px',
+                  color: '#666',
+                  marginBottom: '8px'
+                }}>
+                  Health: {player.health}/10
+                </div>
+
+                {/* Health bar */}
+                <div style={{
+                  width: '100%',
+                  height: '30px',
+                  backgroundColor: '#e0e0e0',
+                  borderRadius: '15px',
+                  overflow: 'hidden',
+                  border: '1px solid #999'
+                }}>
+                  <div style={{
+                    width: `${(player.health / 10) * 100}%`,
+                    height: '100%',
+                    backgroundColor: '#c94d57',
+                    transition: 'width 0.3s ease, background-color 0.3s ease'
+                  }} />
+                </div>
+              </div>
+            ))}
+          </div>
+
         </div>
       </div>
+      </>
     );
   }
 

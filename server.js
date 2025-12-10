@@ -56,6 +56,9 @@ app.prepare().then(() => {
         gameRooms.set(roomCode, {
           players: [],
           gameStarted: false,
+          currentDay: 1,
+          food: 0,
+          water: 0,
           createdAt: Date.now(),
         });
       }
@@ -67,6 +70,7 @@ app.prepare().then(() => {
         id: socket.id,
         name: playerName,
         isReady: false,
+        health: 10,
         joinedAt: Date.now(),
       };
       
@@ -80,6 +84,9 @@ app.prepare().then(() => {
       io.to(roomCode).emit('room-update', {
         players: room.players,
         gameStarted: room.gameStarted,
+        currentDay: room.currentDay,
+        food: room.food,
+        water: room.water,
       });
 
       console.log(`Room ${roomCode} now has ${room.players.length} players`);
@@ -105,6 +112,9 @@ app.prepare().then(() => {
           io.to(roomCode).emit('room-update', {
             players: room.players,
             gameStarted: room.gameStarted,
+            currentDay: room.currentDay,
+            food: room.food,
+            water: room.water,
           });
           console.log(`Room ${roomCode} now has ${room.players.length} players`);
         }
@@ -138,9 +148,36 @@ app.prepare().then(() => {
             io.to(roomCode).emit('room-update', {
               players: room.players,
               gameStarted: room.gameStarted,
+              currentDay: room.currentDay,
+              food: room.food,
+              water: room.water,
             });
           }
         }
+      }
+    });
+
+    // Handle day advancement
+    socket.on('advance-day', () => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        room.currentDay += 1;
+        
+        // Subtract 1 health from each player (minimum 0)
+        room.players.forEach(player => {
+          player.health = Math.max(0, player.health - 1);
+        });
+        
+        console.log(`Room ${roomCode} advancing to day ${room.currentDay}`);
+        
+        // Notify all players of new day
+        io.to(roomCode).emit('day-advanced', {
+          currentDay: room.currentDay,
+          players: room.players,
+          food: room.food,
+          water: room.water,
+        });
       }
     });
 
@@ -160,6 +197,9 @@ app.prepare().then(() => {
             io.to(roomCode).emit('room-update', {
               players: room.players,
               gameStarted: room.gameStarted,
+              currentDay: room.currentDay,
+              food: room.food,
+              water: room.water,
             });
           }
         }
