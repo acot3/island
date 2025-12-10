@@ -28,6 +28,14 @@ export default function GameRoom() {
     landTiles: Set<string>;
     waterTiles: Set<string>;
     startingTile: string;
+    resourceTiles: {
+      herbs?: string;
+      deer?: string;
+      bottle?: string;
+      coconut?: string;
+      spring?: string;
+      clams?: string[];
+    };
   } | null>(null);
 
   // Initialize Socket.io connection
@@ -193,12 +201,16 @@ export default function GameRoom() {
       
       // Check if land is connected AND all tiles have at least 2 neighbors
       if (isConnected(landTiles) && allTilesHaveTwoNeighbors(landTiles)) {
-        // Find all beach tiles
+        // Find all beach and grass tiles
         const beachTiles: string[] = [];
+        const grassTiles: string[] = [];
+        
         for (const tile of landTiles) {
           const [row, col] = tile.split(',').map(Number);
           if (isBeachTile(row, col, landTiles, waterTiles)) {
             beachTiles.push(tile);
+          } else {
+            grassTiles.push(tile);
           }
         }
         
@@ -207,7 +219,77 @@ export default function GameRoom() {
           ? beachTiles[Math.floor(Math.random() * beachTiles.length)]
           : landTiles.values().next().value; // Fallback to any land tile
         
-        return { landTiles, waterTiles, startingTile };
+        // Assign resource tiles
+        const resourceTiles: {
+          herbs?: string;
+          deer?: string;
+          bottle?: string;
+          coconut?: string;
+          spring?: string;
+          clams?: string[];
+        } = {};
+        
+        const usedTiles = new Set<string>([startingTile]);
+        
+        // 1. Herbs - random grass tile
+        const availableGrass = grassTiles.filter(t => !usedTiles.has(t));
+        if (availableGrass.length > 0) {
+          resourceTiles.herbs = availableGrass[Math.floor(Math.random() * availableGrass.length)];
+          usedTiles.add(resourceTiles.herbs);
+        }
+        
+        // 2. Deer - different grass tile
+        const availableGrass2 = grassTiles.filter(t => !usedTiles.has(t));
+        if (availableGrass2.length > 0) {
+          resourceTiles.deer = availableGrass2[Math.floor(Math.random() * availableGrass2.length)];
+          usedTiles.add(resourceTiles.deer);
+        }
+        
+        // 3. Bottle - beach tile adjacent to starting (diagonal ok)
+        const [startRow, startCol] = startingTile.split(',').map(Number);
+        const adjacentToStart = beachTiles.filter(tile => {
+          if (usedTiles.has(tile)) return false;
+          const [row, col] = tile.split(',').map(Number);
+          const rowDiff = Math.abs(row - startRow);
+          const colDiff = Math.abs(col - startCol);
+          return rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0);
+        });
+        if (adjacentToStart.length > 0) {
+          resourceTiles.bottle = adjacentToStart[Math.floor(Math.random() * adjacentToStart.length)];
+          usedTiles.add(resourceTiles.bottle);
+        }
+        
+        // 4. Coconut - random beach tile (not starting, not bottle)
+        const availableBeach = beachTiles.filter(t => !usedTiles.has(t));
+        if (availableBeach.length > 0) {
+          resourceTiles.coconut = availableBeach[Math.floor(Math.random() * availableBeach.length)];
+          usedTiles.add(resourceTiles.coconut);
+        }
+        
+        // 5. Spring - unassigned grass tile
+        const availableGrass3 = grassTiles.filter(t => !usedTiles.has(t));
+        if (availableGrass3.length > 0) {
+          resourceTiles.spring = availableGrass3[Math.floor(Math.random() * availableGrass3.length)];
+          usedTiles.add(resourceTiles.spring);
+        }
+        
+        // 6. Clams - two unassigned beach tiles
+        const availableBeach2 = beachTiles.filter(t => !usedTiles.has(t));
+        resourceTiles.clams = [];
+        if (availableBeach2.length > 0) {
+          const clam1 = availableBeach2[Math.floor(Math.random() * availableBeach2.length)];
+          resourceTiles.clams.push(clam1);
+          usedTiles.add(clam1);
+          
+          const availableBeach3 = beachTiles.filter(t => !usedTiles.has(t));
+          if (availableBeach3.length > 0) {
+            const clam2 = availableBeach3[Math.floor(Math.random() * availableBeach3.length)];
+            resourceTiles.clams.push(clam2);
+            usedTiles.add(clam2);
+          }
+        }
+        
+        return { landTiles, waterTiles, startingTile, resourceTiles };
       }
       
       attempts++;
@@ -222,7 +304,7 @@ export default function GameRoom() {
       }
     }
     const startingTile = getTileKey(0, 0); // Fallback starting position
-    return { landTiles, waterTiles, startingTile };
+    return { landTiles, waterTiles, startingTile, resourceTiles: {} };
   };
   
   // Check if a land tile touches water (making it a beach)
@@ -425,6 +507,15 @@ export default function GameRoom() {
                       const isBeach = isLand && isBeachTile(row, col, mapData.landTiles, mapData.waterTiles);
                       const isStartingTile = tileKey === mapData.startingTile;
                       
+                      // Check if this tile has a resource
+                      const resources = mapData.resourceTiles;
+                      const isHerbs = tileKey === resources.herbs;
+                      const isDeer = tileKey === resources.deer;
+                      const isBottle = tileKey === resources.bottle;
+                      const isCoconut = tileKey === resources.coconut;
+                      const isSpring = tileKey === resources.spring;
+                      const isClams = resources.clams?.includes(tileKey);
+                      
                       let backgroundColor = '#424242'; // Default (shouldn't happen)
                       if (isWater) {
                         backgroundColor = '#4a90e2'; // Water - blue
@@ -433,6 +524,16 @@ export default function GameRoom() {
                       } else {
                         backgroundColor = '#4ea354'; // Grass - green
                       }
+                      
+                      // Determine which image to show (priority order)
+                      let resourceImage: string | null = null;
+                      if (isStartingTile) resourceImage = '/shipwreck.png';
+                      else if (isHerbs) resourceImage = '/herbs.png';
+                      else if (isDeer) resourceImage = '/deer.png';
+                      else if (isBottle) resourceImage = '/bottle.png';
+                      else if (isCoconut) resourceImage = '/coconut.png';
+                      else if (isSpring) resourceImage = '/spring.png';
+                      else if (isClams) resourceImage = '/clams.png';
                       
                       return (
                         <div
@@ -446,17 +547,17 @@ export default function GameRoom() {
                             boxSizing: 'border-box'
                           }}
                         >
-                          {isStartingTile && (
+                          {resourceImage && (
                             <img 
-                              src="/shipwreck.png" 
-                              alt="Shipwreck"
+                              src={resourceImage}
+                              alt="Resource"
                               style={{
-                                width: '100%',
-                                height: '100%',
+                                width: '75%',
+                                height: '75%',
                                 objectFit: 'contain',
                                 position: 'absolute',
-                                top: 0,
-                                left: 0
+                                top: '12.5%',
+                                left: '12.5%'
                               }}
                             />
                           )}
