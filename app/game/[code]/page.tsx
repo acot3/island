@@ -22,6 +22,13 @@ export default function GameRoom() {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
+  
+  // Map state
+  const [mapData, setMapData] = useState<{
+    landTiles: Set<string>;
+    waterTiles: Set<string>;
+    startingTile: string;
+  } | null>(null);
 
   // Initialize Socket.io connection
   useEffect(() => {
@@ -77,6 +84,187 @@ export default function GameRoom() {
   // Get current player's ready state
   const myPlayer = players.find(p => p.id === socket?.id);
   const isReady = myPlayer?.isReady || false;
+
+  // Map generation functions
+  const generateMap = () => {
+    const mapSize = 5;
+    const getTileKey = (row: number, col: number) => `${row},${col}`;
+    
+    // Flood fill to check if all land tiles are connected (cardinal directions only)
+    const isConnected = (landTiles: Set<string>) => {
+      if (landTiles.size === 0) return false;
+      
+      const visited = new Set<string>();
+      const queue: string[] = [];
+      
+      // Start from first land tile
+      const startTile = landTiles.values().next().value;
+      queue.push(startTile);
+      visited.add(startTile);
+      
+      while (queue.length > 0) {
+        const current = queue.shift()!;
+        const [row, col] = current.split(',').map(Number);
+        
+        // Check 4 cardinal neighbors
+        const neighbors = [
+          [row - 1, col], // Up
+          [row + 1, col], // Down
+          [row, col - 1], // Left
+          [row, col + 1]  // Right
+        ];
+        
+        for (const [nRow, nCol] of neighbors) {
+          const neighborKey = getTileKey(nRow, nCol);
+          if (landTiles.has(neighborKey) && !visited.has(neighborKey)) {
+            visited.add(neighborKey);
+            queue.push(neighborKey);
+          }
+        }
+      }
+      
+      // All land tiles must be visited
+      return visited.size === landTiles.size;
+    };
+    
+    // Check if all land tiles have at least 2 land neighbors (cardinal directions)
+    const allTilesHaveTwoNeighbors = (landTiles: Set<string>) => {
+      for (const tile of landTiles) {
+        const [row, col] = tile.split(',').map(Number);
+        
+        // Count cardinal land neighbors
+        const cardinalNeighbors = [
+          [row - 1, col], // Up
+          [row + 1, col], // Down
+          [row, col - 1], // Left
+          [row, col + 1]  // Right
+        ];
+        
+        let landNeighborCount = 0;
+        for (const [nRow, nCol] of cardinalNeighbors) {
+          const neighborKey = getTileKey(nRow, nCol);
+          if (landTiles.has(neighborKey)) {
+            landNeighborCount++;
+          }
+        }
+        
+        // Each land tile must have at least 2 land neighbors
+        if (landNeighborCount < 2) {
+          return false;
+        }
+      }
+      
+      return true;
+    };
+    
+    // Keep trying until we get a connected island
+    let attempts = 0;
+    const maxAttempts = 100;
+    
+    while (attempts < maxAttempts) {
+      const landTiles = new Set<string>();
+      const waterTiles = new Set<string>();
+      
+      // Start with all tiles as land
+      for (let row = 0; row < mapSize; row++) {
+        for (let col = 0; col < mapSize; col++) {
+          landTiles.add(getTileKey(row, col));
+        }
+      }
+      
+      // Get all edge tiles
+      const edgeTiles: string[] = [];
+      for (let row = 0; row < mapSize; row++) {
+        for (let col = 0; col < mapSize; col++) {
+          if (row === 0 || row === mapSize - 1 || col === 0 || col === mapSize - 1) {
+            edgeTiles.push(getTileKey(row, col));
+          }
+        }
+      }
+      
+      // Randomly select 3 edge tiles to be water
+      const shuffled = [...edgeTiles].sort(() => Math.random() - 0.5);
+      const waterEdges = shuffled.slice(0, 3);
+      
+      waterEdges.forEach(tile => {
+        landTiles.delete(tile);
+        waterTiles.add(tile);
+      });
+      
+      // Check if land is connected AND all tiles have at least 2 neighbors
+      if (isConnected(landTiles) && allTilesHaveTwoNeighbors(landTiles)) {
+        // Find all beach tiles
+        const beachTiles: string[] = [];
+        for (const tile of landTiles) {
+          const [row, col] = tile.split(',').map(Number);
+          if (isBeachTile(row, col, landTiles, waterTiles)) {
+            beachTiles.push(tile);
+          }
+        }
+        
+        // Randomly select a starting tile from beach tiles
+        const startingTile = beachTiles.length > 0 
+          ? beachTiles[Math.floor(Math.random() * beachTiles.length)]
+          : landTiles.values().next().value; // Fallback to any land tile
+        
+        return { landTiles, waterTiles, startingTile };
+      }
+      
+      attempts++;
+    }
+    
+    // Fallback: return a simple connected island (all edges are land)
+    const landTiles = new Set<string>();
+    const waterTiles = new Set<string>();
+    for (let row = 0; row < mapSize; row++) {
+      for (let col = 0; col < mapSize; col++) {
+        landTiles.add(getTileKey(row, col));
+      }
+    }
+    const startingTile = getTileKey(0, 0); // Fallback starting position
+    return { landTiles, waterTiles, startingTile };
+  };
+  
+  // Check if a land tile touches water (making it a beach)
+  // Only checks cardinal directions (up, down, left, right) - NOT diagonals
+  const isBeachTile = (row: number, col: number, landTiles: Set<string>, waterTiles: Set<string>) => {
+    const getTileKey = (r: number, c: number) => `${r},${c}`;
+    const mapSize = 5;
+    
+    // Check only 4 cardinal directions (not diagonals)
+    const cardinalDirections = [
+      [-1, 0],  // Up
+      [1, 0],   // Down
+      [0, -1],  // Left
+      [0, 1]    // Right
+    ];
+    
+    for (const [dr, dc] of cardinalDirections) {
+      const newRow = row + dr;
+      const newCol = col + dc;
+      
+      // Out of bounds counts as water
+      if (newRow < 0 || newRow >= mapSize || newCol < 0 || newCol >= mapSize) {
+        return true;
+      }
+      
+      // Check if neighbor is water
+      const neighborKey = getTileKey(newRow, newCol);
+      if (waterTiles.has(neighborKey)) {
+        return true;
+      }
+    }
+    
+    return false; // No water neighbors in cardinal directions = grass/interior
+  };
+  
+  // Generate map when game starts
+  useEffect(() => {
+    if (gameStarted && !mapData) {
+      const map = generateMap();
+      setMapData(map);
+    }
+  }, [gameStarted, mapData]);
 
   // If player hasn't entered their name yet
   if (!hasJoined) {
@@ -207,42 +395,79 @@ export default function GameRoom() {
             display: 'flex',
             flexDirection: 'column'
           }}>
-            {/* Right Top - 66.67% of right panel (2:1 ratio) */}
+            {/* Right Top - 66.67% of right panel (2:1 ratio) - MAP */}
             <div style={{
               height: '66.67%',
               backgroundColor: '#f3e5f5',
               border: '2px solid #9C27B0',
               padding: '20px',
               overflow: 'auto',
-              boxSizing: 'border-box'
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center'
             }}>
-              <h2 style={{ color: '#333', marginBottom: '15px', fontSize: '18px' }}>Right Top Panel</h2>
-              <div style={{
-                padding: '15px',
-                backgroundColor: 'white',
-                borderRadius: '4px',
-                marginBottom: '15px'
-              }}>
-                <h3 style={{ marginBottom: '10px', color: '#333', fontSize: '16px' }}>Players:</h3>
-                {players.map((player) => (
-                  <div 
-                    key={player.id}
-                    style={{
-                      padding: '8px',
-                      backgroundColor: '#f9f9f9',
-                      borderRadius: '4px',
-                      marginBottom: '8px',
-                      fontSize: '14px'
-                    }}
-                  >
-                    <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>●</span> {player.name}
-                    {player.name === playerName && (
-                      <span style={{ color: '#666', fontSize: '12px', marginLeft: '8px' }}>(you)</span>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p style={{ color: '#666', fontSize: '14px' }}>Character stats, inventory, etc.</p>
+              <h2 style={{ color: '#333', marginBottom: '15px', fontSize: '18px' }}>Island Map</h2>
+              
+              {mapData ? (
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(5, 65px)',
+                  gridTemplateRows: 'repeat(5, 65px)',
+                  gap: '0px',
+                  border: '2px solid #333'
+                }}>
+                  {Array.from({ length: 5 }, (_, row) =>
+                    Array.from({ length: 5 }, (_, col) => {
+                      const tileKey = `${row},${col}`;
+                      const isWater = mapData.waterTiles.has(tileKey);
+                      const isLand = mapData.landTiles.has(tileKey);
+                      const isBeach = isLand && isBeachTile(row, col, mapData.landTiles, mapData.waterTiles);
+                      const isStartingTile = tileKey === mapData.startingTile;
+                      
+                      let backgroundColor = '#424242'; // Default (shouldn't happen)
+                      if (isWater) {
+                        backgroundColor = '#4a90e2'; // Water - blue
+                      } else if (isBeach) {
+                        backgroundColor = '#e6d1b5'; // Beach - tan
+                      } else {
+                        backgroundColor = '#4ea354'; // Grass - green
+                      }
+                      
+                      return (
+                        <div
+                          key={tileKey}
+                          style={{
+                            width: '65px',
+                            height: '65px',
+                            backgroundColor,
+                            border: isStartingTile ? '3px solid #c94d57' : '1px solid #999',
+                            position: 'relative',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          {isStartingTile && (
+                            <img 
+                              src="/shipwreck.png" 
+                              alt="Shipwreck"
+                              style={{
+                                width: '100%',
+                                height: '100%',
+                                objectFit: 'contain',
+                                position: 'absolute',
+                                top: 0,
+                                left: 0
+                              }}
+                            />
+                          )}
+                        </div>
+                      );
+                    })
+                  ).flat()}
+                </div>
+              ) : (
+                <p style={{ color: '#666' }}>Generating map...</p>
+              )}
             </div>
 
             {/* Right Bottom - 33.33% of right panel (2:1 ratio) */}
@@ -254,8 +479,24 @@ export default function GameRoom() {
               overflow: 'auto',
               boxSizing: 'border-box'
             }}>
-              <h2 style={{ color: '#333', marginBottom: '15px', fontSize: '18px' }}>Right Bottom Panel</h2>
-              <p style={{ color: '#666', fontSize: '14px' }}>Resources, food, day counter, etc. will go here</p>
+              <h2 style={{ color: '#333', marginBottom: '15px', fontSize: '18px' }}>Players</h2>
+              {players.map((player) => (
+                <div 
+                  key={player.id}
+                  style={{
+                    padding: '8px',
+                    backgroundColor: 'white',
+                    borderRadius: '4px',
+                    marginBottom: '8px',
+                    fontSize: '14px'
+                  }}
+                >
+                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>●</span> {player.name}
+                  {player.name === playerName && (
+                    <span style={{ color: '#666', fontSize: '12px', marginLeft: '8px' }}>(you)</span>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         </div>
