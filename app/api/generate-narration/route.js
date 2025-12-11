@@ -74,7 +74,7 @@ export async function POST(request) {
     choiceInstructions = `\n\nNote: Players will have these choices available: ${availableChoices.map(c => c.text).join(', ')}. You can reference these in your narration if appropriate, but focus on the narrative.`;
   }
   
-  const prompt = `You are narrating a survival game. Generate 2-3 paragraphs of narration for the start of Day ${currentDay}.
+  const prompt = `You are narrating a survival game. Generate a very brief narration for the start of Day ${currentDay}.
 
 Game State:
 - Players: ${playerSummary}
@@ -85,14 +85,14 @@ The narration should:
 - Be immersive and atmospheric
 - Acknowledge the current situation (health levels, resource scarcity, exploration progress)
 - Set the tone for the day ahead
-- Be concise (2-3 paragraphs maximum)
+- Be very brief (100 words maximum)
 ${choiceInstructions}
 
 ${currentDay === 1 ? 'This is the first day after the shipwreck. The survivors are just waking up on the beach.' : ''}
 
 IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field. Do NOT include choices - those are handled separately. Format:
 {
-  "narration": "Your 2-3 paragraph narration text here"
+  "narration": "Your very brief narration text here (100 words maximum)"
 }`;
 
   try {
@@ -101,7 +101,7 @@ IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field.
       messages: [
         { 
           role: "system", 
-          content: "You are the narrator for Island Game, a survival RPG. Your narration is concise, immersive, and atmospheric. You acknowledge the current state of the players and resources without being overly dramatic. You always respond with valid JSON containing only a 'narration' field."
+          content: "You are the narrator for Island Game, a survival RPG. Your narration is very brief (100 words maximum), immersive, and atmospheric. You acknowledge the current state of the players and resources without being overly dramatic. You always respond with valid JSON containing only a 'narration' field."
         },
         { 
           role: "user", 
