@@ -30,12 +30,15 @@ export default function GameRoom() {
   const [food, setFood] = useState(0);
   const [water, setWater] = useState(0);
   const [narration, setNarration] = useState('');
+  const [originalNarration, setOriginalNarration] = useState('');
   const [choices, setChoices] = useState<Array<{
     id: string;
     text: string;
     type: string;
     resource?: string;
   }>>([]);
+  const [exploringMode, setExploringMode] = useState(false);
+  const [firstTileSelected, setFirstTileSelected] = useState<string | null>(null);
   const justAdvancedDayRef = useRef(false);
   
   // Map state
@@ -114,6 +117,27 @@ export default function GameRoom() {
       if (dayChoices) setChoices(dayChoices);
     });
 
+    // Listen for map updates (after exploration)
+    socketInstance.on('map-updated', ({ mapData: updatedMapData }) => {
+      console.log('Map updated');
+      if (updatedMapData) {
+        setMapData({
+          landTiles: new Set(updatedMapData.landTiles),
+          waterTiles: new Set(updatedMapData.waterTiles),
+          startingTile: updatedMapData.startingTile,
+          resourceTiles: updatedMapData.resourceTiles,
+          exploredTiles: updatedMapData.exploredTiles,
+        });
+        
+        // Exit exploration mode after successful exploration
+        setExploringMode(false);
+        setFirstTileSelected(null);
+        if (originalNarration) {
+          setNarration(originalNarration);
+        }
+      }
+    });
+
     // Cleanup on unmount
     return () => {
       socketInstance.disconnect();
@@ -165,11 +189,85 @@ export default function GameRoom() {
   const handleChoiceSelect = (choice: { id: string; text: string; type: string; resource?: string }) => {
     if (socket) {
       console.log('Player selected choice:', choice);
-      socket.emit('select-choice', {
-        choiceId: choice.id,
-        choiceType: choice.type,
-        resource: choice.resource
-      });
+      
+      if (choice.type === 'explore') {
+        // Enter exploration mode
+        setOriginalNarration(narration); // Save original narration
+        setExploringMode(true);
+        setFirstTileSelected(null);
+        setNarration('Where do you want to explore? Click two adjacent tiles to explore them.');
+      } else {
+        // For other choices, send to server
+        socket.emit('select-choice', {
+          choiceId: choice.id,
+          choiceType: choice.type,
+          resource: choice.resource
+        });
+      }
+    }
+  };
+
+  // Helper function to check if two tiles are adjacent (including diagonal)
+  const areTilesAdjacent = (tile1: string, tile2: string): boolean => {
+    const [row1, col1] = tile1.split(',').map(Number);
+    const [row2, col2] = tile2.split(',').map(Number);
+    const rowDiff = Math.abs(row1 - row2);
+    const colDiff = Math.abs(col1 - col2);
+    return rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0);
+  };
+
+  // Handle map tile click during exploration
+  const handleMapTileClick = (row: number, col: number) => {
+    if (!exploringMode || !mapData) return;
+    
+    const tileKey = `${row},${col}`;
+    const startingTile = mapData.startingTile;
+    
+    // Check if tile exists (must be either land or water)
+    const tileExists = mapData.landTiles.has(tileKey) || mapData.waterTiles.has(tileKey);
+    if (!tileExists) {
+      return; // Tile doesn't exist
+    }
+    
+    if (!firstTileSelected) {
+      // First click: must be adjacent to starting tile (can be already explored)
+      if (areTilesAdjacent(tileKey, startingTile)) {
+        setFirstTileSelected(tileKey);
+        console.log('First tile selected:', tileKey);
+      } else {
+        console.log('First tile must be adjacent to starting tile');
+      }
+    } else {
+      // Second click: must be adjacent to first tile AND not already explored
+      if (areTilesAdjacent(tileKey, firstTileSelected)) {
+        const isAlreadyExplored = mapData.exploredTiles?.includes(tileKey);
+        if (isAlreadyExplored) {
+          console.log('Second tile is already explored');
+          return;
+        }
+        
+        // Collect tiles to explore (only the second tile if first is already explored)
+        const tilesToExplore: string[] = [];
+        const firstIsExplored = mapData.exploredTiles?.includes(firstTileSelected);
+        if (!firstIsExplored) {
+          tilesToExplore.push(firstTileSelected);
+        }
+        tilesToExplore.push(tileKey);
+        
+        console.log('Exploring tiles:', tilesToExplore);
+        
+        if (socket) {
+          socket.emit('explore-tiles', {
+            tiles: tilesToExplore
+          });
+        }
+        
+        // Exit exploration mode
+        setExploringMode(false);
+        setFirstTileSelected(null);
+      } else {
+        console.log('Second tile must be adjacent to first tile');
+      }
     }
   };
 
@@ -392,8 +490,8 @@ export default function GameRoom() {
               {narration || 'Click "Next Day" to begin your journey...'}
             </p>
             
-            {/* Choices */}
-            {choices.length > 0 && (
+            {/* Choices - hidden during exploration */}
+            {choices.length > 0 && !exploringMode && (
               <div style={{
                 marginTop: '20px',
                 display: 'flex',
@@ -434,6 +532,48 @@ export default function GameRoom() {
                     {choice.text}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Exploration instructions */}
+            {exploringMode && (
+              <div style={{
+                marginTop: '20px',
+                padding: '15px',
+                backgroundColor: '#fff3cd',
+                border: '2px solid #ffc107',
+                borderRadius: '6px'
+              }}>
+                <p style={{ 
+                  color: '#856404', 
+                  fontSize: '16px', 
+                  margin: '0 0 10px 0',
+                  fontWeight: 'bold'
+                }}>
+                  {firstTileSelected 
+                    ? 'Now click a second tile adjacent to your first selection.'
+                    : 'Click a tile adjacent to the starting tile to begin exploring.'}
+                </p>
+                <button
+                  onClick={() => {
+                    setExploringMode(false);
+                    setFirstTileSelected(null);
+                    if (originalNarration) {
+                      setNarration(originalNarration);
+                    }
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '14px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel Exploration
+                </button>
               </div>
             )}
           </div>
@@ -486,6 +626,24 @@ export default function GameRoom() {
                       const isSpring = tileKey === resources.spring;
                       const isClams = resources.clams?.includes(tileKey);
                       
+                      // Check if tile is clickable during exploration
+                      let isClickable = false;
+                      let isHighlighted = false;
+                      const tileExists = isLand || isWater;
+                      if (exploringMode && tileExists) {
+                        if (!firstTileSelected) {
+                          // First click: must be adjacent to starting tile (can be explored)
+                          isClickable = areTilesAdjacent(tileKey, mapData.startingTile);
+                        } else {
+                          // Second click: must be adjacent to first tile AND not explored
+                          isClickable = areTilesAdjacent(tileKey, firstTileSelected) && !isExplored;
+                        }
+                        isHighlighted = isClickable;
+                      }
+                      
+                      // Check if this is the selected first tile
+                      const isFirstSelected = tileKey === firstTileSelected;
+                      
                       // Fog of war: if not explored, show dark grey fog
                       let backgroundColor = '#424242'; // Default fog color
                       if (isExplored) {
@@ -511,17 +669,31 @@ export default function GameRoom() {
                         else if (isClams) resourceImage = '/clams.png';
                       }
                       
+                      // Determine border style
+                      let borderStyle = '1px solid #999';
+                      if (isFirstSelected) {
+                        borderStyle = '3px solid #FF6B6B'; // Red border for first selected tile
+                      } else if (isStartingTile && isExplored) {
+                        borderStyle = '3px solid #c94d57'; // Red border for starting tile
+                      } else if (isHighlighted) {
+                        borderStyle = '3px solid #FFD700'; // Yellow border for clickable tiles
+                      }
+                      
                       return (
                         <div
                           key={tileKey}
+                          onClick={() => handleMapTileClick(row, col)}
                           style={{
                             width: '65px',
                             height: '65px',
                             backgroundColor,
-                            border: isStartingTile && isExplored ? '3px solid #c94d57' : '1px solid #999',
+                            border: borderStyle,
                             position: 'relative',
                             boxSizing: 'border-box',
-                            opacity: isExplored ? 1 : 0.6 // Slightly dim fogged tiles
+                            opacity: isExplored ? 1 : 0.6, // Slightly dim fogged tiles
+                            cursor: isClickable ? 'pointer' : 'default',
+                            transition: 'border-color 0.2s',
+                            overflow: 'hidden'
                           }}
                         >
                           {resourceImage && (

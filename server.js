@@ -599,8 +599,12 @@ app.prepare().then(() => {
         if (player && room.gameStarted) {
           console.log(`${player.name} selected choice: ${choiceId} (${choiceType})`);
           
-          // For now, just log the choice
-          // In Phase 3, we'll implement the actual actions (explore, collect resources)
+          // For resource collection, handle it here
+          if (choiceType === 'collect') {
+            // Handle resource collection (Phase 4)
+            // For now, just log
+            console.log(`Resource collection requested: ${resource}`);
+          }
           
           // Broadcast choice selection to all players (for future use)
           io.to(roomCode).emit('choice-selected', {
@@ -610,6 +614,41 @@ app.prepare().then(() => {
             choiceType: choiceType,
             resource: resource
           });
+        }
+      }
+    });
+
+    // Handle tile exploration
+    socket.on('explore-tiles', ({ tiles }) => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted && room.mapData) {
+          console.log(`${player.name} exploring tiles:`, tiles);
+          
+          // Validate tiles exist and are not already explored
+          const validTiles = tiles.filter(tile => {
+            const isLand = room.mapData.landTiles.includes(tile);
+            const isWater = room.mapData.waterTiles.includes(tile);
+            const tileExists = isLand || isWater;
+            const alreadyExplored = room.mapData.exploredTiles.includes(tile);
+            return tileExists && !alreadyExplored;
+          });
+          
+          if (validTiles.length > 0) {
+            // Add new tiles to explored list
+            const newExploredTiles = [...new Set([...room.mapData.exploredTiles, ...validTiles])];
+            room.mapData.exploredTiles = newExploredTiles;
+            
+            console.log(`Tiles explored. Total explored: ${newExploredTiles.length}`);
+            
+            // Broadcast updated map to all players
+            io.to(roomCode).emit('map-updated', {
+              mapData: room.mapData
+            });
+          }
         }
       }
     });
