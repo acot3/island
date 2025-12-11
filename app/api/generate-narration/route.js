@@ -9,19 +9,22 @@ export async function POST(request) {
   
   // Build a simple prompt with game state
   const playerSummary = players.map(p => {
-    const healthStatus = p.health <= 3 ? 'critically low' : p.health <= 6 ? 'concerning' : 'stable';
-    return `${p.name} (Health: ${p.health}/10, ${healthStatus})`;
+    const healthStatus = p.health <= 3 ? 'in critical condition' : p.health <= 6 ? 'weakened and struggling' : 'holding steady';
+    return `${p.name} is ${healthStatus}`;
   }).join(', ');
   
-  const resourceStatus = food === 0 && water === 0 ? 'no resources' : 
-                        food === 0 ? 'no food' : 
-                        water === 0 ? 'no water' : 
-                        `${food} food, ${water} water`;
+  const resourceStatus = food === 0 && water === 0 ? 'without any supplies' : 
+                        food === 0 ? 'without food' : 
+                        water === 0 ? 'without water' : 
+                        food <= 2 && water <= 2 ? 'with scarce supplies' :
+                        'with some supplies';
   
-  let mapInfo = '';
+  let explorationInfo = '';
   if (mapState) {
-    const explorationPercent = Math.round((mapState.exploredTiles / mapState.totalTiles) * 100);
-    mapInfo = `- Map exploration: ${mapState.exploredTiles} of ${mapState.totalTiles} tiles explored (${explorationPercent}% of the island)`;
+    const hasExplored = mapState.exploredTiles > 1; // More than just starting location
+    explorationInfo = hasExplored ? 
+      `- The survivors have begun to explore their surroundings` : 
+      `- The survivors have not yet ventured far from the wreckage`;
   }
   
   // Determine available choices based on game state
@@ -76,14 +79,16 @@ export async function POST(request) {
   
   const prompt = `You are narrating a survival game. Generate a very brief narration for the start of Day ${currentDay}.
 
-Game State:
-- Players: ${playerSummary}
-- Resources: ${resourceStatus}
-${mapInfo}
+Current Situation:
+- ${playerSummary}
+- The group is ${resourceStatus}
+${explorationInfo}
 
 The narration should:
 - Be immersive and atmospheric
-- Acknowledge the current situation (health levels, resource scarcity, exploration progress)
+- Convey the mood and challenges facing the survivors
+- Focus on the experience, not game mechanics
+- Avoid mentioning: health numbers, tiles, maps, or any explicit game systems
 - Set the tone for the day ahead
 - Be very brief (100 words maximum)
 ${choiceInstructions}
@@ -101,7 +106,7 @@ IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field.
       messages: [
         { 
           role: "system", 
-          content: "You are the narrator for Island Game, a survival RPG. Your narration is very brief (100 words maximum), immersive, and atmospheric. You acknowledge the current state of the players and resources without being overly dramatic. You always respond with valid JSON containing only a 'narration' field."
+          content: "You are the narrator for Island Game, a survival story. Your narration is very brief (100 words maximum), immersive, and atmospheric. You focus on the experience and emotions of the survivors, never mentioning game mechanics like health, tiles, maps, or numbers. You acknowledge the current state through narrative description, not game terms. You always respond with valid JSON containing only a 'narration' field."
         },
         { 
           role: "user", 
