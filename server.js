@@ -619,7 +619,7 @@ app.prepare().then(() => {
     });
 
     // Handle resource gathering
-    socket.on('gather-resource', ({ resourceType, tileKey }) => {
+    socket.on('gather-resource', ({ resourceType, tileKey, foodAmount }) => {
       const roomCode = socket.data.roomCode;
       if (roomCode && gameRooms.has(roomCode)) {
         const room = gameRooms.get(roomCode);
@@ -628,6 +628,7 @@ app.prepare().then(() => {
         if (player && room.gameStarted && room.mapData) {
           console.log(`${player.name} gathering ${resourceType} from tile ${tileKey}`);
           console.log('Current room resources:', { food: room.food, water: room.water });
+          console.log('Food amount received from client:', foodAmount, 'Type:', typeof foodAmount);
           console.log('Map resource tiles:', JSON.stringify(room.mapData.resourceTiles, null, 2));
           console.log('Explored tiles:', room.mapData.exploredTiles);
 
@@ -654,7 +655,16 @@ app.prepare().then(() => {
           if (isValidResource && isExplored) {
             // Increment the appropriate resource
             if (resourceType === 'food') {
-              room.food += 1;
+              // Use foodAmount from client, or default to 2-4 if not provided (for backwards compatibility)
+              // Ensure foodAmount is a valid number
+              const parsedAmount = typeof foodAmount === 'number' && foodAmount > 0 ? foodAmount : null;
+              const amount = parsedAmount !== null 
+                ? parsedAmount 
+                : (Math.floor(Math.random() * 3) + 2);
+              console.log(`Adding ${amount} food to room (current: ${room.food}, foodAmount param: ${foodAmount}, parsedAmount: ${parsedAmount})`);
+              const previousFood = room.food;
+              room.food += amount;
+              console.log(`Food gathered: ${amount} (previous: ${previousFood}, new total: ${room.food})`);
             } else if (resourceType === 'water') {
               room.water += 1;
             }

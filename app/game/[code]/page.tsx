@@ -46,6 +46,7 @@ export default function GameRoom() {
   const [resourceType, setResourceType] = useState<'food' | 'water' | null>(null);
   const [selectedResourceTile, setSelectedResourceTile] = useState<string | null>(null);
   const [resourceGatheringComplete, setResourceGatheringComplete] = useState(false);
+  const [foodGathered, setFoodGathered] = useState<number | null>(null);
   const justAdvancedDayRef = useRef(false);
   
   // Map state
@@ -102,11 +103,13 @@ export default function GameRoom() {
       setResourceType(null);
       setSelectedResourceTile(null);
       setResourceGatheringComplete(false);
+      setFoodGathered(null);
       // Reset resource gathering state
       setResourceSelectionMode(false);
       setResourceType(null);
       setSelectedResourceTile(null);
       setResourceGatheringComplete(false);
+      setFoodGathered(null);
       
       // Convert server map data (arrays) to Sets for client use
       if (serverMapData) {
@@ -153,6 +156,7 @@ export default function GameRoom() {
       setResourceType(null);
       setSelectedResourceTile(null);
       setResourceGatheringComplete(false);
+      setFoodGathered(null);
       setOriginalNarration('');
     });
 
@@ -256,6 +260,7 @@ export default function GameRoom() {
         setResourceType(choice.resource as 'food' | 'water');
         setSelectedResourceTile(null);
         setResourceGatheringComplete(false);
+        setFoodGathered(null);
         setNarration(`Select a ${choice.resource === 'food' ? 'food' : 'water'} resource to ${choice.resource === 'food' ? 'gather' : 'collect'} from.`);
       } else {
         // For other choices, send to server
@@ -341,13 +346,18 @@ export default function GameRoom() {
     setNarration(`You spend the day ${actionText} from the nearby area.`);
     
     // Optimistically update resources on client side
+    let foodAmount: number | undefined = undefined;
     if (resourceType === 'food') {
+      // Randomly select 2-4 food
+      foodAmount = Math.floor(Math.random() * 3) + 2; // 2, 3, or 4
+      setFoodGathered(foodAmount);
       setFood(prevFood => {
-        const newFood = prevFood + 1;
-        console.log('Optimistically updating food from', prevFood, 'to', newFood);
+        const newFood = prevFood + foodAmount!;
+        console.log('Optimistically updating food from', prevFood, 'to', newFood, `(+${foodAmount})`);
         return newFood;
       });
     } else if (resourceType === 'water') {
+      setFoodGathered(null); // Clear food gathered when collecting water
       setWater(prevWater => {
         const newWater = prevWater + 1;
         console.log('Optimistically updating water from', prevWater, 'to', newWater);
@@ -357,10 +367,11 @@ export default function GameRoom() {
     
     // Send to server to update resources
     if (socket) {
-      console.log('Emitting gather-resource:', { resourceType, tileKey });
+      console.log('Emitting gather-resource:', { resourceType, tileKey, foodAmount });
       socket.emit('gather-resource', {
         resourceType: resourceType,
-        tileKey: tileKey
+        tileKey: tileKey,
+        foodAmount: foodAmount
       });
     }
   };
@@ -681,6 +692,35 @@ export default function GameRoom() {
               {narration || 'Click "Next Day" to begin your journey...'}
             </p>
             
+            {/* Food gathering display - show carrot icon and +[#] when food is gathered */}
+            {resourceType === 'food' && resourceGatheringComplete && foodGathered !== null && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '10px',
+                marginTop: '15px',
+                marginBottom: '20px'
+              }}>
+                <img 
+                  src="/carrot.png" 
+                  alt="Food"
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    objectFit: 'contain'
+                  }}
+                />
+                <span style={{
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: '#4CAF50'
+                }}>
+                  +{foodGathered}
+                </span>
+              </div>
+            )}
+            
             {/* Choices - hidden during exploration, resource selection, and after completion */}
             {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && (
               <div style={{
@@ -866,15 +906,6 @@ export default function GameRoom() {
                 flexDirection: 'column',
                 gap: '12px'
               }}>
-                <p style={{ 
-                  color: '#333', 
-                  fontSize: '16px', 
-                  lineHeight: '1.6',
-                  marginTop: '15px',
-                  marginBottom: '10px'
-                }}>
-                  You're tired from the day's {resourceType === 'food' ? 'gathering' : 'collection'}.
-                </p>
                 <button
                   onClick={handleAdvanceDay}
                   style={{
