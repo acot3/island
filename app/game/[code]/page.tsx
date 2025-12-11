@@ -8,6 +8,7 @@ import { io, Socket } from 'socket.io-client';
 interface Player {
   id: string;
   name: string;
+  mbtiType?: string;
   isReady: boolean;
   health: number;
   joinedAt: number;
@@ -19,6 +20,7 @@ export default function GameRoom() {
   const router = useRouter();
   const code = params.code as string;
   const [playerName, setPlayerName] = useState('');
+  const [mbtiType, setMbtiType] = useState('');
   const [hasJoined, setHasJoined] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
@@ -220,13 +222,14 @@ export default function GameRoom() {
   }, []);
 
   const handleJoinRoom = () => {
-    if (playerName.trim() && socket) {
+    if (playerName.trim() && mbtiType && socket) {
       setHasJoined(true);
       
       // Send join request to server
       socket.emit('join-room', {
         roomCode: code,
         playerName: playerName.trim(),
+        mbtiType: mbtiType,
       });
     }
   };
@@ -445,26 +448,26 @@ export default function GameRoom() {
       return; // Tile doesn't exist
     }
     
-    // Check for injury (25% chance)
-    const injuryRoll = Math.random();
-    if (injuryRoll < 0.25) {
-      // Player is injured
-      setIsInjured(true);
-      setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
-      setExplorationComplete(true);
-      setHasExploredToday(true);
-      
-      // Notify server of injury
-      if (socket) {
-        socket.emit('player-injured', {});
-      }
-      
-      return; // Don't proceed with tile reveal
-    }
-    
     if (!firstTileSelected) {
       // First click: must be adjacent to starting tile (can be already explored)
       if (areTilesAdjacent(tileKey, startingTile)) {
+        // Check for injury on first tile selection (25% chance)
+        const firstInjuryRoll = Math.random();
+        if (firstInjuryRoll < 0.25) {
+          // Player is injured
+          setIsInjured(true);
+          setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
+          setExplorationComplete(true);
+          setHasExploredToday(true);
+          
+          // Notify server of injury
+          if (socket) {
+            socket.emit('player-injured', {});
+          }
+          
+          return; // Don't proceed with tile reveal
+        }
+        
         setFirstTileSelected(tileKey);
         console.log('First tile selected:', tileKey);
         
@@ -677,7 +680,7 @@ export default function GameRoom() {
           </h2>
 
           <p style={{ marginBottom: '20px', color: '#666' }}>
-            Enter your name to join:
+            Enter your information to join:
           </p>
 
           <input
@@ -685,7 +688,6 @@ export default function GameRoom() {
             placeholder="Your name"
             value={playerName}
             onChange={(e) => setPlayerName(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleJoinRoom()}
             style={{
               width: '100%',
               padding: '10px',
@@ -696,18 +698,51 @@ export default function GameRoom() {
             }}
           />
 
+          <select
+            value={mbtiType}
+            onChange={(e) => setMbtiType(e.target.value)}
+            style={{
+              width: '100%',
+              padding: '10px',
+              fontSize: '16px',
+              border: '2px solid #ddd',
+              borderRadius: '4px',
+              marginBottom: '15px',
+              backgroundColor: 'white',
+              cursor: 'pointer'
+            }}
+          >
+            <option value="">Select MBTI Type</option>
+            <option value="INTJ">INTJ - The Architect</option>
+            <option value="INTP">INTP - The Logician</option>
+            <option value="ENTJ">ENTJ - The Commander</option>
+            <option value="ENTP">ENTP - The Debater</option>
+            <option value="INFJ">INFJ - The Advocate</option>
+            <option value="INFP">INFP - The Mediator</option>
+            <option value="ENFJ">ENFJ - The Protagonist</option>
+            <option value="ENFP">ENFP - The Campaigner</option>
+            <option value="ISTJ">ISTJ - The Logistician</option>
+            <option value="ISFJ">ISFJ - The Defender</option>
+            <option value="ESTJ">ESTJ - The Executive</option>
+            <option value="ESFJ">ESFJ - The Consul</option>
+            <option value="ISTP">ISTP - The Virtuoso</option>
+            <option value="ISFP">ISFP - The Adventurer</option>
+            <option value="ESTP">ESTP - The Entrepreneur</option>
+            <option value="ESFP">ESFP - The Entertainer</option>
+          </select>
+
           <button
             onClick={handleJoinRoom}
-            disabled={!playerName.trim()}
+            disabled={!playerName.trim() || !mbtiType}
             style={{
               width: '100%',
               padding: '15px',
               fontSize: '16px',
-              backgroundColor: playerName.trim() ? '#4CAF50' : '#ccc',
+              backgroundColor: (playerName.trim() && mbtiType) ? '#4CAF50' : '#ccc',
               color: 'white',
               border: 'none',
               borderRadius: '4px',
-              cursor: playerName.trim() ? 'pointer' : 'not-allowed',
+              cursor: (playerName.trim() && mbtiType) ? 'pointer' : 'not-allowed',
               marginBottom: '15px'
             }}
           >

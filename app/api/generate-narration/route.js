@@ -10,7 +10,8 @@ export async function POST(request) {
   // Build a simple prompt with game state
   const playerSummary = players.map(p => {
     const healthStatus = p.health <= 3 ? 'in critical condition' : p.health <= 6 ? 'weakened and struggling' : 'holding steady';
-    return `${p.name} is ${healthStatus}`;
+    const mbtiInfo = p.mbtiType ? ` (${p.mbtiType})` : '';
+    return `${p.name}${mbtiInfo} is ${healthStatus}`;
   }).join(', ');
   
   const resourceStatus = food === 0 && water === 0 ? 'without any supplies' : 
@@ -84,9 +85,13 @@ Current Situation:
 - The group is ${resourceStatus}
 ${explorationInfo}
 
+CRITICAL: The ONLY characters in this story are: ${players.map(p => p.name).join(', ')} (total ${players.length}). Do NOT reference any other characters. If there is only one player, do NOT mention a group—refer only to that person.
+
 The narration should:
 - Be immersive and atmospheric
 - Convey the mood and challenges facing the survivors
+- ONLY reference the specific characters listed above - never invent or mention other characters, names, or roles. If there is only one player, do NOT mention a group—refer only to that person.
+- Use each character's MBTI type to personalize their behavior, reactions, and interactions in the narrative (e.g., INTJs might strategize, ENFPs might maintain group morale, ISTJs might focus on practical tasks)
 - Focus on the experience, not game mechanics
 - Avoid mentioning: health numbers, tiles, maps, or any explicit game systems
 - Set the tone for the day ahead
@@ -106,7 +111,7 @@ IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field.
       messages: [
         { 
           role: "system", 
-          content: "You are the narrator for Island Game, a survival story. Your narration is very brief (100 words maximum), immersive, and atmospheric. You focus on the experience and emotions of the survivors, never mentioning game mechanics like health, tiles, maps, or numbers. You acknowledge the current state through narrative description, not game terms. You always respond with valid JSON containing only a 'narration' field."
+          content: "You are the narrator for Island Game, a survival story. Your narration is very brief (100 words maximum), immersive, and atmospheric. You focus on the experience and emotions of the survivors, never mentioning game mechanics like health, tiles, maps, or numbers. CRITICAL: ONLY reference the specific characters provided in the prompt (no new names or roles). If there is only one player, do NOT mention a group—refer only to that person. Personalize each character's behavior and reactions based on their MBTI personality type, showing how different personalities respond to survival situations. You acknowledge the current state through narrative description, not game terms. You always respond with valid JSON containing only a 'narration' field."
         },
         { 
           role: "user", 

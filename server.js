@@ -378,8 +378,8 @@ app.prepare().then(() => {
     console.log('Client connected:', socket.id);
 
     // Handle player joining a room
-    socket.on('join-room', ({ roomCode, playerName }) => {
-      console.log(`${playerName} joining room ${roomCode}`);
+    socket.on('join-room', ({ roomCode, playerName, mbtiType }) => {
+      console.log(`${playerName} (${mbtiType}) joining room ${roomCode}`);
       
       // Join the Socket.io room
       socket.join(roomCode);
@@ -403,6 +403,7 @@ app.prepare().then(() => {
       const player = {
         id: socket.id,
         name: playerName,
+        mbtiType: mbtiType || 'INTJ', // Default to INTJ if not provided
         isReady: false,
         health: 10,
         joinedAt: Date.now(),
