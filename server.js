@@ -618,6 +618,77 @@ app.prepare().then(() => {
       }
     });
 
+    // Handle resource gathering
+    socket.on('gather-resource', ({ resourceType, tileKey }) => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+
+        if (player && room.gameStarted && room.mapData) {
+          console.log(`${player.name} gathering ${resourceType} from tile ${tileKey}`);
+          console.log('Current room resources:', { food: room.food, water: room.water });
+          console.log('Map resource tiles:', JSON.stringify(room.mapData.resourceTiles, null, 2));
+          console.log('Explored tiles:', room.mapData.exploredTiles);
+
+          // Validate the tile has the correct resource
+          const resources = room.mapData.resourceTiles;
+          let isValidResource = false;
+          
+          if (resourceType === 'food') {
+            isValidResource = tileKey === resources.herbs || 
+                             tileKey === resources.deer || 
+                             tileKey === resources.coconut ||
+                             (resources.clams && resources.clams.includes(tileKey));
+            console.log(`Food resource check: herbs=${tileKey === resources.herbs}, deer=${tileKey === resources.deer}, coconut=${tileKey === resources.coconut}, clams=${resources.clams && resources.clams.includes(tileKey)}`);
+          } else if (resourceType === 'water') {
+            isValidResource = tileKey === resources.bottle || 
+                             tileKey === resources.spring;
+            console.log(`Water resource check: bottle=${tileKey === resources.bottle}, spring=${tileKey === resources.spring}`);
+          }
+
+          // Check if tile is explored
+          const isExplored = room.mapData.exploredTiles && room.mapData.exploredTiles.includes(tileKey);
+          console.log(`Tile ${tileKey} is explored: ${isExplored}, isValidResource: ${isValidResource}`);
+          
+          if (isValidResource && isExplored) {
+            // Increment the appropriate resource
+            if (resourceType === 'food') {
+              room.food += 1;
+            } else if (resourceType === 'water') {
+              room.water += 1;
+            }
+
+            console.log(`Resource gathered. ${resourceType}: ${room[resourceType]}`);
+            console.log(`Broadcasting resource update: food=${room.food}, water=${room.water}`);
+
+            // Broadcast updated resources to all players
+            io.to(roomCode).emit('resource-updated', {
+              food: room.food,
+              water: room.water
+            });
+          } else {
+            console.log(`Invalid resource gathering attempt: ${resourceType} from ${tileKey}`);
+            console.log(`Validation failed - isValidResource: ${isValidResource}, isExplored: ${isExplored}`);
+            if (!isValidResource) {
+              console.log(`Resource validation failed. Expected ${resourceType} resource at ${tileKey}`);
+              console.log(`Available resources:`, {
+                herbs: resources.herbs,
+                deer: resources.deer,
+                coconut: resources.coconut,
+                clams: resources.clams,
+                bottle: resources.bottle,
+                spring: resources.spring
+              });
+            }
+            if (!isExplored) {
+              console.log(`Tile ${tileKey} is not explored. Explored tiles:`, room.mapData.exploredTiles);
+            }
+          }
+        }
+      }
+    });
+
     // Handle tile exploration
     socket.on('explore-tiles', ({ tiles }) => {
       const roomCode = socket.data.roomCode;

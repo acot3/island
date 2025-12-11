@@ -42,6 +42,10 @@ export default function GameRoom() {
   const [secondTileSelected, setSecondTileSelected] = useState<string | null>(null);
   const [explorationComplete, setExplorationComplete] = useState(false);
   const [hasExploredToday, setHasExploredToday] = useState(false);
+  const [resourceSelectionMode, setResourceSelectionMode] = useState(false);
+  const [resourceType, setResourceType] = useState<'food' | 'water' | null>(null);
+  const [selectedResourceTile, setSelectedResourceTile] = useState<string | null>(null);
+  const [resourceGatheringComplete, setResourceGatheringComplete] = useState(false);
   const justAdvancedDayRef = useRef(false);
   
   // Map state
@@ -64,7 +68,9 @@ export default function GameRoom() {
   useEffect(() => {
     const socketInstance = io();
     setSocket(socketInstance);
-    setMyPlayerId(socketInstance.id);
+    if (socketInstance.id) {
+      setMyPlayerId(socketInstance.id);
+    }
 
     // Listen for room updates
     socketInstance.on('room-update', ({ players, gameStarted, currentDay, food, water }) => {
@@ -91,6 +97,16 @@ export default function GameRoom() {
       setFirstTileSelected(null);
       setSecondTileSelected(null);
       setExplorationComplete(false);
+      // Reset resource gathering state
+      setResourceSelectionMode(false);
+      setResourceType(null);
+      setSelectedResourceTile(null);
+      setResourceGatheringComplete(false);
+      // Reset resource gathering state
+      setResourceSelectionMode(false);
+      setResourceType(null);
+      setSelectedResourceTile(null);
+      setResourceGatheringComplete(false);
       
       // Convert server map data (arrays) to Sets for client use
       if (serverMapData) {
@@ -132,7 +148,23 @@ export default function GameRoom() {
       setFirstTileSelected(null);
       setSecondTileSelected(null);
       setExplorationComplete(false);
+      // Reset resource gathering state for new day
+      setResourceSelectionMode(false);
+      setResourceType(null);
+      setSelectedResourceTile(null);
+      setResourceGatheringComplete(false);
       setOriginalNarration('');
+    });
+
+    // Listen for resource updates
+    socketInstance.on('resource-updated', ({ food: updatedFood, water: updatedWater }) => {
+      console.log('Resource update received:', { food: updatedFood, water: updatedWater });
+      if (updatedFood !== undefined) {
+        setFood(updatedFood);
+      }
+      if (updatedWater !== undefined) {
+        setWater(updatedWater);
+      }
     });
 
     // Listen for map updates (after exploration)
@@ -217,6 +249,14 @@ export default function GameRoom() {
         setSecondTileSelected(null);
         setExplorationComplete(false);
         setNarration('Where do you want to explore? Click a tile adjacent to the starting point.');
+      } else if (choice.type === 'collect' && choice.resource) {
+        // Enter resource selection mode
+        setOriginalNarration(narration); // Save original narration
+        setResourceSelectionMode(true);
+        setResourceType(choice.resource as 'food' | 'water');
+        setSelectedResourceTile(null);
+        setResourceGatheringComplete(false);
+        setNarration(`Select a ${choice.resource === 'food' ? 'food' : 'water'} resource to ${choice.resource === 'food' ? 'gather' : 'collect'} from.`);
       } else {
         // For other choices, send to server
         socket.emit('select-choice', {
@@ -262,6 +302,69 @@ export default function GameRoom() {
     return '';
   };
 
+  // Handle resource tile click during resource selection
+  const handleResourceTileClick = (row: number, col: number) => {
+    if (!resourceSelectionMode || !mapData || !resourceType || resourceGatheringComplete) return;
+
+    const tileKey = `${row},${col}`;
+    const resources = mapData.resourceTiles;
+    
+    // Check if this tile has the correct resource type
+    let isValidResource = false;
+    if (resourceType === 'food') {
+      const hasClams = resources.clams?.includes(tileKey) || false;
+      isValidResource = tileKey === resources.herbs || 
+                       tileKey === resources.deer || 
+                       tileKey === resources.coconut ||
+                       hasClams;
+    } else if (resourceType === 'water') {
+      isValidResource = tileKey === resources.bottle || 
+                       tileKey === resources.spring;
+    }
+    
+    if (!isValidResource) {
+      return; // Not a valid resource for this type
+    }
+    
+    // Check if tile is explored
+    const isExplored = mapData.exploredTiles?.includes(tileKey) || false;
+    if (!isExplored) {
+      return; // Can't gather from unexplored tiles
+    }
+    
+    // Select the resource tile
+    setSelectedResourceTile(tileKey);
+    setResourceGatheringComplete(true);
+    
+    // Update narration
+    const actionText = resourceType === 'food' ? 'gathering some food' : 'collecting some water';
+    setNarration(`You spend the day ${actionText} from the nearby area.`);
+    
+    // Optimistically update resources on client side
+    if (resourceType === 'food') {
+      setFood(prevFood => {
+        const newFood = prevFood + 1;
+        console.log('Optimistically updating food from', prevFood, 'to', newFood);
+        return newFood;
+      });
+    } else if (resourceType === 'water') {
+      setWater(prevWater => {
+        const newWater = prevWater + 1;
+        console.log('Optimistically updating water from', prevWater, 'to', newWater);
+        return newWater;
+      });
+    }
+    
+    // Send to server to update resources
+    if (socket) {
+      console.log('Emitting gather-resource:', { resourceType, tileKey });
+      socket.emit('gather-resource', {
+        resourceType: resourceType,
+        tileKey: tileKey
+      });
+    }
+  };
+
   // Handle map tile click during exploration
   const handleMapTileClick = (row: number, col: number) => {
     if (!exploringMode || !mapData || explorationComplete) return;
@@ -282,7 +385,7 @@ export default function GameRoom() {
         console.log('First tile selected:', tileKey);
         
         // Check if first tile is already explored
-        const firstIsExplored = mapData.exploredTiles?.includes(tileKey);
+        const firstIsExplored = mapData.exploredTiles?.includes(tileKey) || false;
         if (firstIsExplored) {
           setNarration('You make your way through familiar territory. Now choose a second tile to explore.');
         } else {
@@ -578,8 +681,8 @@ export default function GameRoom() {
               {narration || 'Click "Next Day" to begin your journey...'}
             </p>
             
-            {/* Choices - hidden during exploration and after exploration complete */}
-            {choices.length > 0 && !exploringMode && !explorationComplete && (
+            {/* Choices - hidden during exploration, resource selection, and after completion */}
+            {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && (
               <div style={{
                 marginTop: '20px',
                 display: 'flex',
@@ -713,6 +816,89 @@ export default function GameRoom() {
                 </button>
               </div>
             )}
+
+            {/* Resource selection instructions - shown during resource selection but not after completion */}
+            {resourceSelectionMode && !resourceGatheringComplete && (
+              <div style={{
+                marginTop: '20px',
+                padding: '15px',
+                backgroundColor: '#fff3cd',
+                border: '2px solid #ffc107',
+                borderRadius: '6px'
+              }}>
+                <p style={{ 
+                  color: '#856404', 
+                  fontSize: '16px', 
+                  margin: '0 0 10px 0',
+                  fontWeight: 'bold'
+                }}>
+                  Click a {resourceType === 'food' ? 'food' : 'water'} resource tile to {resourceType === 'food' ? 'gather' : 'collect'} from.
+                </p>
+                <button
+                  onClick={() => {
+                    setResourceSelectionMode(false);
+                    setResourceType(null);
+                    setSelectedResourceTile(null);
+                    if (originalNarration) {
+                      setNarration(originalNarration);
+                    }
+                  }}
+                  style={{
+                    padding: '8px 16px',
+                    fontSize: '14px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
+            {/* Go to sleep button - shown after resource gathering is complete */}
+            {resourceGatheringComplete && (
+              <div style={{
+                marginTop: '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <p style={{ 
+                  color: '#333', 
+                  fontSize: '16px', 
+                  lineHeight: '1.6',
+                  marginTop: '15px',
+                  marginBottom: '10px'
+                }}>
+                  You're tired from the day's {resourceType === 'food' ? 'gathering' : 'collection'}.
+                </p>
+                <button
+                  onClick={handleAdvanceDay}
+                  style={{
+                    padding: '12px 20px',
+                    fontSize: '16px',
+                    backgroundColor: '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.backgroundColor = '#45a049';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.backgroundColor = '#4CAF50';
+                  }}
+                >
+                  Go to sleep
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Right section - 1/3 width, split into top and bottom halves */}
@@ -761,7 +947,7 @@ export default function GameRoom() {
                       const isBottle = tileKey === resources.bottle;
                       const isCoconut = tileKey === resources.coconut;
                       const isSpring = tileKey === resources.spring;
-                      const isClams = resources.clams?.includes(tileKey);
+                      const isClams = resources.clams?.includes(tileKey) || false;
                       
                       // Check if tile is clickable during exploration
                       let isClickable = false;
@@ -776,6 +962,18 @@ export default function GameRoom() {
                           isClickable = areTilesAdjacent(tileKey, firstTileSelected);
                         }
                         isHighlighted = isClickable;
+                      }
+                      
+                      // Check if tile is clickable during resource selection
+                      let isResourceClickable = false;
+                      let isResourceHighlighted = false;
+                      if (resourceSelectionMode && resourceType && isExplored) {
+                        if (resourceType === 'food') {
+                          isResourceClickable = isHerbs || isDeer || isCoconut || (isClams || false);
+                        } else if (resourceType === 'water') {
+                          isResourceClickable = isBottle || isSpring;
+                        }
+                        isResourceHighlighted = isResourceClickable && !resourceGatheringComplete;
                       }
                       
                       // Check if this is the selected first tile
@@ -826,8 +1024,17 @@ export default function GameRoom() {
                           borderStyle = '3px solid #FFD700'; // Yellow border for clickable tiles
                         }
                         // Starting tile doesn't get red border during exploration
+                      } else if (resourceSelectionMode) {
+                        // During resource selection mode
+                        if (isResourceHighlighted && !resourceGatheringComplete) {
+                          borderStyle = '3px solid #FFD700'; // Yellow border for clickable resource tiles
+                        } else if (tileKey === selectedResourceTile) {
+                          borderStyle = '3px solid #c94d57'; // Red border on selected resource tile
+                        } else if (isStartingTile && isExplored) {
+                          borderStyle = '1px solid #999'; // Normal border for starting tile during resource selection
+                        }
                       } else {
-                        // Not in exploration mode - normal borders
+                        // Not in exploration or resource selection mode - normal borders
                         if (isStartingTile && isExplored) {
                           borderStyle = '3px solid #c94d57'; // Red border for starting tile
                         } else if (isHighlighted) {
@@ -835,10 +1042,20 @@ export default function GameRoom() {
                         }
                       }
                       
+                      // Determine which click handler to use
+                      const handleTileClick = resourceSelectionMode 
+                        ? () => handleResourceTileClick(row, col)
+                        : () => handleMapTileClick(row, col);
+                      
+                      // Determine if tile should be clickable
+                      const tileClickable = resourceSelectionMode 
+                        ? isResourceClickable && !resourceGatheringComplete
+                        : isClickable;
+                      
                       return (
                         <div
                           key={tileKey}
-                          onClick={() => handleMapTileClick(row, col)}
+                          onClick={handleTileClick}
                           style={{
                             width: '65px',
                             height: '65px',
@@ -847,7 +1064,7 @@ export default function GameRoom() {
                             position: 'relative',
                             boxSizing: 'border-box',
                             opacity: isExplored ? 1 : 0.6, // Slightly dim fogged tiles
-                            cursor: isClickable ? 'pointer' : 'default',
+                            cursor: tileClickable ? 'pointer' : 'default',
                             transition: 'border-color 0.2s',
                             overflow: 'hidden'
                           }}
