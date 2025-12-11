@@ -29,6 +29,7 @@ export default function GameRoom() {
   const [transitionText, setTransitionText] = useState('');
   const [food, setFood] = useState(0);
   const [water, setWater] = useState(0);
+  const [narration, setNarration] = useState('');
   const justAdvancedDayRef = useRef(false);
   
   // Map state
@@ -44,6 +45,7 @@ export default function GameRoom() {
       spring?: string;
       clams?: string[];
     };
+    exploredTiles?: string[];
   } | null>(null);
 
   // Initialize Socket.io connection
@@ -63,16 +65,29 @@ export default function GameRoom() {
     });
 
     // Listen for game start
-    socketInstance.on('game-start', ({ players }) => {
+    socketInstance.on('game-start', ({ players, narration, mapData: serverMapData }) => {
       console.log('Game starting!', players);
       setPlayers(players);
       setGameStarted(true);
       setCurrentDay(1); // Reset to day 1 when game starts
+      if (narration) setNarration(narration);
+      
+      // Convert server map data (arrays) to Sets for client use
+      if (serverMapData) {
+        setMapData({
+          landTiles: new Set(serverMapData.landTiles),
+          waterTiles: new Set(serverMapData.waterTiles),
+          startingTile: serverMapData.startingTile,
+          resourceTiles: serverMapData.resourceTiles,
+          exploredTiles: serverMapData.exploredTiles,
+        });
+      }
+      
       justAdvancedDayRef.current = true; // Prevent animation on initial load
     });
 
     // Listen for day advancement
-    socketInstance.on('day-advanced', async ({ currentDay, players, food, water }) => {
+    socketInstance.on('day-advanced', async ({ currentDay, players, food, water, narration }) => {
       console.log('Day advanced to:', currentDay);
       
       // Only show animation if this player didn't initiate the change AND game has already started
@@ -88,6 +103,7 @@ export default function GameRoom() {
       setPlayers(players);
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
+      if (narration) setNarration(narration);
     });
 
     // Cleanup on unmount
@@ -182,220 +198,6 @@ export default function GameRoom() {
   const myPlayer = players.find(p => p.id === socket?.id);
   const isReady = myPlayer?.isReady || false;
 
-  // Map generation functions
-  const generateMap = () => {
-    const mapSize = 5;
-    const getTileKey = (row: number, col: number) => `${row},${col}`;
-    
-    // Flood fill to check if all land tiles are connected (cardinal directions only)
-    const isConnected = (landTiles: Set<string>) => {
-      if (landTiles.size === 0) return false;
-      
-      const visited = new Set<string>();
-      const queue: string[] = [];
-      
-      // Start from first land tile
-      const startTile = landTiles.values().next().value;
-      queue.push(startTile);
-      visited.add(startTile);
-      
-      while (queue.length > 0) {
-        const current = queue.shift()!;
-        const [row, col] = current.split(',').map(Number);
-        
-        // Check 4 cardinal neighbors
-        const neighbors = [
-          [row - 1, col], // Up
-          [row + 1, col], // Down
-          [row, col - 1], // Left
-          [row, col + 1]  // Right
-        ];
-        
-        for (const [nRow, nCol] of neighbors) {
-          const neighborKey = getTileKey(nRow, nCol);
-          if (landTiles.has(neighborKey) && !visited.has(neighborKey)) {
-            visited.add(neighborKey);
-            queue.push(neighborKey);
-          }
-        }
-      }
-      
-      // All land tiles must be visited
-      return visited.size === landTiles.size;
-    };
-    
-    // Check if all land tiles have at least 2 land neighbors (cardinal directions)
-    const allTilesHaveTwoNeighbors = (landTiles: Set<string>) => {
-      for (const tile of landTiles) {
-        const [row, col] = tile.split(',').map(Number);
-        
-        // Count cardinal land neighbors
-        const cardinalNeighbors = [
-          [row - 1, col], // Up
-          [row + 1, col], // Down
-          [row, col - 1], // Left
-          [row, col + 1]  // Right
-        ];
-        
-        let landNeighborCount = 0;
-        for (const [nRow, nCol] of cardinalNeighbors) {
-          const neighborKey = getTileKey(nRow, nCol);
-          if (landTiles.has(neighborKey)) {
-            landNeighborCount++;
-          }
-        }
-        
-        // Each land tile must have at least 2 land neighbors
-        if (landNeighborCount < 2) {
-          return false;
-        }
-      }
-      
-      return true;
-    };
-    
-    // Keep trying until we get a connected island
-    let attempts = 0;
-    const maxAttempts = 100;
-    
-    while (attempts < maxAttempts) {
-      const landTiles = new Set<string>();
-      const waterTiles = new Set<string>();
-      
-      // Start with all tiles as land
-      for (let row = 0; row < mapSize; row++) {
-        for (let col = 0; col < mapSize; col++) {
-          landTiles.add(getTileKey(row, col));
-        }
-      }
-      
-      // Get all edge tiles
-      const edgeTiles: string[] = [];
-      for (let row = 0; row < mapSize; row++) {
-        for (let col = 0; col < mapSize; col++) {
-          if (row === 0 || row === mapSize - 1 || col === 0 || col === mapSize - 1) {
-            edgeTiles.push(getTileKey(row, col));
-          }
-        }
-      }
-      
-      // Randomly select 3 edge tiles to be water
-      const shuffled = [...edgeTiles].sort(() => Math.random() - 0.5);
-      const waterEdges = shuffled.slice(0, 3);
-      
-      waterEdges.forEach(tile => {
-        landTiles.delete(tile);
-        waterTiles.add(tile);
-      });
-      
-      // Check if land is connected AND all tiles have at least 2 neighbors
-      if (isConnected(landTiles) && allTilesHaveTwoNeighbors(landTiles)) {
-        // Find all beach and grass tiles
-        const beachTiles: string[] = [];
-        const grassTiles: string[] = [];
-        
-        for (const tile of landTiles) {
-          const [row, col] = tile.split(',').map(Number);
-          if (isBeachTile(row, col, landTiles, waterTiles)) {
-            beachTiles.push(tile);
-          } else {
-            grassTiles.push(tile);
-          }
-        }
-        
-        // Randomly select a starting tile from beach tiles
-        const startingTile = beachTiles.length > 0 
-          ? beachTiles[Math.floor(Math.random() * beachTiles.length)]
-          : landTiles.values().next().value; // Fallback to any land tile
-        
-        // Assign resource tiles
-        const resourceTiles: {
-          herbs?: string;
-          deer?: string;
-          bottle?: string;
-          coconut?: string;
-          spring?: string;
-          clams?: string[];
-        } = {};
-        
-        const usedTiles = new Set<string>([startingTile]);
-        
-        // 1. Herbs - random grass tile
-        const availableGrass = grassTiles.filter(t => !usedTiles.has(t));
-        if (availableGrass.length > 0) {
-          resourceTiles.herbs = availableGrass[Math.floor(Math.random() * availableGrass.length)];
-          usedTiles.add(resourceTiles.herbs);
-        }
-        
-        // 2. Deer - different grass tile
-        const availableGrass2 = grassTiles.filter(t => !usedTiles.has(t));
-        if (availableGrass2.length > 0) {
-          resourceTiles.deer = availableGrass2[Math.floor(Math.random() * availableGrass2.length)];
-          usedTiles.add(resourceTiles.deer);
-        }
-        
-        // 3. Bottle - beach tile adjacent to starting (diagonal ok)
-        const [startRow, startCol] = startingTile.split(',').map(Number);
-        const adjacentToStart = beachTiles.filter(tile => {
-          if (usedTiles.has(tile)) return false;
-          const [row, col] = tile.split(',').map(Number);
-          const rowDiff = Math.abs(row - startRow);
-          const colDiff = Math.abs(col - startCol);
-          return rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0);
-        });
-        if (adjacentToStart.length > 0) {
-          resourceTiles.bottle = adjacentToStart[Math.floor(Math.random() * adjacentToStart.length)];
-          usedTiles.add(resourceTiles.bottle);
-        }
-        
-        // 4. Coconut - random beach tile (not starting, not bottle)
-        const availableBeach = beachTiles.filter(t => !usedTiles.has(t));
-        if (availableBeach.length > 0) {
-          resourceTiles.coconut = availableBeach[Math.floor(Math.random() * availableBeach.length)];
-          usedTiles.add(resourceTiles.coconut);
-        }
-        
-        // 5. Spring - unassigned grass tile
-        const availableGrass3 = grassTiles.filter(t => !usedTiles.has(t));
-        if (availableGrass3.length > 0) {
-          resourceTiles.spring = availableGrass3[Math.floor(Math.random() * availableGrass3.length)];
-          usedTiles.add(resourceTiles.spring);
-        }
-        
-        // 6. Clams - two unassigned beach tiles
-        const availableBeach2 = beachTiles.filter(t => !usedTiles.has(t));
-        resourceTiles.clams = [];
-        if (availableBeach2.length > 0) {
-          const clam1 = availableBeach2[Math.floor(Math.random() * availableBeach2.length)];
-          resourceTiles.clams.push(clam1);
-          usedTiles.add(clam1);
-          
-          const availableBeach3 = beachTiles.filter(t => !usedTiles.has(t));
-          if (availableBeach3.length > 0) {
-            const clam2 = availableBeach3[Math.floor(Math.random() * availableBeach3.length)];
-            resourceTiles.clams.push(clam2);
-            usedTiles.add(clam2);
-          }
-        }
-        
-        return { landTiles, waterTiles, startingTile, resourceTiles };
-      }
-      
-      attempts++;
-    }
-    
-    // Fallback: return a simple connected island (all edges are land)
-    const landTiles = new Set<string>();
-    const waterTiles = new Set<string>();
-    for (let row = 0; row < mapSize; row++) {
-      for (let col = 0; col < mapSize; col++) {
-        landTiles.add(getTileKey(row, col));
-      }
-    }
-    const startingTile = getTileKey(0, 0); // Fallback starting position
-    return { landTiles, waterTiles, startingTile, resourceTiles: {} };
-  };
-  
   // Check if a land tile touches water (making it a beach)
   // Only checks cardinal directions (up, down, left, right) - NOT diagonals
   const isBeachTile = (row: number, col: number, landTiles: Set<string>, waterTiles: Set<string>) => {
@@ -429,13 +231,7 @@ export default function GameRoom() {
     return false; // No water neighbors in cardinal directions = grass/interior
   };
   
-  // Generate map when game starts
-  useEffect(() => {
-    if (gameStarted && !mapData) {
-      const map = generateMap();
-      setMapData(map);
-    }
-  }, [gameStarted, mapData]);
+  // Map is now received from server, no need to generate locally
 
   // If player hasn't entered their name yet
   if (!hasJoined) {
@@ -566,7 +362,15 @@ export default function GameRoom() {
             boxSizing: 'border-box'
           }}>
             <h2 style={{ color: '#333', marginBottom: '10px' }}>Day {currentDay}</h2>
-            <p style={{ color: '#666' }}>Narration and choices will appear here</p>
+            <p style={{ 
+              color: '#333', 
+              fontSize: '16px', 
+              lineHeight: '1.6',
+              whiteSpace: 'pre-wrap',
+              marginTop: '15px'
+            }}>
+              {narration || 'Click "Next Day" to begin your journey...'}
+            </p>
           </div>
 
           {/* Right section - 1/3 width, split into top and bottom halves */}
@@ -586,7 +390,8 @@ export default function GameRoom() {
               boxSizing: 'border-box',
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center'
+              alignItems: 'center',
+              justifyContent: 'center'
             }}>
               {mapData ? (
                 <div style={{
