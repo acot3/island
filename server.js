@@ -400,6 +400,8 @@ app.prepare().then(() => {
         isReady: false,
         health: 10,
         joinedAt: Date.now(),
+        injured: false,
+        injuredOnDay: null,
       };
       
       room.players.push(player);
@@ -535,9 +537,19 @@ app.prepare().then(() => {
         const room = gameRooms.get(roomCode);
         room.currentDay += 1;
         
-        // Subtract 1 health from each player (minimum 0)
+        // Subtract 1 health from each player (minimum 0) and handle injuries
         room.players.forEach(player => {
           player.health = Math.max(0, player.health - 1);
+          // Injuries persist through one day advance, then clear on the next
+          // If injured, check if it's been at least 2 days since injury
+          if (player.injured && player.injuredOnDay !== null) {
+            if (room.currentDay > player.injuredOnDay + 1) {
+              // Injury has persisted for a full day, now clear it
+              player.injured = false;
+              player.injuredOnDay = null;
+            }
+            // Otherwise, keep the injury (it persists through this day advance)
+          }
         });
         
         console.log(`Room ${roomCode} advancing to day ${room.currentDay}`);
@@ -695,6 +707,30 @@ app.prepare().then(() => {
               console.log(`Tile ${tileKey} is not explored. Explored tiles:`, room.mapData.exploredTiles);
             }
           }
+        }
+      }
+    });
+
+    // Handle player injury
+    socket.on('player-injured', () => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted) {
+          player.injured = true;
+          player.injuredOnDay = room.currentDay; // Track the day when injury occurred
+          console.log(`${player.name} is now injured on day ${room.currentDay}`);
+          
+          // Broadcast updated player state to all players
+          io.to(roomCode).emit('room-update', {
+            players: room.players,
+            gameStarted: room.gameStarted,
+            currentDay: room.currentDay,
+            food: room.food,
+            water: room.water,
+          });
         }
       }
     });

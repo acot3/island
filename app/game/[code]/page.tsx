@@ -11,6 +11,7 @@ interface Player {
   isReady: boolean;
   health: number;
   joinedAt: number;
+  injured?: boolean;
 }
 
 export default function GameRoom() {
@@ -48,6 +49,7 @@ export default function GameRoom() {
   const [resourceGatheringComplete, setResourceGatheringComplete] = useState(false);
   const [foodGathered, setFoodGathered] = useState<number | null>(null);
   const justAdvancedDayRef = useRef(false);
+  const [isInjured, setIsInjured] = useState(false);
   
   // Map state
   const [mapData, setMapData] = useState<{
@@ -81,6 +83,12 @@ export default function GameRoom() {
       if (currentDay) setCurrentDay(currentDay);
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
+      
+      // Sync injury state from server
+      const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
+      if (myPlayer) {
+        setIsInjured(myPlayer.injured || false);
+      }
     });
 
     // Listen for game start
@@ -98,12 +106,7 @@ export default function GameRoom() {
       setFirstTileSelected(null);
       setSecondTileSelected(null);
       setExplorationComplete(false);
-      // Reset resource gathering state
-      setResourceSelectionMode(false);
-      setResourceType(null);
-      setSelectedResourceTile(null);
-      setResourceGatheringComplete(false);
-      setFoodGathered(null);
+      setIsInjured(false);
       // Reset resource gathering state
       setResourceSelectionMode(false);
       setResourceType(null);
@@ -144,6 +147,14 @@ export default function GameRoom() {
       if (water !== undefined) setWater(water);
       if (narration) setNarration(narration);
       if (dayChoices) setChoices(dayChoices);
+      
+      // Sync injury state from server (injury persists through one day advance)
+      const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
+      if (myPlayer) {
+        setIsInjured(myPlayer.injured || false);
+      } else {
+        setIsInjured(false);
+      }
       
       // Reset exploration state for new day
       setHasExploredToday(false);
@@ -241,9 +252,9 @@ export default function GameRoom() {
       console.log('Player selected choice:', choice);
       
       if (choice.type === 'explore') {
-        // Check if player has already explored today
-        if (hasExploredToday) {
-          return; // Can't explore twice in one day
+        // Check if player has already explored today or is injured
+        if (hasExploredToday || isInjured) {
+          return; // Can't explore twice in one day or when injured
         }
         
         // Enter exploration mode
@@ -378,7 +389,7 @@ export default function GameRoom() {
 
   // Handle map tile click during exploration
   const handleMapTileClick = (row: number, col: number) => {
-    if (!exploringMode || !mapData || explorationComplete) return;
+    if (!exploringMode || !mapData || explorationComplete || isInjured) return;
     
     const tileKey = `${row},${col}`;
     const startingTile = mapData.startingTile;
@@ -387,6 +398,23 @@ export default function GameRoom() {
     const tileExists = mapData.landTiles.has(tileKey) || mapData.waterTiles.has(tileKey);
     if (!tileExists) {
       return; // Tile doesn't exist
+    }
+    
+    // Check for injury (50% chance)
+    const injuryRoll = Math.random();
+    if (injuryRoll < 0.5) {
+      // Player is injured
+      setIsInjured(true);
+      setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
+      setExplorationComplete(true);
+      setHasExploredToday(true);
+      
+      // Notify server of injury
+      if (socket) {
+        socket.emit('player-injured', {});
+      }
+      
+      return; // Don't proceed with tile reveal
     }
     
     if (!firstTileSelected) {
@@ -429,6 +457,23 @@ export default function GameRoom() {
     } else if (!secondTileSelected) {
       // Second click: must be adjacent to first tile
       if (areTilesAdjacent(tileKey, firstTileSelected)) {
+        // Check for injury on second tile selection (50% chance)
+        const secondInjuryRoll = Math.random();
+        if (secondInjuryRoll < 0.5) {
+          // Player is injured
+          setIsInjured(true);
+          setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
+          setExplorationComplete(true);
+          setHasExploredToday(true);
+          
+          // Notify server of injury
+          if (socket) {
+            socket.emit('player-injured', {});
+          }
+          
+          return; // Don't proceed with tile reveal
+        }
+        
         const isAlreadyExplored = mapData.exploredTiles?.includes(tileKey);
         
         setSecondTileSelected(tileKey);
@@ -514,7 +559,7 @@ export default function GameRoom() {
   };
 
   // Get current player's ready state
-  const myPlayer = players.find(p => p.id === socket?.id);
+  const myPlayer = players.find((p: Player) => p.id === socket?.id);
   const isReady = myPlayer?.isReady || false;
 
   // Check if a land tile touches water (making it a beach)
@@ -689,8 +734,29 @@ export default function GameRoom() {
               marginTop: '15px',
               marginBottom: choices.length > 0 ? '20px' : '0'
             }}>
-              {narration || 'Click "Next Day" to begin your journey...'}
+              {isInjured && !exploringMode && !explorationComplete ? 'You need to rest in order to recover from your injury.' : (narration || 'Click "Next Day" to begin your journey...')}
             </p>
+            
+            {/* Ankle image - shown when injury occurs during exploration */}
+            {isInjured && explorationComplete && narration.includes('sprain your ankle') && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                marginTop: '15px',
+                marginBottom: '20px'
+              }}>
+                <img 
+                  src="/ankle.png" 
+                  alt="Sprained ankle"
+                  style={{
+                    width: '60px',
+                    height: '60px',
+                    objectFit: 'contain'
+                  }}
+                />
+              </div>
+            )}
             
             {/* Food gathering display - show carrot icon and +[#] when food is gathered */}
             {resourceType === 'food' && resourceGatheringComplete && foodGathered !== null && (
@@ -721,8 +787,8 @@ export default function GameRoom() {
               </div>
             )}
             
-            {/* Choices - hidden during exploration, resource selection, and after completion */}
-            {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && (
+            {/* Choices - hidden during exploration, resource selection, after completion, and when injured */}
+            {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && !isInjured && (
               <div style={{
                 marginTop: '20px',
                 display: 'flex',
@@ -737,43 +803,46 @@ export default function GameRoom() {
                 }}>
                   What do you want to do?
                 </h3>
-                {choices.map((choice) => (
-                  <button
-                    key={choice.id}
-                    onClick={() => handleChoiceSelect(choice)}
-                    disabled={choice.type === 'explore' && hasExploredToday}
-                    style={{
-                      padding: '12px 20px',
-                      fontSize: '16px',
-                      backgroundColor: (choice.type === 'explore' && hasExploredToday) ? '#ccc' : '#2196F3',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: (choice.type === 'explore' && hasExploredToday) ? 'not-allowed' : 'pointer',
-                      textAlign: 'left',
-                      transition: 'background-color 0.2s',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                      opacity: (choice.type === 'explore' && hasExploredToday) ? 0.6 : 1
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!(choice.type === 'explore' && hasExploredToday)) {
-                        e.currentTarget.style.backgroundColor = '#1976D2';
-                      }
-                    }}
-                    onMouseLeave={(e) => {
-                      if (!(choice.type === 'explore' && hasExploredToday)) {
-                        e.currentTarget.style.backgroundColor = '#2196F3';
-                      }
-                    }}
-                  >
-                    {choice.text}
-                  </button>
-                ))}
+                {choices.map((choice) => {
+                  const isDisabled = (choice.type === 'explore' && (hasExploredToday || isInjured));
+                  return (
+                    <button
+                      key={choice.id}
+                      onClick={() => handleChoiceSelect(choice)}
+                      disabled={isDisabled}
+                      style={{
+                        padding: '12px 20px',
+                        fontSize: '16px',
+                        backgroundColor: isDisabled ? '#ccc' : '#2196F3',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '6px',
+                        cursor: isDisabled ? 'not-allowed' : 'pointer',
+                        textAlign: 'left',
+                        transition: 'background-color 0.2s',
+                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                        opacity: isDisabled ? 0.6 : 1
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isDisabled) {
+                          e.currentTarget.style.backgroundColor = '#1976D2';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (!isDisabled) {
+                          e.currentTarget.style.backgroundColor = '#2196F3';
+                        }
+                      }}
+                    >
+                      {choice.text}
+                    </button>
+                  );
+                })}
               </div>
             )}
 
-            {/* Exploration instructions - shown during exploration but not after completion */}
-            {exploringMode && !explorationComplete && (
+            {/* Exploration instructions - shown during exploration but not after completion or injury */}
+            {exploringMode && !explorationComplete && !isInjured && (
               <div style={{
                 marginTop: '20px',
                 padding: '15px',
@@ -815,23 +884,25 @@ export default function GameRoom() {
               </div>
             )}
 
-            {/* Go to sleep button - shown after exploration is complete */}
-            {explorationComplete && (
+            {/* Go to sleep button - shown after exploration is complete or when injured */}
+            {(explorationComplete || isInjured) && (
               <div style={{
                 marginTop: '20px',
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '12px'
               }}>
-                <p style={{ 
-                  color: '#333', 
-                  fontSize: '16px', 
-                  lineHeight: '1.6',
-                  marginTop: '15px',
-                  marginBottom: '10px'
-                }}>
-                  You're tired from the day's exploration.
-                </p>
+                {!isInjured && (
+                  <p style={{ 
+                    color: '#333', 
+                    fontSize: '16px', 
+                    lineHeight: '1.6',
+                    marginTop: '15px',
+                    marginBottom: '10px'
+                  }}>
+                    You're tired from the day's exploration.
+                  </p>
+                )}
                 <button
                   onClick={handleAdvanceDay}
                   style={{
@@ -1278,11 +1349,26 @@ export default function GameRoom() {
                   fontSize: '24px',
                   fontWeight: 'bold',
                   marginBottom: '15px',
-                  color: '#333'
+                  color: '#333',
+                  position: 'relative'
                 }}>
                   {player.name}
                   {player.name === playerName && (
                     <span style={{ color: '#666', fontSize: '18px', marginLeft: '8px', fontWeight: 'normal' }}>(you)</span>
+                  )}
+                  {(player.injured || (player.id === socket?.id && isInjured)) && (
+                    <img 
+                      src="/ankle.png" 
+                      alt="Injured"
+                      style={{
+                        position: 'absolute',
+                        top: '0',
+                        right: '0',
+                        width: '32px',
+                        height: '32px',
+                        objectFit: 'contain'
+                      }}
+                    />
                   )}
                 </div>
 
