@@ -50,6 +50,7 @@ export default function GameRoom() {
   const [foodGathered, setFoodGathered] = useState<number | null>(null);
   const justAdvancedDayRef = useRef(false);
   const [isInjured, setIsInjured] = useState(false);
+  const [resourceStates, setResourceStates] = useState<Record<string, boolean>>({});
   
   // Map state
   const [mapData, setMapData] = useState<{
@@ -92,7 +93,7 @@ export default function GameRoom() {
     });
 
     // Listen for game start
-    socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData }) => {
+    socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData, resourceStates: serverResourceStates }) => {
       console.log('Game starting!', players);
       setPlayers(players);
       setGameStarted(true);
@@ -113,6 +114,11 @@ export default function GameRoom() {
       setSelectedResourceTile(null);
       setResourceGatheringComplete(false);
       setFoodGathered(null);
+      
+      // Set resource states
+      if (serverResourceStates) {
+        setResourceStates(serverResourceStates);
+      }
       
       // Convert server map data (arrays) to Sets for client use
       if (serverMapData) {
@@ -172,7 +178,7 @@ export default function GameRoom() {
     });
 
     // Listen for resource updates
-    socketInstance.on('resource-updated', ({ food: updatedFood, water: updatedWater }) => {
+    socketInstance.on('resource-updated', ({ food: updatedFood, water: updatedWater, resourceStates: updatedResourceStates }) => {
       console.log('Resource update received:', { food: updatedFood, water: updatedWater });
       if (updatedFood !== undefined) {
         setFood(updatedFood);
@@ -180,10 +186,13 @@ export default function GameRoom() {
       if (updatedWater !== undefined) {
         setWater(updatedWater);
       }
+      if (updatedResourceStates) {
+        setResourceStates(updatedResourceStates);
+      }
     });
 
     // Listen for map updates (after exploration)
-    socketInstance.on('map-updated', ({ mapData: updatedMapData }) => {
+    socketInstance.on('map-updated', ({ mapData: updatedMapData, resourceStates: updatedResourceStates }) => {
       console.log('Map updated');
       if (updatedMapData) {
         setMapData({
@@ -193,6 +202,11 @@ export default function GameRoom() {
           resourceTiles: updatedMapData.resourceTiles,
           exploredTiles: updatedMapData.exploredTiles,
         });
+        
+        // Update resource states
+        if (updatedResourceStates) {
+          setResourceStates(updatedResourceStates);
+        }
         
         // Don't exit exploration mode here - let the flow continue
         // The explorationComplete state and narration will handle the UI
@@ -318,6 +332,32 @@ export default function GameRoom() {
     return '';
   };
 
+  // Helper function to check if a resource is depleted
+  const isResourceDepleted = (tileKey: string): boolean => {
+    if (!mapData || !resourceStates) return false;
+    
+    const resources = mapData.resourceTiles;
+    const isSpring = tileKey === resources.spring;
+    
+    // Spring is infinite, never depleted
+    if (isSpring) return false;
+    
+    // Check if this resource is marked as depleted
+    if (tileKey === resources.herbs) {
+      return resourceStates['herbs'] || false;
+    } else if (tileKey === resources.deer) {
+      return resourceStates['deer'] || false;
+    } else if (tileKey === resources.coconut) {
+      return resourceStates['coconut'] || false;
+    } else if (tileKey === resources.bottle) {
+      return resourceStates['bottle'] || false;
+    } else if (resources.clams?.includes(tileKey)) {
+      return resourceStates[`clams_${tileKey}`] || false;
+    }
+    
+    return false;
+  };
+
   // Handle resource tile click during resource selection
   const handleResourceTileClick = (row: number, col: number) => {
     if (!resourceSelectionMode || !mapData || !resourceType || resourceGatheringComplete) return;
@@ -340,6 +380,11 @@ export default function GameRoom() {
     
     if (!isValidResource) {
       return; // Not a valid resource for this type
+    }
+    
+    // Check if resource is depleted (spring is never depleted)
+    if (isResourceDepleted(tileKey)) {
+      return; // Can't gather from depleted resources
     }
     
     // Check if tile is explored
@@ -400,9 +445,9 @@ export default function GameRoom() {
       return; // Tile doesn't exist
     }
     
-    // Check for injury (50% chance)
+    // Check for injury (25% chance)
     const injuryRoll = Math.random();
-    if (injuryRoll < 0.5) {
+    if (injuryRoll < 0.25) {
       // Player is injured
       setIsInjured(true);
       setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
@@ -457,9 +502,9 @@ export default function GameRoom() {
     } else if (!secondTileSelected) {
       // Second click: must be adjacent to first tile
       if (areTilesAdjacent(tileKey, firstTileSelected)) {
-        // Check for injury on second tile selection (50% chance)
+        // Check for injury on second tile selection (25% chance)
         const secondInjuryRoll = Math.random();
-        if (secondInjuryRoll < 0.5) {
+        if (secondInjuryRoll < 0.25) {
           // Player is injured
           setIsInjured(true);
           setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
@@ -1070,10 +1115,15 @@ export default function GameRoom() {
                       let isResourceClickable = false;
                       let isResourceHighlighted = false;
                       if (resourceSelectionMode && resourceType && isExplored) {
-                        if (resourceType === 'food') {
-                          isResourceClickable = isHerbs || isDeer || isCoconut || (isClams || false);
-                        } else if (resourceType === 'water') {
-                          isResourceClickable = isBottle || isSpring;
+                        // Check if resource is depleted (spring is never depleted)
+                        const isDepleted = isResourceDepleted(tileKey);
+                        
+                        if (!isDepleted) {
+                          if (resourceType === 'food') {
+                            isResourceClickable = isHerbs || isDeer || isCoconut || (isClams || false);
+                          } else if (resourceType === 'water') {
+                            isResourceClickable = isBottle || isSpring;
+                          }
                         }
                         isResourceHighlighted = isResourceClickable && !resourceGatheringComplete;
                       }
@@ -1096,14 +1146,28 @@ export default function GameRoom() {
                       
                       // Determine which image to show (priority order) - only if explored
                       let resourceImage: string | null = null;
+                      let resourceImageOpacity = 1.0;
                       if (isExplored) {
                         if (isStartingTile) resourceImage = '/shipwreck.png';
-                        else if (isHerbs) resourceImage = '/herbs.png';
-                        else if (isDeer) resourceImage = '/deer.png';
-                        else if (isBottle) resourceImage = '/bottle.png';
-                        else if (isCoconut) resourceImage = '/coconut.png';
-                        else if (isSpring) resourceImage = '/spring.png';
-                        else if (isClams) resourceImage = '/clams.png';
+                        else if (isHerbs) {
+                          resourceImage = '/herbs.png';
+                          if (isResourceDepleted(tileKey)) resourceImageOpacity = 0.4;
+                        } else if (isDeer) {
+                          resourceImage = '/deer.png';
+                          if (isResourceDepleted(tileKey)) resourceImageOpacity = 0.4;
+                        } else if (isBottle) {
+                          resourceImage = '/bottle.png';
+                          if (isResourceDepleted(tileKey)) resourceImageOpacity = 0.4;
+                        } else if (isCoconut) {
+                          resourceImage = '/coconut.png';
+                          if (isResourceDepleted(tileKey)) resourceImageOpacity = 0.4;
+                        } else if (isSpring) {
+                          resourceImage = '/spring.png';
+                          // Spring is never depleted
+                        } else if (isClams) {
+                          resourceImage = '/clams.png';
+                          if (isResourceDepleted(tileKey)) resourceImageOpacity = 0.4;
+                        }
                       }
                       
                       // Check if this is a selected exploration tile
@@ -1181,7 +1245,8 @@ export default function GameRoom() {
                                 objectFit: 'contain',
                                 position: 'absolute',
                                 top: '12.5%',
-                                left: '12.5%'
+                                left: '12.5%',
+                                opacity: resourceImageOpacity
                               }}
                             />
                           )}

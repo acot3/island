@@ -319,21 +319,27 @@ const calculateMapState = (mapData, resourceStates = {}) => {
         tile.forEach(clamTile => {
           if (exploredSet.has(clamTile)) {
             const collected = resourceStates[`clams_${clamTile}`] || false;
-            revealedResources.push({
-              type: 'clams',
-              tile: clamTile,
-              collected: collected
-            });
+            // Only include if not collected (depleted) - spring is never depleted
+            if (!collected || key === 'clams') {
+              revealedResources.push({
+                type: 'clams',
+                tile: clamTile,
+                collected: collected
+              });
+            }
           }
         });
       } else {
         if (exploredSet.has(tile)) {
           const collected = resourceStates[key] || false;
-          revealedResources.push({
-            type: type,
-            tile: tile,
-            collected: collected
-          });
+          // Only include if not collected (depleted) - spring is never depleted
+          if (!collected || key === 'spring') {
+            revealedResources.push({
+              type: type,
+              tile: tile,
+              collected: collected
+            });
+          }
         }
       }
     }
@@ -515,6 +521,7 @@ app.prepare().then(() => {
               narration: narration,
               choices: choices,
               mapData: mapData,
+              resourceStates: room.resourceStates || {},
             });
           } else {
             // Just update the room
@@ -665,6 +672,30 @@ app.prepare().then(() => {
           console.log(`Tile ${tileKey} is explored: ${isExplored}, isValidResource: ${isValidResource}`);
           
           if (isValidResource && isExplored) {
+            // Check if resource is already depleted (except spring which is infinite)
+            const isSpring = tileKey === resources.spring;
+            let resourceKey = '';
+            
+            // Determine the resource key for tracking depletion
+            if (tileKey === resources.herbs) {
+              resourceKey = 'herbs';
+            } else if (tileKey === resources.deer) {
+              resourceKey = 'deer';
+            } else if (tileKey === resources.coconut) {
+              resourceKey = 'coconut';
+            } else if (tileKey === resources.bottle) {
+              resourceKey = 'bottle';
+            } else if (resources.clams && resources.clams.includes(tileKey)) {
+              resourceKey = `clams_${tileKey}`;
+            }
+            
+            // Check if resource is already depleted (spring is never depleted)
+            const isDepleted = resourceKey && room.resourceStates[resourceKey];
+            if (isDepleted && !isSpring) {
+              console.log(`Resource ${resourceKey} at ${tileKey} is already depleted`);
+              return; // Can't gather from depleted resources
+            }
+            
             // Increment the appropriate resource
             if (resourceType === 'food') {
               // Use foodAmount from client, or default to 2-4 if not provided (for backwards compatibility)
@@ -681,13 +712,20 @@ app.prepare().then(() => {
               room.water += 1;
             }
 
+            // Mark resource as depleted (except spring which is infinite)
+            if (resourceKey && !isSpring) {
+              room.resourceStates[resourceKey] = true;
+              console.log(`Resource ${resourceKey} at ${tileKey} is now depleted`);
+            }
+
             console.log(`Resource gathered. ${resourceType}: ${room[resourceType]}`);
             console.log(`Broadcasting resource update: food=${room.food}, water=${room.water}`);
 
-            // Broadcast updated resources to all players
+            // Broadcast updated resources and resource states to all players
             io.to(roomCode).emit('resource-updated', {
               food: room.food,
-              water: room.water
+              water: room.water,
+              resourceStates: room.resourceStates
             });
           } else {
             console.log(`Invalid resource gathering attempt: ${resourceType} from ${tileKey}`);
@@ -763,7 +801,8 @@ app.prepare().then(() => {
             
             // Broadcast updated map to all players
             io.to(roomCode).emit('map-updated', {
-              mapData: room.mapData
+              mapData: room.mapData,
+              resourceStates: room.resourceStates || {}
             });
           }
         }
