@@ -271,6 +271,83 @@ const generateMap = () => {
   };
 };
 
+// Helper function to calculate map state for choice generation
+const calculateMapState = (mapData, resourceStates = {}) => {
+  if (!mapData) return null;
+  
+  const exploredSet = new Set(mapData.exploredTiles);
+  const allTiles = new Set([...mapData.landTiles, ...mapData.waterTiles]);
+  
+  // Check for nearby unexplored tiles (within 2 spaces, including diagonal)
+  const [startRow, startCol] = mapData.startingTile.split(',').map(Number);
+  let nearbyUnexplored = false;
+  
+  for (let dr = -2; dr <= 2; dr++) {
+    for (let dc = -2; dc <= 2; dc++) {
+      const row = startRow + dr;
+      const col = startCol + dc;
+      const tileKey = `${row},${col}`;
+      
+      // Check if tile exists and is not explored
+      if (allTiles.has(tileKey) && !exploredSet.has(tileKey)) {
+        nearbyUnexplored = true;
+        break;
+      }
+    }
+    if (nearbyUnexplored) break;
+  }
+  
+  // Check for revealed resources
+  const revealedResources = [];
+  const resourceTiles = mapData.resourceTiles || {};
+  
+  // Check each resource type
+  const resourceTypes = {
+    herbs: 'herbs',
+    deer: 'deer',
+    coconut: 'coconut',
+    clams: 'clams',
+    spring: 'spring',
+    bottle: 'bottle'
+  };
+  
+  for (const [key, type] of Object.entries(resourceTypes)) {
+    const tile = resourceTiles[key];
+    if (tile) {
+      // Handle clams which is an array
+      if (Array.isArray(tile)) {
+        tile.forEach(clamTile => {
+          if (exploredSet.has(clamTile)) {
+            const collected = resourceStates[`clams_${clamTile}`] || false;
+            revealedResources.push({
+              type: 'clams',
+              tile: clamTile,
+              collected: collected
+            });
+          }
+        });
+      } else {
+        if (exploredSet.has(tile)) {
+          const collected = resourceStates[key] || false;
+          revealedResources.push({
+            type: type,
+            tile: tile,
+            collected: collected
+          });
+        }
+      }
+    }
+  }
+  
+  return {
+    exploredTiles: mapData.exploredTiles.length,
+    totalTiles: mapData.landTiles.length + mapData.waterTiles.length,
+    startingTile: mapData.startingTile,
+    nearbyUnexplored: nearbyUnexplored,
+    revealedResources: revealedResources
+  };
+};
+
 app.prepare().then(() => {
   const httpServer = createServer(async (req, res) => {
     try {
@@ -309,6 +386,7 @@ app.prepare().then(() => {
           currentDay: 1,
           food: 0,
           water: 0,
+          resourceStates: {},
           createdAt: Date.now(),
         });
       }
@@ -397,7 +475,15 @@ app.prepare().then(() => {
             
             // Generate Day 1 narration
             let narration = 'You wake up on the beach, surrounded by wreckage...';
+            let choices = [];
             try {
+              // Initialize resource states if not exists
+              if (!room.resourceStates) {
+                room.resourceStates = {};
+              }
+              
+              const mapState = calculateMapState(mapData, room.resourceStates);
+              
               const narrationResponse = await fetch(`http://localhost:${port}/api/generate-narration`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -406,18 +492,15 @@ app.prepare().then(() => {
                   players: room.players,
                   food: room.food,
                   water: room.water,
-                  mapState: {
-                    exploredTiles: mapData.exploredTiles.length,
-                    totalTiles: mapData.landTiles.length + mapData.waterTiles.length,
-                    startingTile: mapData.startingTile,
-                  }
+                  mapState: mapState
                 })
               });
               
               if (narrationResponse.ok) {
                 const data = await narrationResponse.json();
-                narration = data.narration;
-                console.log('Generated Day 1 narration');
+                narration = data.narration || narration;
+                choices = data.choices || [];
+                console.log('Generated Day 1 narration with', choices.length, 'choices');
               } else {
                 console.error('Failed to generate Day 1 narration:', narrationResponse.status);
               }
@@ -428,6 +511,7 @@ app.prepare().then(() => {
             io.to(roomCode).emit('game-start', {
               players: room.players,
               narration: narration,
+              choices: choices,
               mapData: mapData,
             });
           } else {
@@ -460,12 +544,14 @@ app.prepare().then(() => {
         
         // Generate narration
         let narration = 'The sun rises on another day...';
+        let choices = [];
         try {
-          const mapState = room.mapData ? {
-            exploredTiles: room.mapData.exploredTiles.length,
-            totalTiles: room.mapData.landTiles.length + room.mapData.waterTiles.length,
-            startingTile: room.mapData.startingTile,
-          } : null;
+          // Initialize resource states if not exists
+          if (!room.resourceStates) {
+            room.resourceStates = {};
+          }
+          
+          const mapState = room.mapData ? calculateMapState(room.mapData, room.resourceStates) : null;
           
           const narrationResponse = await fetch(`http://localhost:${port}/api/generate-narration`, {
             method: 'POST',
@@ -481,8 +567,9 @@ app.prepare().then(() => {
           
           if (narrationResponse.ok) {
             const data = await narrationResponse.json();
-            narration = data.narration;
-            console.log(`Generated narration for day ${room.currentDay}`);
+            narration = data.narration || narration;
+            choices = data.choices || [];
+            console.log(`Generated narration for day ${room.currentDay} with`, choices.length, 'choices');
           } else {
             console.error('Failed to generate narration:', narrationResponse.status);
           }
@@ -497,7 +584,33 @@ app.prepare().then(() => {
           food: room.food,
           water: room.water,
           narration: narration,
+          choices: choices,
         });
+      }
+    });
+
+    // Handle player choice selection
+    socket.on('select-choice', ({ choiceId, choiceType, resource }) => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted) {
+          console.log(`${player.name} selected choice: ${choiceId} (${choiceType})`);
+          
+          // For now, just log the choice
+          // In Phase 3, we'll implement the actual actions (explore, collect resources)
+          
+          // Broadcast choice selection to all players (for future use)
+          io.to(roomCode).emit('choice-selected', {
+            playerId: socket.id,
+            playerName: player.name,
+            choiceId: choiceId,
+            choiceType: choiceType,
+            resource: resource
+          });
+        }
       }
     });
 

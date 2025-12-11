@@ -30,6 +30,12 @@ export default function GameRoom() {
   const [food, setFood] = useState(0);
   const [water, setWater] = useState(0);
   const [narration, setNarration] = useState('');
+  const [choices, setChoices] = useState<Array<{
+    id: string;
+    text: string;
+    type: string;
+    resource?: string;
+  }>>([]);
   const justAdvancedDayRef = useRef(false);
   
   // Map state
@@ -65,12 +71,13 @@ export default function GameRoom() {
     });
 
     // Listen for game start
-    socketInstance.on('game-start', ({ players, narration, mapData: serverMapData }) => {
+    socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData }) => {
       console.log('Game starting!', players);
       setPlayers(players);
       setGameStarted(true);
       setCurrentDay(1); // Reset to day 1 when game starts
       if (narration) setNarration(narration);
+      if (gameChoices) setChoices(gameChoices);
       
       // Convert server map data (arrays) to Sets for client use
       if (serverMapData) {
@@ -87,7 +94,7 @@ export default function GameRoom() {
     });
 
     // Listen for day advancement
-    socketInstance.on('day-advanced', async ({ currentDay, players, food, water, narration }) => {
+    socketInstance.on('day-advanced', async ({ currentDay, players, food, water, narration, choices: dayChoices }) => {
       console.log('Day advanced to:', currentDay);
       
       // Only show animation if this player didn't initiate the change AND game has already started
@@ -104,6 +111,7 @@ export default function GameRoom() {
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
       if (narration) setNarration(narration);
+      if (dayChoices) setChoices(dayChoices);
     });
 
     // Cleanup on unmount
@@ -151,6 +159,17 @@ export default function GameRoom() {
       
       // After animation, send event to server
       socket.emit('advance-day');
+    }
+  };
+
+  const handleChoiceSelect = (choice: { id: string; text: string; type: string; resource?: string }) => {
+    if (socket) {
+      console.log('Player selected choice:', choice);
+      socket.emit('select-choice', {
+        choiceId: choice.id,
+        choiceType: choice.type,
+        resource: choice.resource
+      });
     }
   };
 
@@ -367,10 +386,56 @@ export default function GameRoom() {
               fontSize: '16px', 
               lineHeight: '1.6',
               whiteSpace: 'pre-wrap',
-              marginTop: '15px'
+              marginTop: '15px',
+              marginBottom: choices.length > 0 ? '20px' : '0'
             }}>
               {narration || 'Click "Next Day" to begin your journey...'}
             </p>
+            
+            {/* Choices */}
+            {choices.length > 0 && (
+              <div style={{
+                marginTop: '20px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <h3 style={{ 
+                  color: '#333', 
+                  fontSize: '18px', 
+                  marginBottom: '10px',
+                  fontWeight: 'bold'
+                }}>
+                  What do you want to do?
+                </h3>
+                {choices.map((choice) => (
+                  <button
+                    key={choice.id}
+                    onClick={() => handleChoiceSelect(choice)}
+                    style={{
+                      padding: '12px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#2196F3',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      textAlign: 'left',
+                      transition: 'background-color 0.2s',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#1976D2';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#2196F3';
+                    }}
+                  >
+                    {choice.text}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Right section - 1/3 width, split into top and bottom halves */}
@@ -409,6 +474,9 @@ export default function GameRoom() {
                       const isBeach = isLand && isBeachTile(row, col, mapData.landTiles, mapData.waterTiles);
                       const isStartingTile = tileKey === mapData.startingTile;
                       
+                      // Check if tile is explored (fog of war)
+                      const isExplored = mapData.exploredTiles?.includes(tileKey) || false;
+                      
                       // Check if this tile has a resource
                       const resources = mapData.resourceTiles;
                       const isHerbs = tileKey === resources.herbs;
@@ -418,24 +486,30 @@ export default function GameRoom() {
                       const isSpring = tileKey === resources.spring;
                       const isClams = resources.clams?.includes(tileKey);
                       
-                      let backgroundColor = '#424242'; // Default (shouldn't happen)
-                      if (isWater) {
-                        backgroundColor = '#4a90e2'; // Water - blue
-                      } else if (isBeach) {
-                        backgroundColor = '#e6d1b5'; // Beach - tan
-                      } else {
-                        backgroundColor = '#4ea354'; // Grass - green
+                      // Fog of war: if not explored, show dark grey fog
+                      let backgroundColor = '#424242'; // Default fog color
+                      if (isExplored) {
+                        // Only show actual colors if explored
+                        if (isWater) {
+                          backgroundColor = '#4a90e2'; // Water - blue
+                        } else if (isBeach) {
+                          backgroundColor = '#e6d1b5'; // Beach - tan
+                        } else {
+                          backgroundColor = '#4ea354'; // Grass - green
+                        }
                       }
                       
-                      // Determine which image to show (priority order)
+                      // Determine which image to show (priority order) - only if explored
                       let resourceImage: string | null = null;
-                      if (isStartingTile) resourceImage = '/shipwreck.png';
-                      else if (isHerbs) resourceImage = '/herbs.png';
-                      else if (isDeer) resourceImage = '/deer.png';
-                      else if (isBottle) resourceImage = '/bottle.png';
-                      else if (isCoconut) resourceImage = '/coconut.png';
-                      else if (isSpring) resourceImage = '/spring.png';
-                      else if (isClams) resourceImage = '/clams.png';
+                      if (isExplored) {
+                        if (isStartingTile) resourceImage = '/shipwreck.png';
+                        else if (isHerbs) resourceImage = '/herbs.png';
+                        else if (isDeer) resourceImage = '/deer.png';
+                        else if (isBottle) resourceImage = '/bottle.png';
+                        else if (isCoconut) resourceImage = '/coconut.png';
+                        else if (isSpring) resourceImage = '/spring.png';
+                        else if (isClams) resourceImage = '/clams.png';
+                      }
                       
                       return (
                         <div
@@ -444,9 +518,10 @@ export default function GameRoom() {
                             width: '65px',
                             height: '65px',
                             backgroundColor,
-                            border: isStartingTile ? '3px solid #c94d57' : '1px solid #999',
+                            border: isStartingTile && isExplored ? '3px solid #c94d57' : '1px solid #999',
                             position: 'relative',
-                            boxSizing: 'border-box'
+                            boxSizing: 'border-box',
+                            opacity: isExplored ? 1 : 0.6 // Slightly dim fogged tiles
                           }}
                         >
                           {resourceImage && (
