@@ -95,7 +95,7 @@ export default function GameRoom() {
 
     // Listen for room updates
     socketInstance.on('room-update', ({ players, gameStarted, currentDay, food, water }) => {
-      console.log('Room update received - players count:', players.length, 'players:', players.map(p => ({ id: p.id, name: p.name })));
+      console.log('Room update received - players count:', players.length, 'players:', players.map((p: Player) => ({ id: p.id, name: p.name })));
       setPlayers(players);
       playersRef.current = players;
       console.log('Updated playersRef.current, length:', playersRef.current.length);
@@ -128,7 +128,7 @@ export default function GameRoom() {
 
     // Listen for game start (this happens in parallel while video is playing)
     socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData, resourceStates: serverResourceStates }) => {
-      console.log('Game starting! Players count:', players.length, 'players:', players.map(p => ({ id: p.id, name: p.name })));
+      console.log('Game starting! Players count:', players.length, 'players:', players.map((p: Player) => ({ id: p.id, name: p.name })));
       setPlayers(players);
       playersRef.current = players;
       console.log('Set playersRef.current, length:', playersRef.current.length);
@@ -525,8 +525,8 @@ export default function GameRoom() {
         isMyTurn,
         currentTurnPlayerId,
         mySocketId: socket.id,
-        playersState: players.map(p => ({ id: p.id, name: p.name })),
-        playersRef: playersRef.current.map(p => ({ id: p.id, name: p.name }))
+        playersState: players.map((p: Player) => ({ id: p.id, name: p.name })),
+        playersRef: playersRef.current.map((p: Player) => ({ id: p.id, name: p.name }))
       });
       
       // In multiplayer, if we're executing turns, only allow the current player to act

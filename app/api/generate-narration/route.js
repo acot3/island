@@ -1,3 +1,4 @@
+// @ts-nocheck
 import OpenAI from 'openai';
 
 const openai = new OpenAI({
@@ -8,7 +9,7 @@ export async function POST(request) {
   const { currentDay, players, food, water, mapState, storyThreads } = await request.json();
   
   // Build a simple prompt with game state
-  const playerSummary = players.map(p => {
+  const playerSummary = players.map((p) => {
     const healthStatus = p.health <= 3 ? 'in critical condition' : p.health <= 6 ? 'weakened and struggling' : 'holding steady';
     const mbtiInfo = p.mbtiType ? ` (${p.mbtiType})` : '';
     return `${p.name}${mbtiInfo} is ${healthStatus}`;
@@ -33,7 +34,7 @@ export async function POST(request) {
     ? Object.entries(storyThreads)
         .filter(([, t]) => t.status !== 'resolved')
         .map(([id, t]) => {
-          const recent = (t.beats || []).slice(-3).map(b => `• ${b}`).join('\n');
+          const recent = (t.beats || []).slice(-3).map((b) => `• ${b}`).join('\n');
           return `THREAD ${id}: ${t.title}\nStatus: ${t.status}\nRecent beats:\n${recent}`;
         })
         .join('\n\n')
