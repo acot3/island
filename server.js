@@ -572,6 +572,8 @@ app.prepare().then(() => {
           }
           
           const mapState = room.mapData ? calculateMapState(room.mapData, room.resourceStates) : null;
+          console.log('Server mapState:', JSON.stringify(mapState, null, 2));
+          console.log('Server resourceStates:', JSON.stringify(room.resourceStates, null, 2));
           
           const narrationResponse = await fetch(`http://localhost:${port}/api/generate-narration`, {
             method: 'POST',
@@ -639,7 +641,7 @@ app.prepare().then(() => {
     });
 
     // Handle resource gathering
-    socket.on('gather-resource', ({ resourceType, tileKey, foodAmount }) => {
+    socket.on('gather-resource', ({ resourceType, tileKey, foodAmount, waterAmount }) => {
       const roomCode = socket.data.roomCode;
       if (roomCode && gameRooms.has(roomCode)) {
         const room = gameRooms.get(roomCode);
@@ -702,15 +704,24 @@ app.prepare().then(() => {
               // Use foodAmount from client, or default to 2-4 if not provided (for backwards compatibility)
               // Ensure foodAmount is a valid number
               const parsedAmount = typeof foodAmount === 'number' && foodAmount > 0 ? foodAmount : null;
-              const amount = parsedAmount !== null 
-                ? parsedAmount 
+              const amount = parsedAmount !== null
+                ? parsedAmount
                 : (Math.floor(Math.random() * 3) + 2);
               console.log(`Adding ${amount} food to room (current: ${room.food}, foodAmount param: ${foodAmount}, parsedAmount: ${parsedAmount})`);
               const previousFood = room.food;
               room.food += amount;
               console.log(`Food gathered: ${amount} (previous: ${previousFood}, new total: ${room.food})`);
             } else if (resourceType === 'water') {
-              room.water += 1;
+              // Use waterAmount from client, or default to 2-4 if not provided (for backwards compatibility)
+              // Ensure waterAmount is a valid number
+              const parsedAmount = typeof waterAmount === 'number' && waterAmount > 0 ? waterAmount : null;
+              const amount = parsedAmount !== null
+                ? parsedAmount
+                : (Math.floor(Math.random() * 3) + 2);
+              console.log(`Adding ${amount} water to room (current: ${room.water}, waterAmount param: ${waterAmount}, parsedAmount: ${parsedAmount})`);
+              const previousWater = room.water;
+              room.water += amount;
+              console.log(`Water gathered: ${amount} (previous: ${previousWater}, new total: ${room.water})`);
             }
 
             // Mark resource as depleted (except spring which is infinite)

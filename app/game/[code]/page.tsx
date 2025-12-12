@@ -50,6 +50,7 @@ export default function GameRoom() {
   const [selectedResourceTile, setSelectedResourceTile] = useState<string | null>(null);
   const [resourceGatheringComplete, setResourceGatheringComplete] = useState(false);
   const [foodGathered, setFoodGathered] = useState<number | null>(null);
+  const [waterGathered, setWaterGathered] = useState<number | null>(null);
   const justAdvancedDayRef = useRef(false);
   const [isInjured, setIsInjured] = useState(false);
   const [resourceStates, setResourceStates] = useState<Record<string, boolean>>({});
@@ -116,7 +117,8 @@ export default function GameRoom() {
       setSelectedResourceTile(null);
       setResourceGatheringComplete(false);
       setFoodGathered(null);
-      
+      setWaterGathered(null);
+
       // Set resource states
       if (serverResourceStates) {
         setResourceStates(serverResourceStates);
@@ -138,7 +140,7 @@ export default function GameRoom() {
 
     // Listen for day advancement
     socketInstance.on('day-advanced', async ({ currentDay, players, food, water, narration, choices: dayChoices }) => {
-      console.log('Day advanced to:', currentDay);
+      console.log('Day advanced to:', currentDay, 'with', dayChoices?.length || 0, 'choices:', dayChoices);
       
       // Only show animation if this player didn't initiate the change AND game has already started
       if (!justAdvancedDayRef.current && currentDay > 1) {
@@ -153,6 +155,8 @@ export default function GameRoom() {
       setPlayers(players);
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
+      
+      // Always use server's narration (it's the source of truth with accurate state)
       if (narration) setNarration(narration);
       if (dayChoices) setChoices(dayChoices);
       
@@ -176,6 +180,7 @@ export default function GameRoom() {
       setSelectedResourceTile(null);
       setResourceGatheringComplete(false);
       setFoodGathered(null);
+      setWaterGathered(null);
       setOriginalNarration('');
     });
 
@@ -249,18 +254,21 @@ export default function GameRoom() {
 
   const handleAdvanceDay = async () => {
     if (socket) {
-      // Trigger the animation before sending event
       const oldDay = currentDay;
       const newDay = currentDay + 1;
       
       // Mark that this player initiated the day change
       justAdvancedDayRef.current = true;
       
-      // Show day transition animation
+      // Send event to server IMMEDIATELY so it can start processing (API call) in parallel
+      // while we show the animation
+      socket.emit('advance-day');
+      
+      // Show day transition animation while server processes
       await showDayTransitionAnimation(oldDay, newDay);
       
-      // After animation, send event to server
-      socket.emit('advance-day');
+      // After animation, we'll receive the 'day-advanced' event from server with narration
+      // The narration should be ready (or nearly ready) by now since server was processing in parallel
     }
   };
 
@@ -289,6 +297,7 @@ export default function GameRoom() {
         setSelectedResourceTile(null);
         setResourceGatheringComplete(false);
         setFoodGathered(null);
+        setWaterGathered(null);
         setNarration(`Select a ${choice.resource === 'food' ? 'food' : 'water'} resource to ${choice.resource === 'food' ? 'gather' : 'collect'} from.`);
       } else {
         // For other choices, send to server
@@ -406,6 +415,7 @@ export default function GameRoom() {
     
     // Optimistically update resources on client side
     let foodAmount: number | undefined = undefined;
+    let waterAmount: number | undefined = undefined;
     if (resourceType === 'food') {
       // Randomly select 2-4 food
       foodAmount = Math.floor(Math.random() * 3) + 2; // 2, 3, or 4
@@ -416,21 +426,24 @@ export default function GameRoom() {
         return newFood;
       });
     } else if (resourceType === 'water') {
-      setFoodGathered(null); // Clear food gathered when collecting water
+      // Randomly select 2-4 water
+      waterAmount = Math.floor(Math.random() * 3) + 2; // 2, 3, or 4
+      setWaterGathered(waterAmount);
       setWater(prevWater => {
-        const newWater = prevWater + 1;
-        console.log('Optimistically updating water from', prevWater, 'to', newWater);
+        const newWater = prevWater + waterAmount!;
+        console.log('Optimistically updating water from', prevWater, 'to', newWater, `(+${waterAmount})`);
         return newWater;
       });
     }
     
     // Send to server to update resources
     if (socket) {
-      console.log('Emitting gather-resource:', { resourceType, tileKey, foodAmount });
+      console.log('Emitting gather-resource:', { resourceType, tileKey, foodAmount, waterAmount });
       socket.emit('gather-resource', {
         resourceType: resourceType,
         tileKey: tileKey,
-        foodAmount: foodAmount
+        foodAmount: foodAmount,
+        waterAmount: waterAmount
       });
     }
   };
@@ -866,7 +879,36 @@ export default function GameRoom() {
                 </span>
               </div>
             )}
-            
+
+            {/* Water gathering display - show water icon and +[#] when water is gathered */}
+            {resourceType === 'water' && resourceGatheringComplete && waterGathered !== null && (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                gap: '10px',
+                marginTop: '15px',
+                marginBottom: '20px'
+              }}>
+                <img
+                  src="/water.png"
+                  alt="Water"
+                  style={{
+                    width: '40px',
+                    height: '40px',
+                    objectFit: 'contain'
+                  }}
+                />
+                <span style={{
+                  fontSize: '20px',
+                  fontWeight: 'bold',
+                  color: '#2196F3'
+                }}>
+                  +{waterGathered}
+                </span>
+              </div>
+            )}
+
             {/* Choices - hidden during exploration, resource selection, after completion, and when injured */}
             {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && !isInjured && (
               <div style={{
