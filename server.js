@@ -474,7 +474,19 @@ app.prepare().then(() => {
           // Check if all players are ready (and there's at least 1 player)
           const allReady = room.players.length > 0 && room.players.every(p => p.isReady);
           
+          // Broadcast room update to all players
+          io.to(roomCode).emit('room-update', {
+            players: room.players,
+            gameStarted: room.gameStarted,
+            currentDay: room.currentDay,
+            food: room.food,
+            water: room.water
+          });
+          
           if (allReady && !room.gameStarted) {
+            // Emit event to all players to show intro video
+            io.to(roomCode).emit('all-players-ready', {});
+            
             // Start the game!
             room.gameStarted = true;
             console.log(`Game starting in room ${roomCode}!`);

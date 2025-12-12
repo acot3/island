@@ -105,11 +105,17 @@ export default function GameRoom() {
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
       
-      // Check if all players are ready - if so, show intro video immediately
-      // (API call happens in parallel while video plays)
-      const allReady = players.length > 0 && players.every((p: Player) => p.isReady);
-      if (allReady && !gameStarted) {
-        console.log('Setting isInitializing to true from room-update - all players ready, showing video');
+      // Sync injury state from server
+      const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
+      if (myPlayer) {
+        setIsInjured(myPlayer.injured || false);
+      }
+    });
+
+    // Listen for all players ready event (show intro video)
+    socketInstance.on('all-players-ready', () => {
+      console.log('All players ready - showing intro video');
+      if (!gameStarted) {
         setIsInitializing(true);
         // Fade out lobby, then fade in video
         setLobbyPageOpacity(0);
@@ -117,13 +123,6 @@ export default function GameRoom() {
           setShowIntroVideo(true); // Show video immediately while API processes
           setVideoPageOpacity(1);
         }, 500); // Wait for lobby fade out
-      }
-      // Don't clear isInitializing here - only clear it when game-start is received
-      
-      // Sync injury state from server
-      const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
-      if (myPlayer) {
-        setIsInjured(myPlayer.injured || false);
       }
     });
 
@@ -391,20 +390,13 @@ export default function GameRoom() {
     };
   }, []);
 
-  // Watch for when all players become ready (show intro video immediately)
+  // Watch for when all players become ready (but wait for server event)
+  // The server will emit 'all-players-ready' when all players are ready
+  // This useEffect is kept for edge cases but shouldn't be the primary trigger
   useEffect(() => {
     if (!gameStarted && players.length > 0) {
       const allReady = players.every((p: Player) => p.isReady);
-      if (allReady) {
-        console.log('All players ready detected in useEffect - showing intro video');
-        setIsInitializing(true);
-        // Fade out lobby, then fade in video
-        setLobbyPageOpacity(0);
-        setTimeout(() => {
-          setShowIntroVideo(true); // Show video immediately while API processes in background
-          setVideoPageOpacity(1);
-        }, 500); // Wait for lobby fade out
-      } else {
+      if (!allReady) {
         // If not all ready, clear initialization state
         setIsInitializing(false);
         setShowIntroVideo(false);
@@ -468,18 +460,8 @@ export default function GameRoom() {
           p.id === socket.id ? { ...p, isReady: !iAmReady } : p
         );
         
-        // Check if all players will be ready after this toggle
-        const allReady = updated.length > 0 && updated.every(p => p.isReady);
-        if (allReady && !gameStarted) {
-          console.log('All players will be ready after toggle - showing video immediately');
-          setIsInitializing(true);
-          // Fade out lobby, then fade in video
-          setLobbyPageOpacity(0);
-          setTimeout(() => {
-            setShowIntroVideo(true); // Show video immediately while API processes
-            setVideoPageOpacity(1);
-          }, 500); // Wait for lobby fade out
-        }
+        // Don't show video here - wait for server's 'all-players-ready' event
+        // This ensures all players receive the signal at the same time
         
         return updated;
       });
