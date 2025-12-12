@@ -524,7 +524,9 @@ app.prepare().then(() => {
                 }
               }
               
-              const narrationResponse = await fetch(`http://localhost:${port}/api/generate-narration`, {
+              // Use 127.0.0.1 for internal API calls (more reliable than localhost)
+              const apiUrl = `http://127.0.0.1:${port}/api/generate-narration`;
+              const narrationResponse = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -574,10 +576,11 @@ app.prepare().then(() => {
                 console.log(`[${roomCode}] storyThreads:`, JSON.stringify(room.storyThreads, null, 2));
                 console.log('Generated Day 1 narration with', choices.length, 'choices');
               } else {
-                console.error('Failed to generate Day 1 narration:', narrationResponse.status);
+                const errorText = await narrationResponse.text().catch(() => 'Could not read error response');
+                console.error('Failed to generate Day 1 narration:', narrationResponse.status, errorText);
               }
             } catch (error) {
-              console.error('Error generating Day 1 narration:', error);
+              console.error('Error generating Day 1 narration:', error.message || error);
             }
             
             io.to(roomCode).emit('game-start', {
@@ -660,7 +663,9 @@ app.prepare().then(() => {
           console.log('Server mapState:', JSON.stringify(mapState, null, 2));
           console.log('Server resourceStates:', JSON.stringify(room.resourceStates, null, 2));
           
-          const narrationResponse = await fetch(`http://localhost:${port}/api/generate-narration`, {
+          // Use 127.0.0.1 for internal API calls (more reliable than localhost)
+          const apiUrl = `http://127.0.0.1:${port}/api/generate-narration`;
+          const narrationResponse = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -710,10 +715,11 @@ app.prepare().then(() => {
             console.log(`[${roomCode}] storyThreads:`, JSON.stringify(room.storyThreads, null, 2));
             console.log(`Generated narration for day ${room.currentDay} with`, choices.length, 'choices');
           } else {
-            console.error('Failed to generate narration:', narrationResponse.status);
+            const errorText = await narrationResponse.text().catch(() => 'Could not read error response');
+            console.error('Failed to generate narration:', narrationResponse.status, errorText);
           }
         } catch (error) {
-          console.error('Error generating narration:', error);
+          console.error('Error generating narration:', error.message || error);
         }
         
         // Reset player choices and turn state for new day
