@@ -4,11 +4,11 @@ const next = require('next');
 const { Server } = require('socket.io');
 
 const dev = process.env.NODE_ENV !== 'production';
-const hostname = 'localhost';
-const port = 3000;
+const hostname = process.env.HOSTNAME || '0.0.0.0';
+const port = parseInt(process.env.PORT || '3000', 10);
 
 // Create Next.js app
-const app = next({ dev, hostname, port });
+const app = next({ dev });
 const handle = app.getRequestHandler();
 
 // Store game rooms in memory
@@ -393,6 +393,8 @@ app.prepare().then(() => {
           food: 0,
           water: 0,
           resourceStates: {},
+          storyNotes: [],        // Legacy: persistent narrative canon (keeping during migration)
+          storyThreads: {}, // NEW: keyed narrative threads (persistent canon)
           playerChoices: {}, // Track each player's choice before execution
           currentPlayerIndex: null, // Track which player is currently executing their turn
           createdAt: Date.now(),
@@ -507,6 +509,21 @@ app.prepare().then(() => {
               
               const mapState = calculateMapState(mapData, room.resourceStates);
               
+              // TEMPORARY CANARY TEST — remove after verification
+              if (!room.storyThreads || Object.keys(room.storyThreads).length === 0) {
+                const firstPlayer = room.players[0];
+                if (firstPlayer) {
+                  const canaryId = `thread_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+                  room.storyThreads = {
+                    [canaryId]: {
+                      title: `${firstPlayer.name}'s Secret Discovery`,
+                      status: 'active',
+                      beats: [`${firstPlayer.name} has discovered something among the wreckage and is keeping it secret.`]
+                    }
+                  };
+                }
+              }
+              
               const narrationResponse = await fetch(`http://localhost:${port}/api/generate-narration`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -515,7 +532,8 @@ app.prepare().then(() => {
                   players: room.players,
                   food: room.food,
                   water: room.water,
-                  mapState: mapState
+                  mapState: mapState,
+                  storyThreads: room.storyThreads,
                 })
               });
               
@@ -523,6 +541,37 @@ app.prepare().then(() => {
                 const data = await narrationResponse.json();
                 narration = data.narration || narration;
                 choices = data.choices || [];
+                
+                // Merge thread updates into room.storyThreads
+                if (!room.storyThreads) room.storyThreads = {};
+                const updates = Array.isArray(data.threadUpdates) ? data.threadUpdates : [];
+                
+                for (const u of updates) {
+                  if (!u || typeof u !== 'object') continue;
+                  
+                  let id = u.thread_id;
+                  if (id === 'NEW') {
+                    id = `thread_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+                    room.storyThreads[id] = { title: u.title_if_new || 'Untitled thread', status: 'active', beats: [] };
+                  }
+                  
+                  if (!room.storyThreads[id]) {
+                    room.storyThreads[id] = { title: u.title_if_new || 'Untitled thread', status: 'active', beats: [] };
+                  }
+                  
+                  if (typeof u.beat === 'string' && u.beat.trim()) {
+                    room.storyThreads[id].beats.push(u.beat.trim());
+                    room.storyThreads[id].beats = room.storyThreads[id].beats.slice(-10); // cap per thread
+                  }
+                  
+                  if (u.update_type === 'resolve') {
+                    room.storyThreads[id].status = 'resolved';
+                  } else {
+                    room.storyThreads[id].status = 'active';
+                  }
+                }
+                
+                console.log(`[${roomCode}] storyThreads:`, JSON.stringify(room.storyThreads, null, 2));
                 console.log('Generated Day 1 narration with', choices.length, 'choices');
               } else {
                 console.error('Failed to generate Day 1 narration:', narrationResponse.status);
@@ -620,6 +669,7 @@ app.prepare().then(() => {
               food: room.food,
               water: room.water,
               mapState: mapState,
+              storyThreads: room.storyThreads,
             })
           });
           
@@ -627,6 +677,37 @@ app.prepare().then(() => {
             const data = await narrationResponse.json();
             narration = data.narration || narration;
             choices = data.choices || [];
+            
+            // Merge thread updates into room.storyThreads
+            if (!room.storyThreads) room.storyThreads = {};
+            const updates = Array.isArray(data.threadUpdates) ? data.threadUpdates : [];
+            
+            for (const u of updates) {
+              if (!u || typeof u !== 'object') continue;
+              
+              let id = u.thread_id;
+              if (id === 'NEW') {
+                id = `thread_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+                room.storyThreads[id] = { title: u.title_if_new || 'Untitled thread', status: 'active', beats: [] };
+              }
+              
+              if (!room.storyThreads[id]) {
+                room.storyThreads[id] = { title: u.title_if_new || 'Untitled thread', status: 'active', beats: [] };
+              }
+              
+              if (typeof u.beat === 'string' && u.beat.trim()) {
+                room.storyThreads[id].beats.push(u.beat.trim());
+                room.storyThreads[id].beats = room.storyThreads[id].beats.slice(-10); // cap per thread
+              }
+              
+              if (u.update_type === 'resolve') {
+                room.storyThreads[id].status = 'resolved';
+              } else {
+                room.storyThreads[id].status = 'active';
+              }
+            }
+            
+            console.log(`[${roomCode}] storyThreads:`, JSON.stringify(room.storyThreads, null, 2));
             console.log(`Generated narration for day ${room.currentDay} with`, choices.length, 'choices');
           } else {
             console.error('Failed to generate narration:', narrationResponse.status);
@@ -1038,7 +1119,7 @@ app.prepare().then(() => {
       console.error(err);
       process.exit(1);
     })
-    .listen(port, () => {
+    .listen(port, hostname, () => {
       console.log(`> Ready on http://${hostname}:${port}`);
     });
 });

@@ -5,7 +5,7 @@ const openai = new OpenAI({
 });
 
 export async function POST(request) {
-  const { currentDay, players, food, water, mapState } = await request.json();
+  const { currentDay, players, food, water, mapState, storyThreads } = await request.json();
   
   // Build a simple prompt with game state
   const playerSummary = players.map(p => {
@@ -27,6 +27,21 @@ export async function POST(request) {
       `- The survivors have begun to explore their surroundings` : 
       `- The survivors have not yet ventured far from the wreckage`;
   }
+  
+  // Create active threads text for the prompt
+  const activeThreadsText = storyThreads
+    ? Object.entries(storyThreads)
+        .filter(([, t]) => t.status !== 'resolved')
+        .map(([id, t]) => {
+          const recent = (t.beats || []).slice(-3).map(b => `• ${b}`).join('\n');
+          return `THREAD ${id}: ${t.title}\nStatus: ${t.status}\nRecent beats:\n${recent}`;
+        })
+        .join('\n\n')
+    : '';
+
+  const threadsBlock = activeThreadsText
+    ? `\nACTIVE PLOT THREADS (use these; continue from the most recent beats):\n${activeThreadsText}\n`
+    : '';
   
   // Determine available choices based on game state
   const availableChoices = [];
@@ -84,6 +99,7 @@ Current Situation:
 - ${playerSummary}
 - The group is ${resourceStatus}
 ${explorationInfo}
+${threadsBlock}
 
 CRITICAL: The ONLY characters in this story are: ${players.map(p => p.name).join(', ')} (total ${players.length}). Do NOT reference any other characters. If there is only one player, do NOT mention a group—refer only to that person.
 
@@ -95,23 +111,45 @@ The narration should:
 - Focus on the experience, not game mechanics
 - Avoid mentioning: health numbers, tiles, maps, or any explicit game systems
 - Set the tone for the day ahead
-- Be very brief (100 words maximum)
+- Be very brief (200 words maximum)
 ${choiceInstructions}
 
 ${currentDay === 1 ? 'This is the first day after the shipwreck. The survivors are just waking up on the beach.' : ''}
 
-IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field. Do NOT include choices - those are handled separately. Format:
+IMPORTANT: You must respond with valid JSON containing:
 {
-  "narration": "Your very brief narration text here (100 words maximum)"
-}`;
+  "narration": "brief narrative text (200 words maximum)",
+  "thread_updates": [
+    {
+      "thread_id": "thread_1 | NEW",
+      "title_if_new": "short title if thread_id is NEW",
+      "update_type": "introduce | escalate | complicate | resolve",
+      "beat": "one concrete, irreversible story change that alters what will be true tomorrow (no mechanics; not internal feelings alone)"
+    }
+  ]
+}
+
+Rules:
+- Each day, output 1–2 thread_updates.
+- At least 1 update must be a concrete new beat (not vague mood).
+- If there are ACTIVE PLOT THREADS, you must update one of them (use most recent beats).
+- If none exist, create one NEW thread.
+
+Beat quality requirements:
+- A beat must introduce a NEW fact, decision, consequence, or observation that changes the situation.
+- Internal emotions alone are NOT sufficient (e.g., "feels torn", "anxious", "doubt lingers").
+- The beat must create narrative consequences that future days must acknowledge.
+- If a thread has not materially changed for 2 days, the next update MUST externalize it (someone notices, an action is taken, or a consequence occurs).
+
+Do NOT include mechanics, numbers, or systems. Do NOT include choices - those are handled separately.`;
 
   try {
     const completion = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       messages: [
         { 
           role: "system", 
-          content: "You are the narrator for Island Game, a survival story. Your narration is very brief (100 words maximum), immersive, and atmospheric. You focus on the experience and emotions of the survivors, never mentioning game mechanics like health, tiles, maps, or numbers. CRITICAL: ONLY reference the specific characters provided in the prompt (no new names or roles). If there is only one player, do NOT mention a group—refer only to that person. Personalize each character's behavior and reactions based on their MBTI personality type, showing how different personalities respond to survival situations. You acknowledge the current state through narrative description, not game terms. You always respond with valid JSON containing only a 'narration' field."
+          content: "You are the narrator for Island Game, a survival story. Your narration is very brief (200 words maximum), immersive, and atmospheric. You focus on the experience and emotions of the survivors, never mentioning game mechanics like health, tiles, maps, or numbers. CRITICAL: ONLY reference the specific characters provided in the prompt (no new names or roles). If there is only one player, do NOT mention a group—refer only to that person. Personalize each character's behavior and reactions based on their MBTI personality type, showing how different personalities respond to survival situations. You acknowledge the current state through narrative description, not game terms. You always respond with valid JSON containing 'narration' and 'thread_updates' fields. The thread_updates should be 1–2 structured updates that advance plot threads with concrete beats (not mechanics, numbers, or systems). If ACTIVE PLOT THREADS exist, you must update at least one of them. If none exist, create a NEW thread. Thread update beats must be irreversible external changes (new facts/decisions/consequences/observations), not just emotions, and stalled threads must be externalized after 2 days."
         },
         { 
           role: "user", 
@@ -119,7 +157,7 @@ IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field.
         }
       ],
       response_format: { type: "json_object" },
-      max_tokens: 400,
+      max_tokens: 800,
       temperature: 0.8,
     });
     
@@ -143,11 +181,13 @@ IMPORTANT: You must respond with valid JSON containing ONLY a "narration" field.
     // Choices are determined by game state logic, not AI generation
     // This ensures accuracy and prevents AI from inventing unavailable choices
     const narration = parsedResponse.narration || responseContent;
+    const threadUpdates = parsedResponse.thread_updates || [];
     
     console.log(`Generated narration with ${availableChoices.length} available choices:`, availableChoices.map(c => c.id));
     
     return Response.json({
       narration: narration,
+      threadUpdates: threadUpdates,
       choices: availableChoices
     });
   } catch (error) {
