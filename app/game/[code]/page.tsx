@@ -52,8 +52,14 @@ export default function GameRoom() {
   const [foodGathered, setFoodGathered] = useState<number | null>(null);
   const [waterGathered, setWaterGathered] = useState<number | null>(null);
   const justAdvancedDayRef = useRef(false);
+  const gameStartedRef = useRef(false);
   const [isInjured, setIsInjured] = useState(false);
   const [resourceStates, setResourceStates] = useState<Record<string, boolean>>({});
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [showIntroVideo, setShowIntroVideo] = useState(false);
+  const [videoPageOpacity, setVideoPageOpacity] = useState(0);
+  const [gamePageOpacity, setGamePageOpacity] = useState(0);
+  const [lobbyPageOpacity, setLobbyPageOpacity] = useState(1);
   
   // Map state
   const [mapData, setMapData] = useState<{
@@ -84,9 +90,25 @@ export default function GameRoom() {
       console.log('Room update received:', players);
       setPlayers(players);
       setGameStarted(gameStarted);
+      gameStartedRef.current = gameStarted; // Update ref
       if (currentDay) setCurrentDay(currentDay);
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
+      
+      // Check if all players are ready - if so, show intro video immediately
+      // (API call happens in parallel while video plays)
+      const allReady = players.length > 0 && players.every((p: Player) => p.isReady);
+      if (allReady && !gameStarted) {
+        console.log('Setting isInitializing to true from room-update - all players ready, showing video');
+        setIsInitializing(true);
+        // Fade out lobby, then fade in video
+        setLobbyPageOpacity(0);
+        setTimeout(() => {
+          setShowIntroVideo(true); // Show video immediately while API processes
+          setVideoPageOpacity(1);
+        }, 500); // Wait for lobby fade out
+      }
+      // Don't clear isInitializing here - only clear it when game-start is received
       
       // Sync injury state from server
       const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
@@ -95,11 +117,15 @@ export default function GameRoom() {
       }
     });
 
-    // Listen for game start
+    // Listen for game start (this happens in parallel while video is playing)
     socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData, resourceStates: serverResourceStates }) => {
       console.log('Game starting!', players);
       setPlayers(players);
       setGameStarted(true);
+      gameStartedRef.current = true; // Update ref for video end handler
+      console.log('Clearing isInitializing - game data received');
+      setIsInitializing(false); // Clear loading state when game data arrives
+      // Don't set showIntroVideo here - it's already showing if all players were ready
       setCurrentDay(1); // Reset to day 1 when game starts
       if (narration) setNarration(narration);
       if (gameChoices) setChoices(gameChoices);
@@ -226,6 +252,51 @@ export default function GameRoom() {
     };
   }, []);
 
+  // Watch for when all players become ready (show intro video immediately)
+  useEffect(() => {
+    if (!gameStarted && players.length > 0) {
+      const allReady = players.every((p: Player) => p.isReady);
+      if (allReady) {
+        console.log('All players ready detected in useEffect - showing intro video');
+        setIsInitializing(true);
+        // Fade out lobby, then fade in video
+        setLobbyPageOpacity(0);
+        setTimeout(() => {
+          setShowIntroVideo(true); // Show video immediately while API processes in background
+          setVideoPageOpacity(1);
+        }, 500); // Wait for lobby fade out
+      } else {
+        // If not all ready, clear initialization state
+        setIsInitializing(false);
+        setShowIntroVideo(false);
+        setVideoPageOpacity(0);
+        setLobbyPageOpacity(1);
+      }
+    }
+  }, [players, gameStarted]);
+
+  // Handle fade transition when video page should hide
+  useEffect(() => {
+    if (!showIntroVideo && videoPageOpacity > 0) {
+      // Fade out video page
+      setVideoPageOpacity(0);
+      // After fade out, fade in game page
+      setTimeout(() => {
+        if (gameStarted) {
+          setGamePageOpacity(1);
+        }
+      }, 500); // Wait for fade out to complete
+    }
+  }, [showIntroVideo, gameStarted]);
+
+  // Handle fade in game page when game starts (if video already ended)
+  useEffect(() => {
+    if (gameStarted && !showIntroVideo && gamePageOpacity === 0) {
+      // Fade in game page
+      setTimeout(() => setGamePageOpacity(1), 10);
+    }
+  }, [gameStarted, showIntroVideo, gamePageOpacity]);
+
   const handleJoinRoom = () => {
     if (playerName.trim() && mbtiType && socket) {
       setHasJoined(true);
@@ -248,6 +319,32 @@ export default function GameRoom() {
 
   const handleToggleReady = () => {
     if (socket) {
+      const myPlayer = players.find((p: Player) => p.id === socket.id);
+      const iAmReady = myPlayer?.isReady || false;
+      
+      // Optimistically update local players state to reflect the toggle
+      // This will trigger the useEffect to check if all players are ready
+      setPlayers(prevPlayers => {
+        const updated = prevPlayers.map(p => 
+          p.id === socket.id ? { ...p, isReady: !iAmReady } : p
+        );
+        
+        // Check if all players will be ready after this toggle
+        const allReady = updated.length > 0 && updated.every(p => p.isReady);
+        if (allReady && !gameStarted) {
+          console.log('All players will be ready after toggle - showing video immediately');
+          setIsInitializing(true);
+          // Fade out lobby, then fade in video
+          setLobbyPageOpacity(0);
+          setTimeout(() => {
+            setShowIntroVideo(true); // Show video immediately while API processes
+            setVideoPageOpacity(1);
+          }, 500); // Wait for lobby fade out
+        }
+        
+        return updated;
+      });
+      
       socket.emit('toggle-ready');
     }
   };
@@ -780,7 +877,56 @@ export default function GameRoom() {
     );
   }
 
-  // If game has started, show game screen
+  // Show intro video if it should be displayed (either game started or all players ready)
+  if (showIntroVideo) {
+      return (
+        <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: '100vh',
+            width: '100vw',
+            backgroundColor: '#7a6a5b', // Video page background
+            opacity: videoPageOpacity,
+            transition: 'opacity 0.5s ease-in-out',
+          }}>
+          <video
+            src="/intro2.mp4"
+            autoPlay
+            onEnded={() => {
+              // Video ended - proceed to game if data is ready, otherwise wait
+              if (gameStartedRef.current) {
+                setShowIntroVideo(false);
+              } else {
+                // Video ended but game data not ready yet - wait a bit
+                // The game-start event will set gameStartedRef.current, then we can proceed
+                const checkInterval = setInterval(() => {
+                  if (gameStartedRef.current) {
+                    setShowIntroVideo(false);
+                    clearInterval(checkInterval);
+                  }
+                }, 100);
+                // Safety timeout - proceed after 5 seconds even if data not ready
+                setTimeout(() => {
+                  clearInterval(checkInterval);
+                  setShowIntroVideo(false);
+                }, 5000);
+              }
+            }}
+            style={{
+              maxWidth: '90%',
+              maxHeight: '90vh',
+              width: 'auto',
+              height: 'auto',
+              border: '40px solid #402812', // Video border color
+              borderRadius: '4px',
+            }}
+          />
+        </div>
+      );
+  }
+
+  // If game has started, show game screen (after video ends)
   if (gameStarted) {
     return (
       <>
@@ -800,7 +946,9 @@ export default function GameRoom() {
           width: '100vw',
           fontFamily: 'Arial, sans-serif',
           backgroundColor: '#f5f5f5',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          opacity: gamePageOpacity,
+          transition: 'opacity 0.5s ease-in-out',
         }}>
         {/* Top section - 75% height, split into left (66.67%) and right (33.33%) */}
         <div style={{
@@ -1562,7 +1710,9 @@ export default function GameRoom() {
       backgroundSize: 'cover',
       backgroundPosition: 'center',
       backgroundRepeat: 'no-repeat',
-      backgroundAttachment: 'fixed'
+      backgroundAttachment: 'fixed',
+      opacity: lobbyPageOpacity,
+      transition: 'opacity 0.5s ease-in-out',
     }}>
       <div style={{
         background: 'white',
@@ -1617,7 +1767,7 @@ export default function GameRoom() {
               )}
             </div>
           ))}
-          {players.length === 1 && (
+          {players.length === 1 && !isInitializing && (
             <p style={{ 
               fontSize: '14px', 
               color: '#666',
@@ -1630,20 +1780,41 @@ export default function GameRoom() {
 
         <button
           onClick={handleToggleReady}
+          disabled={isInitializing}
           style={{
             width: '100%',
             padding: '15px',
             fontSize: '18px',
             fontWeight: 'bold',
-            backgroundColor: isReady ? '#f44336' : '#4CAF50',
+            backgroundColor: isInitializing ? '#ccc' : (isReady ? '#f44336' : '#4CAF50'),
             color: 'white',
             border: 'none',
             borderRadius: '4px',
-            cursor: 'pointer',
-            marginBottom: '20px'
+            cursor: isInitializing ? 'not-allowed' : 'pointer',
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '10px'
           }}
         >
-          {isReady ? 'Not Ready' : 'Ready'}
+          {isInitializing ? (
+            <>
+              Loading
+              <span className="loading-spinner" style={{
+                display: 'inline-block',
+                width: '18px',
+                height: '18px',
+                border: '2px solid rgba(255, 255, 255, 0.3)',
+                borderTop: '2px solid white',
+                borderRadius: '50%',
+                animation: 'spin 0.8s linear infinite',
+                flexShrink: 0
+              }}></span>
+            </>
+          ) : (
+            isReady ? 'Not Ready' : 'Ready'
+          )}
         </button>
 
         <div style={{

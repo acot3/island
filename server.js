@@ -560,6 +560,28 @@ app.prepare().then(() => {
           }
         });
         
+        // Consumption mechanic: food and water
+        const numPlayers = room.players.length;
+        
+        // Food consumption: if enough food for all players, consume and restore 1 health
+        if (room.food >= numPlayers) {
+          room.food -= numPlayers;
+          room.players.forEach(player => {
+            player.health = Math.min(10, player.health + 1); // Cap at 10
+          });
+        }
+        
+        // Water consumption: if enough water for all players, consume (no health change)
+        // If not enough water, reduce health by 1
+        if (room.water >= numPlayers) {
+          room.water -= numPlayers;
+        } else {
+          // Not enough water - reduce health by 1 (happens after food replenishment)
+          room.players.forEach(player => {
+            player.health = Math.max(0, player.health - 1);
+          });
+        }
+        
         console.log(`Room ${roomCode} advancing to day ${room.currentDay}`);
         
         // Generate narration
