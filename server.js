@@ -949,6 +949,25 @@ app.prepare().then(() => {
       }
     });
 
+    // Handle tile selection during exploration (broadcast to all players)
+    socket.on('tile-selected', ({ tileKey, selectionType }) => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted) {
+          // Broadcast tile selection to all players
+          io.to(roomCode).emit('tile-selection-updated', {
+            playerId: socket.id,
+            playerName: player.name,
+            tileKey: tileKey,
+            selectionType: selectionType // 'first' or 'second'
+          });
+        }
+      }
+    });
+
     // Handle tile exploration
     socket.on('explore-tiles', ({ tiles }) => {
       const roomCode = socket.data.roomCode;

@@ -362,6 +362,18 @@ export default function GameRoom() {
       setNarration(newNarration);
     });
 
+    // Listen for tile selection updates (for all players to ensure sync)
+    socketInstance.on('tile-selection-updated', ({ playerId, tileKey, selectionType }) => {
+      console.log(`Tile selection updated: ${selectionType} tile ${tileKey} by player ${playerId}`);
+      // Update tile selections for all players to ensure synchronization
+      // Even if it's our turn, this ensures consistency in case of any race conditions
+      if (selectionType === 'first') {
+        setFirstTileSelected(tileKey);
+      } else if (selectionType === 'second') {
+        setSecondTileSelected(tileKey);
+      }
+    });
+
     // Listen for map updates (after exploration)
     socketInstance.on('map-updated', ({ mapData: updatedMapData, resourceStates: updatedResourceStates }) => {
       console.log('Map updated');
@@ -840,6 +852,11 @@ export default function GameRoom() {
         setFirstTileSelected(tileKey);
         console.log('First tile selected:', tileKey);
         
+        // Broadcast tile selection to all players
+        if (socket) {
+          socket.emit('tile-selected', { tileKey, selectionType: 'first' });
+        }
+        
         // Check if first tile is already explored
         const firstIsExplored = mapData.exploredTiles?.includes(tileKey) || false;
         if (firstIsExplored) {
@@ -920,6 +937,11 @@ export default function GameRoom() {
         const isAlreadyExplored = mapData.exploredTiles?.includes(tileKey);
         
         setSecondTileSelected(tileKey);
+        
+        // Broadcast tile selection to all players
+        if (socket) {
+          socket.emit('tile-selected', { tileKey, selectionType: 'second' });
+        }
         
         if (isAlreadyExplored) {
           // Already explored tile - show waste message
@@ -1761,6 +1783,9 @@ export default function GameRoom() {
                       const isSpring = tileKey === resources.spring;
                       const isClams = resources.clams?.includes(tileKey) || false;
                       
+                      // Check if this is the selected first tile (used for border and highlight logic)
+                      const isFirstSelected = tileKey === firstTileSelected;
+                      
                       // Check if tile is clickable during exploration
                       let isClickable = false;
                       let isHighlighted = false;
@@ -1771,7 +1796,8 @@ export default function GameRoom() {
                           isClickable = areTilesAdjacent(tileKey, mapData.startingTile);
                         } else {
                           // Second click: must be adjacent to first tile (can be explored or not)
-                          isClickable = areTilesAdjacent(tileKey, firstTileSelected);
+                          // But don't mark the first selected tile itself as clickable/highlighted
+                          isClickable = !isFirstSelected && areTilesAdjacent(tileKey, firstTileSelected);
                         }
                         isHighlighted = isClickable;
                       }
@@ -1792,9 +1818,6 @@ export default function GameRoom() {
                         }
                         isResourceHighlighted = isResourceClickable && !resourceGatheringComplete;
                       }
-                      
-                      // Check if this is the selected first tile
-                      const isFirstSelected = tileKey === firstTileSelected;
                       
                       // Fog of war: if not explored, show dark grey fog
                       let backgroundColor = '#424242'; // Default fog color
