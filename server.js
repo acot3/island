@@ -393,6 +393,8 @@ app.prepare().then(() => {
           food: 0,
           water: 0,
           resourceStates: {},
+          playerChoices: {}, // Track each player's choice before execution
+          currentPlayerIndex: null, // Track which player is currently executing their turn
           createdAt: Date.now(),
         });
       }
@@ -621,6 +623,10 @@ app.prepare().then(() => {
           console.error('Error generating narration:', error);
         }
         
+        // Reset player choices and turn state for new day
+        room.playerChoices = {};
+        room.currentPlayerIndex = null;
+        
         // Notify all players of new day
         io.to(roomCode).emit('day-advanced', {
           currentDay: room.currentDay,
@@ -641,23 +647,129 @@ app.prepare().then(() => {
         const player = room.players.find(p => p.id === socket.id);
         
         if (player && room.gameStarted) {
-          console.log(`${player.name} selected choice: ${choiceId} (${choiceType})`);
-          
-          // For resource collection, handle it here
-          if (choiceType === 'collect') {
-            // Handle resource collection (Phase 4)
-            // For now, just log
-            console.log(`Resource collection requested: ${resource}`);
+          // Initialize playerChoices if it doesn't exist
+          if (!room.playerChoices) {
+            room.playerChoices = {};
           }
           
-          // Broadcast choice selection to all players (for future use)
-          io.to(roomCode).emit('choice-selected', {
-            playerId: socket.id,
-            playerName: player.name,
-            choiceId: choiceId,
-            choiceType: choiceType,
-            resource: resource
-          });
+          // Only allow choice selection if we're in the choice phase (not executing turns) and player is not injured
+          if (room.currentPlayerIndex === null && !player.injured) {
+            console.log(`${player.name} selected choice: ${choiceId} (${choiceType})`);
+            
+            // Store the player's choice
+            room.playerChoices[socket.id] = {
+              choiceId: choiceId,
+              choiceType: choiceType,
+              resource: resource
+            };
+            
+            // Broadcast choice selection to all players
+            io.to(roomCode).emit('choice-selected', {
+              playerId: socket.id,
+              playerName: player.name,
+              choiceId: choiceId,
+              choiceType: choiceType,
+              resource: resource,
+              allChoices: room.playerChoices
+            });
+          }
+        }
+      }
+    });
+
+    // Handle proceed with choices (start executing turns)
+    socket.on('proceed-with-choices', () => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        
+        if (room.gameStarted && room.currentPlayerIndex === null) {
+          // Check if all non-injured players have made choices
+          const nonInjuredPlayers = room.players.filter(p => !p.injured);
+          const allNonInjuredHaveChosen = nonInjuredPlayers.length > 0 && 
+            nonInjuredPlayers.every(p => room.playerChoices && room.playerChoices[p.id]);
+          
+          if (allNonInjuredHaveChosen || (room.players.length === 1 && (!room.players[0].injured || room.playerChoices[room.players[0].id]))) {
+            // Start executing turns - begin with first non-injured player
+            let firstPlayerIndex = 0;
+            while (firstPlayerIndex < room.players.length && room.players[firstPlayerIndex].injured) {
+              firstPlayerIndex++;
+            }
+            
+            if (firstPlayerIndex < room.players.length) {
+              room.currentPlayerIndex = firstPlayerIndex;
+              
+              // Notify all players that execution has started
+              const isLastPlayer = firstPlayerIndex === room.players.length - 1 || 
+                room.players.slice(firstPlayerIndex + 1).every(p => p.injured);
+              const currentPlayerChoice = room.playerChoices[room.players[room.currentPlayerIndex].id];
+              io.to(roomCode).emit('execution-started', {
+                currentPlayerIndex: room.currentPlayerIndex,
+                currentPlayerId: room.players[room.currentPlayerIndex].id,
+                currentPlayerName: room.players[room.currentPlayerIndex].name,
+                isLastPlayer: isLastPlayer,
+                choiceType: currentPlayerChoice?.choiceType,
+                choiceResource: currentPlayerChoice?.resource
+              });
+            } else {
+              // All players are injured - skip to all turns complete
+              room.currentPlayerIndex = null;
+              room.playerChoices = {};
+              io.to(roomCode).emit('all-turns-complete', {});
+            }
+          }
+        }
+      }
+    });
+
+    // Handle player turn completion (move to next player)
+    socket.on('player-turn-complete', () => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted && room.currentPlayerIndex !== null) {
+          // Check if this is the current player
+          const currentPlayer = room.players[room.currentPlayerIndex];
+          if (currentPlayer.id === socket.id) {
+            // Move to next player
+            room.currentPlayerIndex++;
+            
+            if (room.currentPlayerIndex < room.players.length) {
+              // Skip injured players - find next non-injured player
+              let nextPlayerIndex = room.currentPlayerIndex;
+              while (nextPlayerIndex < room.players.length && room.players[nextPlayerIndex].injured) {
+                nextPlayerIndex++;
+              }
+              
+              if (nextPlayerIndex < room.players.length) {
+                // Found a non-injured player
+                room.currentPlayerIndex = nextPlayerIndex;
+                const isLastPlayer = nextPlayerIndex === room.players.length - 1 || 
+                  room.players.slice(nextPlayerIndex + 1).every(p => p.injured);
+                const currentPlayerChoice = room.playerChoices[room.players[room.currentPlayerIndex].id];
+                io.to(roomCode).emit('next-player-turn', {
+                  currentPlayerIndex: room.currentPlayerIndex,
+                  currentPlayerId: room.players[room.currentPlayerIndex].id,
+                  currentPlayerName: room.players[room.currentPlayerIndex].name,
+                  isLastPlayer: isLastPlayer,
+                  choiceType: currentPlayerChoice?.choiceType,
+                  choiceResource: currentPlayerChoice?.resource
+                });
+              } else {
+                // All remaining players are injured - all turns complete
+                room.currentPlayerIndex = null;
+                room.playerChoices = {};
+                io.to(roomCode).emit('all-turns-complete', {});
+              }
+            } else {
+              // All players have completed their turns
+              room.currentPlayerIndex = null;
+              room.playerChoices = {};
+              io.to(roomCode).emit('all-turns-complete', {});
+            }
+          }
         }
       }
     });
@@ -802,6 +914,24 @@ app.prepare().then(() => {
             currentDay: room.currentDay,
             food: room.food,
             water: room.water,
+          });
+        }
+      }
+    });
+
+    // Handle narration update (broadcast to all players)
+    socket.on('update-narration', ({ narration }) => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted) {
+          // Broadcast narration update to all players
+          io.to(roomCode).emit('narration-updated', {
+            playerId: socket.id,
+            playerName: player.name,
+            narration: narration
           });
         }
       }

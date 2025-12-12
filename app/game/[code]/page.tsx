@@ -60,6 +60,14 @@ export default function GameRoom() {
   const [videoPageOpacity, setVideoPageOpacity] = useState(0);
   const [gamePageOpacity, setGamePageOpacity] = useState(0);
   const [lobbyPageOpacity, setLobbyPageOpacity] = useState(1);
+  const [playerChoices, setPlayerChoices] = useState<Record<string, { choiceId: string; choiceType: string; resource?: string }>>({});
+  const [isExecutingTurns, setIsExecutingTurns] = useState(false);
+  const [currentTurnPlayerId, setCurrentTurnPlayerId] = useState<string | null>(null);
+  const [isLastPlayer, setIsLastPlayer] = useState(false);
+  const [myChoice, setMyChoice] = useState<{ choiceId: string; choiceType: string; resource?: string } | null>(null);
+  const playerChoicesRef = useRef<Record<string, { choiceId: string; choiceType: string; resource?: string }>>({});
+  const choicesRef = useRef<Array<{ id: string; text: string; type: string; resource?: string }>>([]);
+  const playersRef = useRef<Player[]>([]);
   
   // Map state
   const [mapData, setMapData] = useState<{
@@ -87,8 +95,10 @@ export default function GameRoom() {
 
     // Listen for room updates
     socketInstance.on('room-update', ({ players, gameStarted, currentDay, food, water }) => {
-      console.log('Room update received:', players);
+      console.log('Room update received - players count:', players.length, 'players:', players.map(p => ({ id: p.id, name: p.name })));
       setPlayers(players);
+      playersRef.current = players;
+      console.log('Updated playersRef.current, length:', playersRef.current.length);
       setGameStarted(gameStarted);
       gameStartedRef.current = gameStarted; // Update ref
       if (currentDay) setCurrentDay(currentDay);
@@ -119,8 +129,10 @@ export default function GameRoom() {
 
     // Listen for game start (this happens in parallel while video is playing)
     socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData, resourceStates: serverResourceStates }) => {
-      console.log('Game starting!', players);
+      console.log('Game starting! Players count:', players.length, 'players:', players.map(p => ({ id: p.id, name: p.name })));
       setPlayers(players);
+      playersRef.current = players;
+      console.log('Set playersRef.current, length:', playersRef.current.length);
       setGameStarted(true);
       gameStartedRef.current = true; // Update ref for video end handler
       console.log('Clearing isInitializing - game data received');
@@ -128,7 +140,10 @@ export default function GameRoom() {
       // Don't set showIntroVideo here - it's already showing if all players were ready
       setCurrentDay(1); // Reset to day 1 when game starts
       if (narration) setNarration(narration);
-      if (gameChoices) setChoices(gameChoices);
+      if (gameChoices) {
+        setChoices(gameChoices);
+        choicesRef.current = gameChoices;
+      }
       
       // Reset exploration state
       setHasExploredToday(false);
@@ -179,12 +194,16 @@ export default function GameRoom() {
       
       setCurrentDay(currentDay);
       setPlayers(players);
+      playersRef.current = players;
       if (food !== undefined) setFood(food);
       if (water !== undefined) setWater(water);
       
       // Always use server's narration (it's the source of truth with accurate state)
       if (narration) setNarration(narration);
-      if (dayChoices) setChoices(dayChoices);
+      if (dayChoices) {
+        setChoices(dayChoices);
+        choicesRef.current = dayChoices;
+      }
       
       // Sync injury state from server (injury persists through one day advance)
       const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
@@ -208,6 +227,12 @@ export default function GameRoom() {
       setFoodGathered(null);
       setWaterGathered(null);
       setOriginalNarration('');
+      // Reset multiplayer choice state
+      setPlayerChoices({});
+      setIsExecutingTurns(false);
+      setCurrentTurnPlayerId(null);
+      setMyChoice(null);
+      setIsLastPlayer(false);
     });
 
     // Listen for resource updates
@@ -222,6 +247,120 @@ export default function GameRoom() {
       if (updatedResourceStates) {
         setResourceStates(updatedResourceStates);
       }
+    });
+
+    // Listen for choice selections
+    socketInstance.on('choice-selected', ({ playerId, playerName, choiceId, choiceType, resource, allChoices }) => {
+      console.log(`${playerName} selected choice: ${choiceId}`, 'All choices:', allChoices);
+      if (allChoices) {
+        console.log('Updating playerChoices state with:', allChoices);
+        setPlayerChoices(allChoices);
+        playerChoicesRef.current = allChoices;
+      } else {
+        console.warn('choice-selected event received without allChoices!');
+      }
+    });
+
+    // Listen for execution start
+    socketInstance.on('execution-started', ({ currentPlayerId, currentPlayerName, isLastPlayer: isLast, choiceType, choiceResource }) => {
+      console.log(`Execution started, current player: ${currentPlayerName}, choice: ${choiceType}`);
+      setIsExecutingTurns(true);
+      setCurrentTurnPlayerId(currentPlayerId);
+      setIsLastPlayer(isLast || false);
+      
+      // ALL players enter the same mode to spectate
+      const isMyTurn = currentPlayerId === socketInstance.id;
+      setTimeout(() => {
+        if (choiceType === 'explore') {
+          setOriginalNarration(narration);
+          setExploringMode(true);
+          setFirstTileSelected(null);
+          setSecondTileSelected(null);
+          setExplorationComplete(false);
+          if (isMyTurn) {
+            setNarration('Where do you want to explore? Click a tile adjacent to the starting point.');
+          } else {
+            setNarration(`${currentPlayerName} is exploring...`);
+          }
+        } else if (choiceType === 'collect' && choiceResource) {
+          setOriginalNarration(narration);
+          setResourceSelectionMode(true);
+          setResourceType(choiceResource as 'food' | 'water');
+          setSelectedResourceTile(null);
+          setResourceGatheringComplete(false);
+          setFoodGathered(null);
+          setWaterGathered(null);
+          if (isMyTurn) {
+            setNarration(`Select a ${choiceResource === 'food' ? 'food' : 'water'} resource to ${choiceResource === 'food' ? 'gather' : 'collect'} from.`);
+          } else {
+            setNarration(`${currentPlayerName} is ${choiceResource === 'food' ? 'gathering food' : 'collecting water'}...`);
+          }
+        }
+      }, 100);
+    });
+
+    // Listen for next player turn
+    socketInstance.on('next-player-turn', ({ currentPlayerId, currentPlayerName, isLastPlayer: isLast, choiceType, choiceResource }) => {
+      console.log(`Next player turn: ${currentPlayerName}, choice: ${choiceType}`);
+      setCurrentTurnPlayerId(currentPlayerId);
+      setIsLastPlayer(isLast || false);
+      
+      // Reset local state for next player
+      setExploringMode(false);
+      setExplorationComplete(false);
+      setResourceSelectionMode(false);
+      setResourceGatheringComplete(false);
+      setHasExploredToday(false);
+      setFirstTileSelected(null);
+      setSecondTileSelected(null);
+      setSelectedResourceTile(null);
+      setFoodGathered(null);
+      setWaterGathered(null);
+      
+      // ALL players enter the same mode to spectate
+      const isMyTurn = currentPlayerId === socketInstance.id;
+      setTimeout(() => {
+        if (choiceType === 'explore') {
+          setOriginalNarration(narration);
+          setExploringMode(true);
+          setFirstTileSelected(null);
+          setSecondTileSelected(null);
+          setExplorationComplete(false);
+          if (isMyTurn) {
+            setNarration('Where do you want to explore? Click a tile adjacent to the starting point.');
+          } else {
+            setNarration(`${currentPlayerName} is exploring...`);
+          }
+        } else if (choiceType === 'collect' && choiceResource) {
+          setOriginalNarration(narration);
+          setResourceSelectionMode(true);
+          setResourceType(choiceResource as 'food' | 'water');
+          setSelectedResourceTile(null);
+          setResourceGatheringComplete(false);
+          setFoodGathered(null);
+          setWaterGathered(null);
+          if (isMyTurn) {
+            setNarration(`Select a ${choiceResource === 'food' ? 'food' : 'water'} resource to ${choiceResource === 'food' ? 'gather' : 'collect'} from.`);
+          } else {
+            setNarration(`${currentPlayerName} is ${choiceResource === 'food' ? 'gathering food' : 'collecting water'}...`);
+          }
+        }
+      }, 100);
+    });
+
+    // Listen for all turns complete
+    socketInstance.on('all-turns-complete', () => {
+      console.log('All turns complete');
+      setIsExecutingTurns(false);
+      setCurrentTurnPlayerId(null);
+      setPlayerChoices({});
+      setMyChoice(null);
+    });
+
+    // Listen for narration updates
+    socketInstance.on('narration-updated', ({ narration: newNarration }) => {
+      console.log('Narration updated:', newNarration);
+      setNarration(newNarration);
     });
 
     // Listen for map updates (after exploration)
@@ -371,7 +510,56 @@ export default function GameRoom() {
 
   const handleChoiceSelect = (choice: { id: string; text: string; type: string; resource?: string }) => {
     if (socket) {
-      console.log('Player selected choice:', choice);
+      // Don't allow injured players to select choices
+      if (isInjured) {
+        return;
+      }
+      
+      // Use ref to get most up-to-date players count to avoid stale state
+      // Always prefer the maximum to avoid any stale state issues
+      const playersCount = Math.max(playersRef.current.length, players.length);
+      const isMultiplayer = playersCount > 1;
+      const isMyTurn = !isExecutingTurns || currentTurnPlayerId === socket.id;
+      
+      console.log('Choice selected:', {
+        choiceId: choice.id,
+        playersStateLength: players.length,
+        playersRefLength: playersRef.current.length,
+        playersCount: playersCount,
+        isMultiplayer,
+        isExecutingTurns,
+        isMyTurn,
+        currentTurnPlayerId,
+        mySocketId: socket.id,
+        playersState: players.map(p => ({ id: p.id, name: p.name })),
+        playersRef: playersRef.current.map(p => ({ id: p.id, name: p.name }))
+      });
+      
+      // In multiplayer, if we're executing turns, only allow the current player to act
+      if (isExecutingTurns && !isMyTurn) {
+        console.log('Not this player\'s turn, returning');
+        return; // Not this player's turn
+      }
+      
+      // In multiplayer choice phase, just store the choice (ALWAYS for multiplayer, even if only one player has joined so far)
+      if (isMultiplayer && !isExecutingTurns) {
+        console.log('Player selected choice (multiplayer choice phase):', choice);
+        const choiceToStore = {
+          choiceId: choice.id,
+          choiceType: choice.type,
+          resource: choice.resource
+        };
+        setMyChoice(choiceToStore);
+        socket.emit('select-choice', {
+          choiceId: choice.id,
+          choiceType: choice.type,
+          resource: choice.resource
+        });
+        return;
+      }
+      
+      // Single player or executing turn - proceed with action
+      console.log('Player selected choice (executing):', choice);
       
       if (choice.type === 'explore') {
         // Check if player has already explored today or is injured
@@ -404,6 +592,29 @@ export default function GameRoom() {
           resource: choice.resource
         });
       }
+    }
+  };
+
+  const handleProceedWithChoices = () => {
+    if (socket) {
+      socket.emit('proceed-with-choices');
+    }
+  };
+
+  const handleContinueToNextPlayer = () => {
+    if (socket) {
+      socket.emit('player-turn-complete');
+      // Reset local state for next player
+      setExploringMode(false);
+      setExplorationComplete(false);
+      setResourceSelectionMode(false);
+      setResourceGatheringComplete(false);
+      setHasExploredToday(false);
+      setFirstTileSelected(null);
+      setSecondTileSelected(null);
+      setSelectedResourceTile(null);
+      setFoodGathered(null);
+      setWaterGathered(null);
     }
   };
 
@@ -470,6 +681,11 @@ export default function GameRoom() {
   // Handle resource tile click during resource selection
   const handleResourceTileClick = (row: number, col: number) => {
     if (!resourceSelectionMode || !mapData || !resourceType || resourceGatheringComplete) return;
+    
+    // Only allow the current turn player to interact
+    if (isExecutingTurns && currentTurnPlayerId !== socket?.id) {
+      return; // Not this player's turn
+    }
 
     const tileKey = `${row},${col}`;
     const resources = mapData.resourceTiles;
@@ -508,7 +724,11 @@ export default function GameRoom() {
     
     // Update narration
     const actionText = resourceType === 'food' ? 'gathering some food' : 'collecting some water';
-    setNarration(`You spend the day ${actionText} from the nearby area.`);
+    const gatheringNarration = `You spend the day ${actionText} from the nearby area.`;
+    setNarration(gatheringNarration);
+    if (socket) {
+      socket.emit('update-narration', { narration: gatheringNarration });
+    }
     
     // Optimistically update resources on client side
     let foodAmount: number | undefined = undefined;
@@ -549,6 +769,11 @@ export default function GameRoom() {
   const handleMapTileClick = (row: number, col: number) => {
     if (!exploringMode || !mapData || explorationComplete || isInjured) return;
     
+    // Only allow the current turn player to interact
+    if (isExecutingTurns && currentTurnPlayerId !== socket?.id) {
+      return; // Not this player's turn
+    }
+    
     const tileKey = `${row},${col}`;
     const startingTile = mapData.startingTile;
     
@@ -566,13 +791,15 @@ export default function GameRoom() {
         if (firstInjuryRoll < 0.25) {
           // Player is injured
           setIsInjured(true);
-          setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
+          const firstInjuryNarration = 'You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.';
+          setNarration(firstInjuryNarration);
           setExplorationComplete(true);
           setHasExploredToday(true);
           
-          // Notify server of injury
+          // Notify server of injury and broadcast narration
           if (socket) {
             socket.emit('player-injured', {});
+            socket.emit('update-narration', { narration: firstInjuryNarration });
           }
           
           return; // Don't proceed with tile reveal
@@ -584,7 +811,11 @@ export default function GameRoom() {
         // Check if first tile is already explored
         const firstIsExplored = mapData.exploredTiles?.includes(tileKey) || false;
         if (firstIsExplored) {
-          setNarration('You make your way through familiar territory. Now choose a second tile to explore.');
+          const narrationText = 'You make your way through familiar territory. Now choose a second tile to explore.';
+          setNarration(narrationText);
+          if (socket) {
+            socket.emit('update-narration', { narration: narrationText });
+          }
         } else {
           // Reveal the first tile immediately if it's unrevealed
           const tilesToExplore = [tileKey];
@@ -607,7 +838,11 @@ export default function GameRoom() {
           
           // Generate narration for first tile discovery
           const discoveryNarration = getTileDiscoveryNarration(tileKey);
-          setNarration(`${discoveryNarration} Now choose a second tile adjacent to this one.`);
+          const narrationText = `${discoveryNarration} Now choose a second tile adjacent to this one.`;
+          setNarration(narrationText);
+          if (socket) {
+            socket.emit('update-narration', { narration: narrationText });
+          }
         }
       } else {
         console.log('First tile must be adjacent to starting tile');
@@ -620,13 +855,15 @@ export default function GameRoom() {
         if (secondInjuryRoll < 0.25) {
           // Player is injured
           setIsInjured(true);
-          setNarration('You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.');
+          const secondInjuryNarration = 'You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.';
+          setNarration(secondInjuryNarration);
           setExplorationComplete(true);
           setHasExploredToday(true);
           
-          // Notify server of injury
+          // Notify server of injury and broadcast narration
           if (socket) {
             socket.emit('player-injured', {});
+            socket.emit('update-narration', { narration: secondInjuryNarration });
           }
           
           return; // Don't proceed with tile reveal
@@ -638,13 +875,20 @@ export default function GameRoom() {
         
         if (isAlreadyExplored) {
           // Already explored tile - show waste message
-          setNarration('You\'ve already been here. What a waste of energy.');
+          const wasteNarration = 'You\'ve already been here. What a waste of energy.';
+          setNarration(wasteNarration);
+          if (socket) {
+            socket.emit('update-narration', { narration: wasteNarration });
+          }
           setExplorationComplete(true);
           setHasExploredToday(true);
         } else {
           // Generate narration for second tile discovery
           const discoveryNarration = getTileDiscoveryNarration(tileKey);
           setNarration(discoveryNarration);
+          if (socket) {
+            socket.emit('update-narration', { narration: discoveryNarration });
+          }
           
           // Only explore the second tile (first was already explored when selected)
           const tilesToExplore = [tileKey];
@@ -975,7 +1219,15 @@ export default function GameRoom() {
               marginTop: '15px',
               marginBottom: choices.length > 0 ? '20px' : '0'
             }}>
-              {isInjured && !exploringMode && !explorationComplete ? 'You need to rest in order to recover from your injury.' : (narration || 'Click "Next Day" to begin your journey...')}
+              {(() => {
+                // Check if all players are injured
+                const allPlayersInjured = players.length > 0 && players.every(p => p.injured || (p.id === socket?.id && isInjured));
+                // Only show custom narration if all players are injured and we're not in exploration/resource mode
+                if (allPlayersInjured && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete) {
+                  return 'You need to rest in order to recover from your injury.';
+                }
+                return narration || 'Click "Next Day" to begin your journey...';
+              })()}
             </p>
             
             {/* Ankle image - shown when injury occurs during exploration */}
@@ -1057,8 +1309,9 @@ export default function GameRoom() {
               </div>
             )}
 
-            {/* Choices - hidden during exploration, resource selection, after completion, and when injured */}
-            {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && !isInjured && (
+            {/* Choices - hidden during exploration, resource selection, after completion, and during turn execution */}
+            {/* Injured players can see choices but cannot select them */}
+            {choices.length > 0 && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete && !isExecutingTurns && (
               <div style={{
                 marginTop: '20px',
                 display: 'flex',
@@ -1074,40 +1327,142 @@ export default function GameRoom() {
                   What do you want to do?
                 </h3>
                 {choices.map((choice) => {
-                  const isDisabled = (choice.type === 'explore' && (hasExploredToday || isInjured));
+                  const isDisabled = !!(choice.type === 'explore' && (hasExploredToday || isInjured));
+                  const isMultiplayer = players.length > 1;
+                  const playersWhoChoseThis = isMultiplayer ? Object.entries(playerChoices)
+                    .filter(([playerId, playerChoice]) => playerChoice.choiceId === choice.id)
+                    .map(([playerId]) => {
+                      const player = players.find(p => p.id === playerId);
+                      return player ? { id: playerId, name: player.name } : null;
+                    })
+                    .filter(Boolean) : [];
+                  const iChoseThis = !!(myChoice && myChoice.choiceId === choice.id);
+                  // Disable button if: already explored (for explore), injured, or already chosen in multiplayer
+                  const isButtonDisabled = isDisabled || isInjured || (isMultiplayer && iChoseThis);
+                  
                   return (
-                    <button
-                      key={choice.id}
-                      onClick={() => handleChoiceSelect(choice)}
-                      disabled={isDisabled}
-                      style={{
-                        padding: '12px 20px',
-                        fontSize: '16px',
-                        backgroundColor: isDisabled ? '#ccc' : '#2196F3',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '6px',
-                        cursor: isDisabled ? 'not-allowed' : 'pointer',
-                        textAlign: 'left',
-                        transition: 'background-color 0.2s',
-                        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                        opacity: isDisabled ? 0.6 : 1
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isDisabled) {
-                          e.currentTarget.style.backgroundColor = '#1976D2';
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isDisabled) {
-                          e.currentTarget.style.backgroundColor = '#2196F3';
-                        }
-                      }}
-                    >
-                      {choice.text}
-                    </button>
+                    <div key={choice.id} style={{ position: 'relative' }}>
+                      <button
+                        onClick={() => handleChoiceSelect(choice)}
+                        disabled={isButtonDisabled}
+                        style={{
+                          padding: '12px 20px',
+                          paddingRight: isMultiplayer ? '50px' : '20px',
+                          fontSize: '16px',
+                          backgroundColor: isButtonDisabled ? '#ccc' : '#2196F3',
+                          color: 'white',
+                          border: 'none',
+                          borderRadius: '6px',
+                          cursor: isButtonDisabled ? 'not-allowed' : 'pointer',
+                          textAlign: 'left',
+                          transition: 'background-color 0.2s',
+                          boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                          opacity: isButtonDisabled ? 0.6 : 1,
+                          width: '100%',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!isButtonDisabled) {
+                            e.currentTarget.style.backgroundColor = '#1976D2';
+                          }
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!isButtonDisabled) {
+                            e.currentTarget.style.backgroundColor = '#2196F3';
+                          }
+                        }}
+                      >
+                        <span>{choice.text}</span>
+                        {isMultiplayer && playersWhoChoseThis.length > 0 && (
+                          <div style={{
+                            display: 'flex',
+                            gap: '4px',
+                            alignItems: 'center'
+                          }}>
+                            {playersWhoChoseThis.map((player) => (
+                              <div
+                                key={player!.id}
+                                style={{
+                                  width: '24px',
+                                  height: '24px',
+                                  borderRadius: '50%',
+                                  backgroundColor: player!.id === socket?.id ? '#4CAF50' : '#FF9800',
+                                  color: 'white',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  fontSize: '12px',
+                                  fontWeight: 'bold',
+                                  border: '2px solid white',
+                                  boxShadow: '0 1px 2px rgba(0,0,0,0.2)'
+                                }}
+                                title={player!.name}
+                              >
+                                {player!.name.charAt(0).toUpperCase()}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </button>
+                    </div>
                   );
                 })}
+                
+                {/* Proceed button - show when all non-injured players have selected in multiplayer */}
+                {players.length > 1 && (() => {
+                  const nonInjuredPlayers = players.filter(p => !p.injured && !(p.id === socket?.id && isInjured));
+                  const nonInjuredPlayerIds = new Set(nonInjuredPlayers.map(p => p.id));
+                  const nonInjuredChoices = Object.keys(playerChoices).filter(playerId => nonInjuredPlayerIds.has(playerId));
+                  return nonInjuredChoices.length === nonInjuredPlayers.length && nonInjuredPlayers.length > 0;
+                })() && (
+                  <button
+                    onClick={handleProceedWithChoices}
+                    style={{
+                      padding: '12px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                      marginTop: '10px'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#45a049';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4CAF50';
+                    }}
+                  >
+                    Proceed
+                  </button>
+                )}
+              </div>
+            )}
+            
+            {/* Show current player's turn indicator during execution */}
+            {isExecutingTurns && currentTurnPlayerId && (
+              <div style={{
+                marginTop: '20px',
+                padding: '15px',
+                backgroundColor: '#fff3cd',
+                border: '2px solid #ffc107',
+                borderRadius: '6px'
+              }}>
+                <p style={{ 
+                  color: '#856404', 
+                  fontSize: '16px', 
+                  margin: '0',
+                  fontWeight: 'bold'
+                }}>
+                  {currentTurnPlayerId === socket?.id 
+                    ? "It's your turn!" 
+                    : `${players.find(p => p.id === currentTurnPlayerId)?.name || 'Another player'}'s turn`}
+                </p>
               </div>
             )}
 
@@ -1154,7 +1509,7 @@ export default function GameRoom() {
               </div>
             )}
 
-            {/* Go to sleep button - shown after exploration is complete or when injured */}
+            {/* Go to sleep / Continue button - shown after exploration is complete or when injured */}
             {(explorationComplete || isInjured) && (
               <div style={{
                 marginTop: '20px',
@@ -1173,28 +1528,53 @@ export default function GameRoom() {
                     You're tired from the day's exploration.
                   </p>
                 )}
-                <button
-                  onClick={handleAdvanceDay}
-                  style={{
-                    padding: '12px 20px',
-                    fontSize: '16px',
-                    backgroundColor: '#4CAF50',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#45a049';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#4CAF50';
-                  }}
-                >
-                  Go to sleep
-                </button>
+                {isExecutingTurns && currentTurnPlayerId === socket?.id ? (
+                  <button
+                    onClick={isLastPlayer ? handleAdvanceDay : handleContinueToNextPlayer}
+                    style={{
+                      padding: '12px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#45a049';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4CAF50';
+                    }}
+                  >
+                    {isLastPlayer ? 'Go to sleep' : 'Continue'}
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleAdvanceDay}
+                    style={{
+                      padding: '12px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#45a049';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4CAF50';
+                    }}
+                  >
+                    Go to sleep
+                  </button>
+                )}
               </div>
             )}
 
@@ -1239,7 +1619,7 @@ export default function GameRoom() {
               </div>
             )}
 
-            {/* Go to sleep button - shown after resource gathering is complete */}
+            {/* Go to sleep / Continue button - shown after resource gathering is complete */}
             {resourceGatheringComplete && (
               <div style={{
                 marginTop: '20px',
@@ -1247,28 +1627,53 @@ export default function GameRoom() {
                 flexDirection: 'column',
                 gap: '12px'
               }}>
-                <button
-                  onClick={handleAdvanceDay}
-                  style={{
-                    padding: '12px 20px',
-                    fontSize: '16px',
-                    backgroundColor: '#4CAF50',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.backgroundColor = '#45a049';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.backgroundColor = '#4CAF50';
-                  }}
-                >
-                  Go to sleep
-                </button>
+                {isExecutingTurns && currentTurnPlayerId === socket?.id ? (
+                  <button
+                    onClick={handleContinueToNextPlayer}
+                    style={{
+                      padding: '12px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#45a049';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4CAF50';
+                    }}
+                  >
+                    Continue
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleAdvanceDay}
+                    style={{
+                      padding: '12px 20px',
+                      fontSize: '16px',
+                      backgroundColor: '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold',
+                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.backgroundColor = '#45a049';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.backgroundColor = '#4CAF50';
+                    }}
+                  >
+                    Go to sleep
+                  </button>
+                )}
               </div>
             )}
           </div>
