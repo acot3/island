@@ -1305,8 +1305,14 @@ export default function GameRoom() {
               })()}
             </p>
             
-            {/* Ankle image - shown when injury occurs during exploration */}
-            {isInjured && explorationComplete && narration.includes('sprain your ankle') && (
+            {/* Ankle image - shown when injury occurs during exploration - visible to all players */}
+            {(() => {
+              // Check raw narration for any ankle sprain text
+              const rawNarration = narration || '';
+              const lowerNarration = rawNarration.toLowerCase();
+              const hasInjuryText = lowerNarration.includes('sprain') && lowerNarration.includes('ankle');
+              return hasInjuryText;
+            })() && (
               <div style={{
                 display: 'flex',
                 justifyContent: 'center',
@@ -1542,7 +1548,7 @@ export default function GameRoom() {
             )}
 
             {/* Exploration instructions - shown during exploration but not after completion or injury */}
-            {exploringMode && !explorationComplete && !isInjured && (
+            {exploringMode && !explorationComplete && !isInjured && (isExecutingTurns && currentTurnPlayerId === socket?.id || !isExecutingTurns && players.length <= 1) && (
               <div style={{
                 marginTop: '20px',
                 padding: '15px',
@@ -1644,7 +1650,7 @@ export default function GameRoom() {
             )}
 
             {/* Resource selection instructions - shown during resource selection but not after completion */}
-            {resourceSelectionMode && !resourceGatheringComplete && (
+            {resourceSelectionMode && !resourceGatheringComplete && (isExecutingTurns && currentTurnPlayerId === socket?.id || !isExecutingTurns && players.length <= 1) && (
               <div style={{
                 marginTop: '20px',
                 padding: '15px',
