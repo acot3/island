@@ -1,9 +1,15 @@
 // @ts-nocheck
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialization to avoid build-time errors
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY environment variable');
+  }
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 export async function POST(request) {
   const { currentDay, players, food, water, mapState, storyThreads } = await request.json();
@@ -145,6 +151,7 @@ Beat quality requirements:
 Do NOT include mechanics, numbers, or systems. Do NOT include choices - those are handled separately.`;
 
   try {
+    const openai = getOpenAIClient();
     const completion = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: [
