@@ -627,8 +627,46 @@ export default function GameRoom() {
     return rowDiff <= 1 && colDiff <= 1 && (rowDiff > 0 || colDiff > 0);
   };
 
+  // Helper function to format narration for display (replace player name with "You" if it's current player's turn)
+  const formatNarrationForDisplay = (narration: string): string => {
+    if (!isExecutingTurns || !currentTurnPlayerId || players.length <= 1) {
+      return narration;
+    }
+    
+    const isMyTurn = currentTurnPlayerId === socket?.id;
+    const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+    const playerName = currentPlayer?.name;
+    
+    if (!playerName || !isMyTurn) {
+      return narration; // Keep as is if not my turn or no player name
+    }
+    
+    // Replace player name with "You" if it's my turn
+    // Escape special regex characters in player name
+    const escapedName = playerName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    
+    return narration
+      .replace(new RegExp(`\\b${escapedName}\\s+is\\b`, 'gi'), "You're")
+      .replace(new RegExp(`\\b${escapedName}\\s+has\\b`, 'gi'), "You've")
+      .replace(new RegExp(`\\b${escapedName}\\s+spends\\b`, 'gi'), "You spend")
+      .replace(new RegExp(`\\b${escapedName}\\s+sprains\\b`, 'gi'), "You sprain")
+      .replace(new RegExp(`\\b${escapedName}\\s+makes\\b`, 'gi'), "You make")
+      .replace(new RegExp(`\\b${escapedName}\\s+discovers\\b`, 'gi'), "You discover")
+      .replace(new RegExp(`\\b${escapedName}\\s+must\\b`, 'gi'), "you must")
+      .replace(new RegExp(`\\b${escapedName}'s\\b`, 'gi'), "your")
+      .replace(new RegExp(`\\b${escapedName}\\b`, 'gi'), "You")
+      // Replace "their" with "your" when it appears near the player name
+      .replace(/\btheir\b/gi, (match, offset) => {
+        const context = narration.substring(Math.max(0, offset - 30), Math.min(narration.length, offset + 30));
+        if (context.includes(playerName)) {
+          return "your";
+        }
+        return match;
+      });
+  };
+
   // Generate narration for a discovered tile
-  const getTileDiscoveryNarration = (tileKey: string): string => {
+  const getTileDiscoveryNarration = (tileKey: string, playerName?: string, isMyTurn?: boolean): string => {
     if (!mapData) return '';
     
     const isWater = mapData.waterTiles.has(tileKey);
@@ -643,9 +681,11 @@ export default function GameRoom() {
       const isBeach = isBeachTile(row, col, mapData.landTiles, mapData.waterTiles);
       
       if (isBeach) {
-        return 'You discover a new stretch of shoreline.';
+        const baseText = 'discover a new stretch of shoreline.';
+        return (isMyTurn || !playerName) ? `You ${baseText}` : `${playerName} ${baseText.replace('discover', 'discovers')}`;
       } else {
-        return 'You discover an open plain of grass.';
+        const baseText = 'discover an open plain of grass.';
+        return (isMyTurn || !playerName) ? `You ${baseText}` : `${playerName} ${baseText.replace('discover', 'discovers')}`;
       }
     }
     
@@ -724,7 +764,12 @@ export default function GameRoom() {
     
     // Update narration
     const actionText = resourceType === 'food' ? 'gathering some food' : 'collecting some water';
-    const gatheringNarration = `You spend the day ${actionText} from the nearby area.`;
+    const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+    const playerName = currentPlayer?.name || 'The player';
+    // Always use player name in multiplayer, display helper will replace with "You" if needed
+    const gatheringNarration = players.length > 1 && isExecutingTurns
+      ? `${playerName} spends the day ${actionText} from the nearby area.`
+      : `You spend the day ${actionText} from the nearby area.`;
     setNarration(gatheringNarration);
     if (socket) {
       socket.emit('update-narration', { narration: gatheringNarration });
@@ -791,7 +836,12 @@ export default function GameRoom() {
         if (firstInjuryRoll < 0.25) {
           // Player is injured
           setIsInjured(true);
-          const firstInjuryNarration = 'You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.';
+          const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+          const playerName = currentPlayer?.name || 'The player';
+          // Always use player name in multiplayer, display helper will replace with "You" if needed
+          const firstInjuryNarration = players.length > 1 && isExecutingTurns
+            ? `${playerName} sprains their ankle trying to navigate the hazardous terrain. With great difficulty, ${playerName} makes their way back to camp.`
+            : 'You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.';
           setNarration(firstInjuryNarration);
           setExplorationComplete(true);
           setHasExploredToday(true);
@@ -811,7 +861,12 @@ export default function GameRoom() {
         // Check if first tile is already explored
         const firstIsExplored = mapData.exploredTiles?.includes(tileKey) || false;
         if (firstIsExplored) {
-          const narrationText = 'You make your way through familiar territory. Now choose a second tile to explore.';
+          const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+          const playerName = currentPlayer?.name || 'The player';
+          // Always use player name in multiplayer, display helper will replace with "You" if needed
+          const narrationText = players.length > 1 && isExecutingTurns
+            ? `${playerName} makes their way through familiar territory. Now ${playerName} must choose a second tile to explore.`
+            : 'You make your way through familiar territory. Now choose a second tile to explore.';
           setNarration(narrationText);
           if (socket) {
             socket.emit('update-narration', { narration: narrationText });
@@ -837,8 +892,14 @@ export default function GameRoom() {
           }
           
           // Generate narration for first tile discovery
-          const discoveryNarration = getTileDiscoveryNarration(tileKey);
-          const narrationText = `${discoveryNarration} Now choose a second tile adjacent to this one.`;
+          const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+          const playerName = currentPlayer?.name || 'The player';
+          // Always use player name in multiplayer, display helper will replace with "You" if needed
+          const discoveryNarration = getTileDiscoveryNarration(tileKey, playerName, !(players.length > 1 && isExecutingTurns));
+          const chooseText = players.length > 1 && isExecutingTurns
+            ? `Now ${playerName} must choose a second tile adjacent to this one.`
+            : 'Now choose a second tile adjacent to this one.';
+          const narrationText = `${discoveryNarration} ${chooseText}`;
           setNarration(narrationText);
           if (socket) {
             socket.emit('update-narration', { narration: narrationText });
@@ -855,7 +916,12 @@ export default function GameRoom() {
         if (secondInjuryRoll < 0.25) {
           // Player is injured
           setIsInjured(true);
-          const secondInjuryNarration = 'You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.';
+          const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+          const playerName = currentPlayer?.name || 'The player';
+          // Always use player name in multiplayer, display helper will replace with "You" if needed
+          const secondInjuryNarration = players.length > 1 && isExecutingTurns
+            ? `${playerName} sprains their ankle trying to navigate the hazardous terrain. With great difficulty, ${playerName} makes their way back to camp.`
+            : 'You sprain your ankle trying to navigate the hazardous terrain. With great difficulty, you make your way back to camp.';
           setNarration(secondInjuryNarration);
           setExplorationComplete(true);
           setHasExploredToday(true);
@@ -875,7 +941,12 @@ export default function GameRoom() {
         
         if (isAlreadyExplored) {
           // Already explored tile - show waste message
-          const wasteNarration = 'You\'ve already been here. What a waste of energy.';
+          const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+          const playerName = currentPlayer?.name || 'The player';
+          // Always use player name in multiplayer, display helper will replace with "You" if needed
+          const wasteNarration = players.length > 1 && isExecutingTurns
+            ? `${playerName} has already been here. What a waste of energy.`
+            : 'You\'ve already been here. What a waste of energy.';
           setNarration(wasteNarration);
           if (socket) {
             socket.emit('update-narration', { narration: wasteNarration });
@@ -884,7 +955,10 @@ export default function GameRoom() {
           setHasExploredToday(true);
         } else {
           // Generate narration for second tile discovery
-          const discoveryNarration = getTileDiscoveryNarration(tileKey);
+          const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+          const playerName = currentPlayer?.name || 'The player';
+          // Always use player name in multiplayer, display helper will replace with "You" if needed
+          const discoveryNarration = getTileDiscoveryNarration(tileKey, playerName, !(players.length > 1 && isExecutingTurns));
           setNarration(discoveryNarration);
           if (socket) {
             socket.emit('update-narration', { narration: discoveryNarration });
@@ -1226,7 +1300,8 @@ export default function GameRoom() {
                 if (allPlayersInjured && !exploringMode && !explorationComplete && !resourceSelectionMode && !resourceGatheringComplete) {
                   return 'You need to rest in order to recover from your injury.';
                 }
-                return narration || 'Click "Next Day" to begin your journey...';
+                const displayNarration = narration || 'Click "Next Day" to begin your journey...';
+                return formatNarrationForDisplay(displayNarration);
               })()}
             </p>
             
@@ -1525,12 +1600,23 @@ export default function GameRoom() {
                     marginTop: '15px',
                     marginBottom: '10px'
                   }}>
-                    You're tired from the day's exploration.
+                    {(() => {
+                      const currentPlayer = players.find(p => p.id === currentTurnPlayerId);
+                      const playerName = currentPlayer?.name || 'The player';
+                      // Always use player name in multiplayer, display helper will replace with "You" if needed
+                      const tiredText = players.length > 1 && isExecutingTurns
+                        ? `${playerName} is tired from the day's exploration.`
+                        : "You're tired from the day's exploration.";
+                      return formatNarrationForDisplay(tiredText);
+                    })()}
                   </p>
                 )}
-                {isExecutingTurns && currentTurnPlayerId === socket?.id ? (
+                {/* Only show button if it's the current player's turn, or if we're not in multiplayer mode */}
+                {(isExecutingTurns && currentTurnPlayerId === socket?.id) || (!isExecutingTurns && players.length <= 1) ? (
                   <button
-                    onClick={isLastPlayer ? handleAdvanceDay : handleContinueToNextPlayer}
+                    onClick={isExecutingTurns && currentTurnPlayerId === socket?.id 
+                      ? (isLastPlayer ? handleAdvanceDay : handleContinueToNextPlayer)
+                      : handleAdvanceDay}
                     style={{
                       padding: '12px 20px',
                       fontSize: '16px',
@@ -1549,32 +1635,11 @@ export default function GameRoom() {
                       e.currentTarget.style.backgroundColor = '#4CAF50';
                     }}
                   >
-                    {isLastPlayer ? 'Go to sleep' : 'Continue'}
+                    {isExecutingTurns && currentTurnPlayerId === socket?.id
+                      ? (isLastPlayer ? 'Go to sleep' : 'Continue')
+                      : 'Go to sleep'}
                   </button>
-                ) : (
-                  <button
-                    onClick={handleAdvanceDay}
-                    style={{
-                      padding: '12px 20px',
-                      fontSize: '16px',
-                      backgroundColor: '#4CAF50',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontWeight: 'bold',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#45a049';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#4CAF50';
-                    }}
-                  >
-                    Go to sleep
-                  </button>
-                )}
+                ) : null}
               </div>
             )}
 
@@ -1627,9 +1692,12 @@ export default function GameRoom() {
                 flexDirection: 'column',
                 gap: '12px'
               }}>
-                {isExecutingTurns && currentTurnPlayerId === socket?.id ? (
+                {/* Only show button if it's the current player's turn, or if we're not in multiplayer mode */}
+                {(isExecutingTurns && currentTurnPlayerId === socket?.id) || (!isExecutingTurns && players.length <= 1) ? (
                   <button
-                    onClick={handleContinueToNextPlayer}
+                    onClick={isExecutingTurns && currentTurnPlayerId === socket?.id
+                      ? (isLastPlayer ? handleAdvanceDay : handleContinueToNextPlayer)
+                      : handleAdvanceDay}
                     style={{
                       padding: '12px 20px',
                       fontSize: '16px',
@@ -1648,32 +1716,11 @@ export default function GameRoom() {
                       e.currentTarget.style.backgroundColor = '#4CAF50';
                     }}
                   >
-                    Continue
+                    {isExecutingTurns && currentTurnPlayerId === socket?.id
+                      ? (isLastPlayer ? 'Go to sleep' : 'Continue')
+                      : 'Go to sleep'}
                   </button>
-                ) : (
-                  <button
-                    onClick={handleAdvanceDay}
-                    style={{
-                      padding: '12px 20px',
-                      fontSize: '16px',
-                      backgroundColor: '#4CAF50',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontWeight: 'bold',
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.backgroundColor = '#45a049';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.backgroundColor = '#4CAF50';
-                    }}
-                  >
-                    Go to sleep
-                  </button>
-                )}
+                ) : null}
               </div>
             )}
           </div>
