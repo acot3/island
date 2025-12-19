@@ -46,6 +46,20 @@ export default function PhoneLobby() {
   const [playerAction, setPlayerAction] = useState('');
   const [hasSubmittedAction, setHasSubmittedAction] = useState(false);
   const [submittedPlayers, setSubmittedPlayers] = useState<Set<string>>(new Set());
+  const [privateOutcome, setPrivateOutcome] = useState<{
+    narration: string;
+    resourcesFound: { food: number; water: number };
+    itemsFound: string[];
+    factsLearned: string[];
+    hpChange: number;
+  } | null>(null);
+  const [mapData, setMapData] = useState<{
+    landTiles: Set<string>;
+    waterTiles: Set<string>;
+    startingTile: string;
+    resourceTiles: any;
+    exploredTiles: string[];
+  } | null>(null);
 
   // Calculate remaining points
   const totalPoints = stats.strength + stats.intelligence + stats.charisma;
@@ -126,6 +140,8 @@ export default function PhoneLobby() {
       // Reset action submission state when day advances
       setHasSubmittedAction(false);
       setSubmittedPlayers(new Set());
+      // Clear private outcome when day advances
+      setPrivateOutcome(null);
     });
 
     // Listen for action submissions
@@ -138,6 +154,55 @@ export default function PhoneLobby() {
     socketInstance.on('all-actions-submitted', () => {
       console.log('All players have submitted actions!');
       // For now, just log - Phase 3 will handle resolution
+    });
+
+    // Listen for action resolution starting
+    socketInstance.on('resolving-actions', () => {
+      console.log('Actions are being resolved...');
+      // Show loading state
+      setNarration('Resolving actions...');
+    });
+
+    // Listen for actions resolved
+    socketInstance.on('actions-resolved', ({ publicNarration, players, food, water, mapData: newMapData }) => {
+      console.log('Actions resolved!');
+      
+      // Update game state
+      setNarration(publicNarration);
+      setPlayers(players);
+      if (newMapData) {
+        setMapData({
+          landTiles: new Set(newMapData.landTiles),
+          waterTiles: new Set(newMapData.waterTiles),
+          startingTile: newMapData.startingTile,
+          resourceTiles: newMapData.resourceTiles,
+          exploredTiles: newMapData.exploredTiles
+        });
+      }
+      
+      // Reset action input
+      setPlayerAction('');
+      setHasSubmittedAction(false);
+    });
+
+    // Listen for private outcome
+    socketInstance.on('private-outcome', ({ privateNarration, resourcesFound, itemsFound, factsLearned, hpChange }) => {
+      console.log('Private outcome received:', { resourcesFound, hpChange });
+      
+      // Display private outcome to player
+      setPrivateOutcome({
+        narration: privateNarration,
+        resourcesFound,
+        itemsFound,
+        factsLearned,
+        hpChange
+      });
+    });
+
+    // Listen for resolution failure
+    socketInstance.on('resolution-failed', ({ message }) => {
+      console.error('Action resolution failed:', message);
+      // Could show an error message to the user here
     });
 
     socketInstance.on('disconnect', () => {
@@ -158,6 +223,10 @@ export default function PhoneLobby() {
       socketInstance.off('day-advanced');
       socketInstance.off('action-submitted');
       socketInstance.off('all-actions-submitted');
+      socketInstance.off('resolving-actions');
+      socketInstance.off('actions-resolved');
+      socketInstance.off('private-outcome');
+      socketInstance.off('resolution-failed');
       socketInstance.off('disconnect');
       socketInstance.off('connect_error');
       socketInstance.disconnect();
@@ -661,6 +730,42 @@ export default function PhoneLobby() {
               {narration || 'The story begins...'}
             </p>
           </div>
+
+          {/* Private Outcome Display */}
+          {privateOutcome && (
+            <div style={{
+              marginTop: '0',
+              padding: '15px',
+              backgroundColor: '#e8f5e9',
+              border: '2px solid #4CAF50',
+              borderRadius: '6px'
+            }}>
+              <h4 style={{ margin: '0 0 10px 0', color: '#2e7d32', fontSize: '16px', fontWeight: 'bold' }}>Your Results:</h4>
+              <p style={{ margin: '0 0 10px 0', fontSize: '14px', lineHeight: '1.6', color: '#333' }}>{privateOutcome.narration}</p>
+              
+              {(privateOutcome.resourcesFound.food > 0 || privateOutcome.resourcesFound.water > 0) && (
+                <div style={{ marginTop: '10px', fontSize: '14px', color: '#2e7d32' }}>
+                  {privateOutcome.resourcesFound.food > 0 && (
+                    <div style={{ marginBottom: '4px' }}>✓ Found {privateOutcome.resourcesFound.food} food</div>
+                  )}
+                  {privateOutcome.resourcesFound.water > 0 && (
+                    <div>✓ Found {privateOutcome.resourcesFound.water} water</div>
+                  )}
+                </div>
+              )}
+              
+              {privateOutcome.hpChange !== 0 && (
+                <div style={{ 
+                  marginTop: '10px',
+                  fontSize: '14px',
+                  fontWeight: 'bold',
+                  color: privateOutcome.hpChange > 0 ? '#2e7d32' : '#c62828'
+                }}>
+                  HP: {privateOutcome.hpChange > 0 ? '+' : ''}{privateOutcome.hpChange}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Action Input Section */}
           <div style={{

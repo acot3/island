@@ -271,6 +271,49 @@ const generateMap = () => {
   };
 };
 
+// Calculate distance between two tiles (Manhattan distance)
+function getTileDistance(tile1, tile2) {
+  const [r1, c1] = tile1.split(',').map(Number);
+  const [r2, c2] = tile2.split(',').map(Number);
+  return Math.abs(r1 - r2) + Math.abs(c1 - c2);
+}
+
+// Get all tiles adjacent to a given tile (including diagonals)
+function getAdjacentTiles(tileKey) {
+  const [row, col] = tileKey.split(',').map(Number);
+  const adjacent = [];
+  
+  for (let dr = -1; dr <= 1; dr++) {
+    for (let dc = -1; dc <= 1; dc++) {
+      if (dr === 0 && dc === 0) continue; // Skip the tile itself
+      adjacent.push(`${row + dr},${col + dc}`);
+    }
+  }
+  
+  return adjacent;
+}
+
+// Calculate which tiles can be explored (within range of explored tiles)
+function getExplorableTiles(mapData) {
+  if (!mapData || !mapData.exploredTiles) return [];
+  
+  const allTiles = new Set([...mapData.landTiles, ...mapData.waterTiles]);
+  const explored = new Set(mapData.exploredTiles);
+  const explorable = new Set();
+  
+  // For each explored tile, add its adjacent unexplored tiles
+  for (const exploredTile of mapData.exploredTiles) {
+    const adjacent = getAdjacentTiles(exploredTile);
+    for (const tile of adjacent) {
+      if (allTiles.has(tile) && !explored.has(tile)) {
+        explorable.add(tile);
+      }
+    }
+  }
+  
+  return Array.from(explorable);
+}
+
 // Helper function to calculate map state for choice generation
 const calculateMapState = (mapData, resourceStates = {}) => {
   if (!mapData) return null;
@@ -913,7 +956,7 @@ app.prepare().then(() => {
     });
 
     // Handle action submission
-    socket.on('submit-action', ({ action }) => {
+    socket.on('submit-action', async ({ action }) => {
       const roomCode = socket.data.roomCode;
       if (roomCode && gameRooms.has(roomCode)) {
         const room = gameRooms.get(roomCode);
@@ -941,9 +984,146 @@ app.prepare().then(() => {
           const allSubmitted = nonInjuredPlayers.every(p => room.pendingActions[p.id]);
           
           if (allSubmitted && nonInjuredPlayers.length > 0) {
-            console.log('All players have submitted actions');
-            // For now, just notify - we'll process actions in Phase 3
-            io.to(roomCode).emit('all-actions-submitted', {});
+            console.log('All players have submitted actions - resolving...');
+            
+            // Notify players that resolution is starting
+            io.to(roomCode).emit('resolving-actions', {});
+            
+            // Prepare data for action resolution
+            const playersWithActions = nonInjuredPlayers.map(player => ({
+              id: player.id,
+              name: player.name,
+              pronouns: player.pronouns,
+              mbtiType: player.mbtiType,
+              stats: player.stats,
+              hp: player.health,
+              action: room.pendingActions[player.id]
+            }));
+            
+            const explorableTiles = getExplorableTiles(room.mapData);
+            
+            try {
+              // Call action resolution API
+              const apiUrl = `http://127.0.0.1:${port}/api/resolve-actions`;
+              const response = await fetch(apiUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  currentDay: room.currentDay,
+                  players: playersWithActions,
+                  mapData: {
+                    landTiles: room.mapData.landTiles,
+                    waterTiles: room.mapData.waterTiles,
+                    startingTile: room.mapData.startingTile,
+                    exploredTiles: room.mapData.exploredTiles,
+                    explorableTiles: explorableTiles,
+                    resourceTiles: room.mapData.resourceTiles
+                  },
+                  groupInventory: {
+                    food: room.food,
+                    water: room.water,
+                    items: [], // We don't have items yet
+                    facts: [] // We don't have facts yet
+                  },
+                  storyThreads: room.storyThreads || {}
+                })
+              });
+              
+              if (response.ok) {
+                const data = await response.json();
+                
+                // Process outcomes
+                for (const outcome of data.outcomes) {
+                  const player = room.players.find(p => p.id === outcome.playerId);
+                  if (player) {
+                    // Update player HP
+                    player.health = Math.max(0, Math.min(10, player.health + outcome.hpChange));
+                    
+                    // Update resources (group inventory)
+                    room.food += outcome.resourcesFound.food;
+                    room.water += outcome.resourcesFound.water;
+                  }
+                  
+                  // Update explored tiles
+                  if (outcome.tilesRevealed && outcome.tilesRevealed.length > 0) {
+                    const newTiles = outcome.tilesRevealed.filter(t => 
+                      !room.mapData.exploredTiles.includes(t)
+                    );
+                    room.mapData.exploredTiles.push(...newTiles);
+                  }
+                }
+                
+                // Update story threads
+                if (data.threadUpdates) {
+                  if (!room.storyThreads) room.storyThreads = {};
+                  for (const update of data.threadUpdates) {
+                    let id = update.thread_id;
+                    if (id === 'NEW') {
+                      id = `thread_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+                      room.storyThreads[id] = { 
+                        title: update.title_if_new || 'Untitled thread', 
+                        status: 'active', 
+                        beats: [] 
+                      };
+                    }
+                    
+                    if (!room.storyThreads[id]) {
+                      room.storyThreads[id] = { 
+                        title: update.title_if_new || 'Untitled thread', 
+                        status: 'active', 
+                        beats: [] 
+                      };
+                    }
+                    
+                    if (update.beat) {
+                      room.storyThreads[id].beats.push(update.beat);
+                      room.storyThreads[id].beats = room.storyThreads[id].beats.slice(-10);
+                    }
+                    
+                    if (update.update_type === 'resolve') {
+                      room.storyThreads[id].status = 'resolved';
+                    } else {
+                      room.storyThreads[id].status = 'active';
+                    }
+                  }
+                }
+                
+                // Send public narration to everyone
+                io.to(roomCode).emit('actions-resolved', {
+                  publicNarration: data.publicNarration,
+                  players: room.players, // Updated with new HP
+                  food: room.food,
+                  water: room.water,
+                  mapData: room.mapData // Updated with new explored tiles
+                });
+                
+                // Send private outcomes to each player
+                for (const outcome of data.outcomes) {
+                  io.to(outcome.playerId).emit('private-outcome', {
+                    privateNarration: outcome.privateNarration,
+                    resourcesFound: outcome.resourcesFound,
+                    itemsFound: outcome.itemsFound,
+                    factsLearned: outcome.factsLearned,
+                    hpChange: outcome.hpChange
+                  });
+                }
+                
+              } else {
+                console.error('Action resolution failed:', response.status);
+                // Fallback: just notify players
+                io.to(roomCode).emit('resolution-failed', {
+                  message: 'Failed to resolve actions, please try again'
+                });
+              }
+            } catch (error) {
+              console.error('Error resolving actions:', error);
+              io.to(roomCode).emit('resolution-failed', {
+                message: 'Error resolving actions'
+              });
+            }
+            
+            // Clear pending actions
+            room.pendingActions = {};
           }
         }
       }
