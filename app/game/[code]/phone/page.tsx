@@ -8,6 +8,7 @@ interface Player {
   id: string;
   name: string;
   isReady: boolean;
+  health?: number;
 }
 
 interface Stats {
@@ -36,6 +37,7 @@ export default function PhoneLobby() {
   const [isReady, setIsReady] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [gameStarted, setGameStarted] = useState(false);
 
   // Calculate remaining points
   const totalPoints = stats.strength + stats.intelligence + stats.charisma;
@@ -70,14 +72,23 @@ export default function PhoneLobby() {
     });
 
     // Listen for game start
-    socketInstance.on('game-start', () => {
+    socketInstance.on('game-start', (data: { players: Player[] }) => {
       console.log('Game starting!');
-      // Navigate to the game page
-      router.push(`/game/${code}`);
+      setGameStarted(true);
+      if (data.players) {
+        setPlayers(data.players);
+      }
     });
 
     socketInstance.on('all-players-ready', () => {
       console.log('All players ready!');
+    });
+
+    // Listen for day advancement to update player health
+    socketInstance.on('day-advanced', (data: { players: Player[] }) => {
+      if (data.players) {
+        setPlayers(data.players);
+      }
     });
 
     socketInstance.on('disconnect', () => {
@@ -513,6 +524,102 @@ export default function PhoneLobby() {
               {totalPoints !== 6 && `Must use all 6 stat points (${6 - totalPoints} remaining). `}
             </div>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // After game starts - Show placeholder
+  if (gameStarted) {
+    const myPlayer = players.find(p => p.id === socket?.id);
+    
+    return (
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontFamily: 'Arial, sans-serif',
+        backgroundImage: 'url(/bg.png)',
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+        padding: '20px'
+      }}>
+        <div style={{
+          background: 'white',
+          padding: '40px',
+          borderRadius: '12px',
+          boxShadow: '0 2px 15px rgba(0,0,0,0.1)',
+          width: '100%',
+          maxWidth: '400px',
+          textAlign: 'center'
+        }}>
+          {/* Player Info */}
+          {myPlayer && (
+            <div style={{
+              marginBottom: '30px',
+              padding: '20px',
+              background: '#f9f9f9',
+              borderRadius: '8px'
+            }}>
+              <div style={{
+                fontSize: '24px',
+                fontWeight: 'bold',
+                color: '#333',
+                marginBottom: '15px'
+              }}>
+                {myPlayer.name}
+              </div>
+              {myPlayer.health !== undefined && (
+                <>
+                  <div style={{
+                    fontSize: '16px',
+                    color: '#666',
+                    marginBottom: '10px'
+                  }}>
+                    Health: {myPlayer.health}/10
+                  </div>
+                  <div style={{
+                    width: '100%',
+                    height: '24px',
+                    backgroundColor: '#e0e0e0',
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    border: '1px solid #999'
+                  }}>
+                    <div style={{
+                      width: `${(myPlayer.health / 10) * 100}%`,
+                      height: '100%',
+                      backgroundColor: '#c94d57',
+                      transition: 'width 0.3s ease'
+                    }} />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Placeholder Message */}
+          <div style={{
+            fontSize: '20px',
+            color: '#666',
+            marginBottom: '20px',
+            fontWeight: '500',
+            lineHeight: '1.6'
+          }}>
+            Events are happening on-screen
+          </div>
+
+          <div style={{
+            fontSize: '14px',
+            color: '#999',
+            fontStyle: 'italic'
+          }}>
+            Watch the big screen to see the game unfold
+          </div>
         </div>
       </div>
     );

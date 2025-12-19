@@ -33,12 +33,6 @@ export default function GameRoom() {
   const [food, setFood] = useState(0);
   const [water, setWater] = useState(0);
   const [narration, setNarration] = useState('');
-  const [choices, setChoices] = useState<Array<{
-    id: string;
-    text: string;
-    type: string;
-    resource?: string;
-  }>>([]);
   const justAdvancedDayRef = useRef(false);
   const gameStartedRef = useRef(false);
   const [isInjured, setIsInjured] = useState(false);
@@ -108,7 +102,7 @@ export default function GameRoom() {
     });
 
     // Listen for game start (this happens in parallel while video is playing)
-    socketInstance.on('game-start', ({ players, narration, choices: gameChoices, mapData: serverMapData, resourceStates: serverResourceStates }) => {
+    socketInstance.on('game-start', ({ players, narration, mapData: serverMapData, resourceStates: serverResourceStates }) => {
       console.log('Game starting! Players count:', players.length, 'players:', players.map((p: Player) => ({ id: p.id, name: p.name })));
       setPlayers(players);
       playersRef.current = players;
@@ -120,9 +114,6 @@ export default function GameRoom() {
       // Don't set showIntroVideo here - it's already showing if all players were ready
       setCurrentDay(1); // Reset to day 1 when game starts
       if (narration) setNarration(narration);
-      if (gameChoices) {
-        setChoices(gameChoices);
-      }
       
       setIsInjured(false);
 
@@ -146,8 +137,8 @@ export default function GameRoom() {
     });
 
     // Listen for day advancement
-    socketInstance.on('day-advanced', async ({ currentDay, players, food, water, narration, choices: dayChoices }) => {
-      console.log('Day advanced to:', currentDay, 'with', dayChoices?.length || 0, 'choices:', dayChoices);
+    socketInstance.on('day-advanced', async ({ currentDay, players, food, water, narration }) => {
+      console.log('Day advanced to:', currentDay);
       
       // Only show animation if this player didn't initiate the change AND game has already started
       if (!justAdvancedDayRef.current && currentDay > 1) {
@@ -166,9 +157,6 @@ export default function GameRoom() {
       
       // Always use server's narration (it's the source of truth with accurate state)
       if (narration) setNarration(narration);
-      if (dayChoices) {
-        setChoices(dayChoices);
-      }
       
       // Sync injury state from server (injury persists through one day advance)
       const myPlayer = players.find((p: Player) => p.id === socketInstance.id);
