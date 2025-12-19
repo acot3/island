@@ -50,56 +50,6 @@ export async function POST(request) {
     ? `\nACTIVE PLOT THREADS (use these; continue from the most recent beats):\n${activeThreadsText}\n`
     : '';
   
-  // Determine available choices based on game state
-  const availableChoices = [];
-  
-  // Check if there are unrevealed tiles within 2 spaces of starting tile
-  if (mapState && mapState.nearbyUnexplored !== undefined) {
-    if (mapState.nearbyUnexplored) {
-      availableChoices.push({
-        id: 'explore',
-        text: 'Explore nearby surroundings',
-        type: 'explore'
-      });
-    }
-  }
-  
-  // Check for revealed food resources
-  if (mapState && mapState.revealedResources) {
-    const foodResources = mapState.revealedResources.filter(r => 
-      (r.type === 'herbs' || r.type === 'deer' || r.type === 'coconut' || r.type === 'clams') && !r.collected
-    );
-    if (foodResources.length > 0) {
-      availableChoices.push({
-        id: 'gather_food',
-        text: 'Gather food',
-        type: 'collect',
-        resource: 'food'
-      });
-    }
-  }
-  
-  // Check for revealed water resources
-  if (mapState && mapState.revealedResources) {
-    const waterResources = mapState.revealedResources.filter(r => 
-      (r.type === 'spring' || r.type === 'bottle') && !r.collected
-    );
-    if (waterResources.length > 0) {
-      availableChoices.push({
-        id: 'collect_water',
-        text: 'Collect water',
-        type: 'collect',
-        resource: 'water'
-      });
-    }
-  }
-  
-  // Build choice instructions for AI (for context only - we'll use our own choices)
-  let choiceInstructions = '';
-  if (availableChoices.length > 0) {
-    choiceInstructions = `\n\nNote: Players will have these choices available: ${availableChoices.map(c => c.text).join(', ')}. You can reference these in your narration if appropriate, but focus on the narrative.`;
-  }
-  
   const prompt = `You are narrating a survival game. Generate a very brief narration for the start of Day ${currentDay}.
 
 Current Situation:
@@ -120,7 +70,6 @@ The narration should:
 - Avoid mentioning: health numbers, tiles, maps, or any explicit game systems
 - Set the tone for the day ahead
 - Be very brief (200 words maximum)
-${choiceInstructions}
 
 ${currentDay === 1 ? 'This is the first day after the shipwreck. The survivors are just waking up on the beach.' : ''}
 
@@ -149,7 +98,7 @@ Beat quality requirements:
 - The beat must create narrative consequences that future days must acknowledge.
 - If a thread has not materially changed for 2 days, the next update MUST externalize it (someone notices, an action is taken, or a consequence occurs).
 
-Do NOT include mechanics, numbers, or systems. Do NOT include choices - those are handled separately.`;
+Do NOT include mechanics, numbers, or systems.`;
 
   try {
     const openai = getOpenAIClient();
@@ -182,22 +131,16 @@ Do NOT include mechanics, numbers, or systems. Do NOT include choices - those ar
       // Fallback: return just narration if JSON parsing fails
       return Response.json({
         narration: responseContent,
-        choices: availableChoices
+        threadUpdates: []
       });
     }
     
-    // Use AI's narration but ALWAYS use our pre-determined available choices
-    // Choices are determined by game state logic, not AI generation
-    // This ensures accuracy and prevents AI from inventing unavailable choices
     const narration = parsedResponse.narration || responseContent;
     const threadUpdates = parsedResponse.thread_updates || [];
     
-    console.log(`Generated narration with ${availableChoices.length} available choices:`, availableChoices.map(c => c.id));
-    
     return Response.json({
       narration: narration,
-      threadUpdates: threadUpdates,
-      choices: availableChoices
+      threadUpdates: threadUpdates
     });
   } catch (error) {
     console.error('OpenAI API error:', error);
