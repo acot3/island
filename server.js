@@ -559,8 +559,8 @@ app.prepare().then(() => {
                 }
               }
               
-              // Use 127.0.0.1 for internal API calls (more reliable than localhost)
-              const apiUrl = `http://127.0.0.1:${port}/api/generate-narration`;
+              // Use localhost for internal API calls (works both locally and on Render)
+              const apiUrl = `http://localhost:${port}/api/generate-narration`;
               const narrationResponse = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -697,8 +697,8 @@ app.prepare().then(() => {
           console.log('Server mapState:', JSON.stringify(mapState, null, 2));
           console.log('Server resourceStates:', JSON.stringify(room.resourceStates, null, 2));
           
-          // Use 127.0.0.1 for internal API calls (more reliable than localhost)
-          const apiUrl = `http://127.0.0.1:${port}/api/generate-narration`;
+          // Use localhost for internal API calls (works both locally and on Render)
+          const apiUrl = `http://localhost:${port}/api/generate-narration`;
           const narrationResponse = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
