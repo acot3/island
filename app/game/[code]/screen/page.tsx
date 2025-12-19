@@ -17,13 +17,13 @@ export default function ScreenLobby() {
   const [socket, setSocket] = useState<Socket | null>(null);
 
   useEffect(() => {
-    // Connect to Socket.io server
-    const socketInstance = io('http://localhost:3001');
+    // Connect to Socket.io server (same origin as Next.js app)
+    const socketInstance = io(typeof window !== 'undefined' ? window.location.origin : '');
 
     socketInstance.on('connect', () => {
       console.log('Screen connected to socket');
       // Join the room with the code
-      socketInstance.emit('join-room', { code, isScreen: true });
+      socketInstance.emit('join-room', { roomCode: code, isScreen: true });
     });
 
     // Listen for room updates

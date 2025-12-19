@@ -385,6 +385,18 @@ app.prepare().then(() => {
         socket.data.roomCode = roomCode;
         socket.data.isScreen = true;
         console.log(`Screen connected to room ${roomCode}`);
+        
+        // Send current room state to the screen
+        if (gameRooms.has(roomCode)) {
+          const room = gameRooms.get(roomCode);
+          socket.emit('room-update', {
+            players: room.players,
+            gameStarted: room.gameStarted,
+            currentDay: room.currentDay,
+            food: room.food,
+            water: room.water,
+          });
+        }
         return;
       }
 

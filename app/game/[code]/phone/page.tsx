@@ -46,8 +46,8 @@ export default function PhoneLobby() {
                   totalPoints === 6;
 
   useEffect(() => {
-    // Connect to Socket.io server
-    const socketInstance = io('http://localhost:3001');
+    // Connect to Socket.io server (same origin as Next.js app)
+    const socketInstance = io(typeof window !== 'undefined' ? window.location.origin : '');
 
     socketInstance.on('connect', () => {
       console.log('Phone connected to socket');
@@ -88,7 +88,7 @@ export default function PhoneLobby() {
   const handleJoinGame = () => {
     if (socket && canJoin) {
       socket.emit('join-room', {
-        code,
+        roomCode: code,
         playerName: name.trim(),
         pronouns: pronouns.trim(),
         stats: {
