@@ -426,6 +426,7 @@ app.prepare().then(() => {
           resourceStates: {},
           storyNotes: [],        // Legacy: persistent narrative canon (keeping during migration)
           storyThreads: {}, // NEW: keyed narrative threads (persistent canon)
+          pendingActions: {}, // Actions submitted by players for the current turn
           createdAt: Date.now(),
         });
       }
@@ -642,6 +643,8 @@ app.prepare().then(() => {
       if (roomCode && gameRooms.has(roomCode)) {
         const room = gameRooms.get(roomCode);
         room.currentDay += 1;
+        // Reset pending actions when day advances
+        room.pendingActions = {};
         
         // Subtract 1 health from each player (minimum 0) and handle injuries
         room.players.forEach(player => {
@@ -905,6 +908,43 @@ app.prepare().then(() => {
             food: room.food,
             water: room.water,
           });
+        }
+      }
+    });
+
+    // Handle action submission
+    socket.on('submit-action', ({ action }) => {
+      const roomCode = socket.data.roomCode;
+      if (roomCode && gameRooms.has(roomCode)) {
+        const room = gameRooms.get(roomCode);
+        const player = room.players.find(p => p.id === socket.id);
+        
+        if (player && room.gameStarted && !player.injured) {
+          console.log(`${player.name} submitted action: ${action}`);
+          
+          // Store the action
+          if (!room.pendingActions) {
+            room.pendingActions = {};
+          }
+          room.pendingActions[socket.id] = action;
+          
+          // Broadcast to all players who has submitted
+          io.to(roomCode).emit('action-submitted', {
+            playerId: socket.id,
+            playerName: player.name,
+            totalSubmitted: Object.keys(room.pendingActions).length,
+            totalPlayers: room.players.filter(p => !p.injured).length
+          });
+          
+          // Check if all non-injured players have submitted
+          const nonInjuredPlayers = room.players.filter(p => !p.injured);
+          const allSubmitted = nonInjuredPlayers.every(p => room.pendingActions[p.id]);
+          
+          if (allSubmitted && nonInjuredPlayers.length > 0) {
+            console.log('All players have submitted actions');
+            // For now, just notify - we'll process actions in Phase 3
+            io.to(roomCode).emit('all-actions-submitted', {});
+          }
         }
       }
     });

@@ -9,6 +9,7 @@ interface Player {
   name: string;
   isReady: boolean;
   health?: number;
+  injured?: boolean;
 }
 
 interface Stats {
@@ -38,6 +39,13 @@ export default function PhoneLobby() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
+  const [narration, setNarration] = useState('');
+  const [isInjured, setIsInjured] = useState(false);
+  
+  // Action input state
+  const [playerAction, setPlayerAction] = useState('');
+  const [hasSubmittedAction, setHasSubmittedAction] = useState(false);
+  const [submittedPlayers, setSubmittedPlayers] = useState<Set<string>>(new Set());
 
   // Calculate remaining points
   const totalPoints = stats.strength + stats.intelligence + stats.charisma;
@@ -61,23 +69,38 @@ export default function PhoneLobby() {
       console.log('Room update received:', data);
       setPlayers(data.players || []);
       
-      // Sync ready state from server
+      // Sync ready state and injury status from server
       const currentPlayerId = socketInstance.id;
       if (currentPlayerId && data.players) {
         const currentPlayer = data.players.find(p => p.id === currentPlayerId);
         if (currentPlayer) {
           setIsReady(currentPlayer.isReady);
+          setIsInjured(currentPlayer.injured || false);
         }
       }
     });
 
     // Listen for game start
-    socketInstance.on('game-start', (data: { players: Player[] }) => {
+    socketInstance.on('game-start', (data: { players: Player[]; narration?: string }) => {
       console.log('Game starting!');
       setGameStarted(true);
       if (data.players) {
         setPlayers(data.players);
+        // Sync injury status
+        const currentPlayerId = socketInstance.id;
+        if (currentPlayerId) {
+          const currentPlayer = data.players.find(p => p.id === currentPlayerId);
+          if (currentPlayer) {
+            setIsInjured(currentPlayer.injured || false);
+          }
+        }
       }
+      if (data.narration) {
+        setNarration(data.narration);
+      }
+      // Reset action submission state when game starts
+      setHasSubmittedAction(false);
+      setSubmittedPlayers(new Set());
     });
 
     socketInstance.on('all-players-ready', () => {
@@ -85,10 +108,36 @@ export default function PhoneLobby() {
     });
 
     // Listen for day advancement to update player health
-    socketInstance.on('day-advanced', (data: { players: Player[] }) => {
+    socketInstance.on('day-advanced', (data: { players: Player[]; narration?: string }) => {
       if (data.players) {
         setPlayers(data.players);
+        // Sync injury status
+        const currentPlayerId = socketInstance.id;
+        if (currentPlayerId) {
+          const currentPlayer = data.players.find(p => p.id === currentPlayerId);
+          if (currentPlayer) {
+            setIsInjured(currentPlayer.injured || false);
+          }
+        }
       }
+      if (data.narration) {
+        setNarration(data.narration);
+      }
+      // Reset action submission state when day advances
+      setHasSubmittedAction(false);
+      setSubmittedPlayers(new Set());
+    });
+
+    // Listen for action submissions
+    socketInstance.on('action-submitted', ({ playerId, playerName, totalSubmitted, totalPlayers }) => {
+      console.log(`${playerName} submitted action. ${totalSubmitted}/${totalPlayers} submitted.`);
+      setSubmittedPlayers(prev => new Set([...prev, playerId]));
+    });
+
+    // Listen for all actions submitted
+    socketInstance.on('all-actions-submitted', () => {
+      console.log('All players have submitted actions!');
+      // For now, just log - Phase 3 will handle resolution
     });
 
     socketInstance.on('disconnect', () => {
@@ -103,6 +152,14 @@ export default function PhoneLobby() {
 
     // Cleanup on unmount
     return () => {
+      socketInstance.off('room-update');
+      socketInstance.off('game-start');
+      socketInstance.off('all-players-ready');
+      socketInstance.off('day-advanced');
+      socketInstance.off('action-submitted');
+      socketInstance.off('all-actions-submitted');
+      socketInstance.off('disconnect');
+      socketInstance.off('connect_error');
       socketInstance.disconnect();
     };
   }, []);
@@ -138,6 +195,21 @@ export default function PhoneLobby() {
     if (socket) {
       socket.emit('toggle-ready');
       // Don't update local state - wait for server confirmation via room-update
+    }
+  };
+
+  const handleSubmitAction = () => {
+    if (!playerAction.trim() || hasSubmittedAction || isInjured) return;
+    
+    if (socket) {
+      socket.emit('submit-action', {
+        action: playerAction.trim()
+      });
+      setHasSubmittedAction(true);
+      // Immediately add current player to submitted set for instant feedback
+      if (socket.id) {
+        setSubmittedPlayers(prev => new Set([...prev, socket.id!]));
+      }
     }
   };
 
@@ -529,9 +601,10 @@ export default function PhoneLobby() {
     );
   }
 
-  // After game starts - Show placeholder
+  // After game starts - Show game-playing UI
   if (gameStarted) {
     const myPlayer = players.find(p => p.id === socket?.id);
+    const canSubmitAction = playerAction.trim().length > 0 && !hasSubmittedAction && !isInjured;
     
     return (
       <div style={{
@@ -550,26 +623,214 @@ export default function PhoneLobby() {
       }}>
         <div style={{
           background: 'white',
-          padding: '40px',
+          padding: '30px',
           borderRadius: '12px',
           boxShadow: '0 2px 15px rgba(0,0,0,0.1)',
           width: '100%',
           maxWidth: '400px',
-          textAlign: 'center'
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '20px'
         }}>
-          {/* Player Info */}
+          {/* Narration Display Area */}
+          <div style={{
+            padding: '20px',
+            background: '#e3f2fd',
+            borderRadius: '8px',
+            border: '2px solid #2196F3',
+            minHeight: '120px',
+            maxHeight: '200px',
+            overflow: 'auto'
+          }}>
+            <h3 style={{
+              fontSize: '18px',
+              fontWeight: 'bold',
+              color: '#333',
+              marginBottom: '12px',
+              marginTop: '0'
+            }}>
+              Story
+            </h3>
+            <p style={{
+              color: '#333',
+              fontSize: '14px',
+              lineHeight: '1.6',
+              whiteSpace: 'pre-wrap',
+              margin: '0'
+            }}>
+              {narration || 'The story begins...'}
+            </p>
+          </div>
+
+          {/* Action Input Section */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '12px'
+          }}>
+            {/* Injury Indicator */}
+            {isInjured && (
+              <div style={{
+                padding: '12px',
+                background: '#ffe0b2',
+                borderRadius: '6px',
+                border: '1px solid #ff9800',
+                fontSize: '14px',
+                color: '#e65100',
+                textAlign: 'center'
+              }}>
+                You are injured and cannot act this turn. Rest and recover.
+              </div>
+            )}
+
+            {/* Status Indicator */}
+            {hasSubmittedAction && (
+              <div style={{
+                padding: '12px',
+                background: '#c8e6c9',
+                borderRadius: '6px',
+                border: '1px solid #4CAF50',
+                fontSize: '14px',
+                color: '#2e7d32',
+                textAlign: 'center',
+                fontWeight: '500'
+              }}>
+                ✓ Action submitted - waiting for other players...
+              </div>
+            )}
+
+            {/* Textarea */}
+            <textarea
+              value={playerAction}
+              onChange={(e) => setPlayerAction(e.target.value.slice(0, 500))}
+              placeholder="What do you do? (e.g., 'I explore the jungle' or 'I search for food')"
+              maxLength={500}
+              rows={4}
+              disabled={hasSubmittedAction || isInjured}
+              style={{
+                width: '100%',
+                padding: '12px',
+                fontSize: '16px',
+                border: '2px solid #ddd',
+                borderRadius: '6px',
+                boxSizing: 'border-box',
+                fontFamily: 'Arial, sans-serif',
+                resize: 'vertical',
+                backgroundColor: hasSubmittedAction || isInjured ? '#f5f5f5' : 'white',
+                color: hasSubmittedAction || isInjured ? '#999' : '#333'
+              }}
+            />
+
+            {/* Character Counter */}
+            <div style={{
+              fontSize: '12px',
+              color: playerAction.length > 400 ? '#ff9800' : '#666',
+              textAlign: 'right',
+              marginTop: '-8px'
+            }}>
+              {playerAction.length} / 500 characters
+            </div>
+
+            {/* Submit Button */}
+            <button
+              onClick={handleSubmitAction}
+              disabled={!canSubmitAction}
+              style={{
+                width: '100%',
+                padding: '16px',
+                fontSize: '18px',
+                fontWeight: 'bold',
+                backgroundColor: canSubmitAction ? '#4CAF50' : '#ccc',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: canSubmitAction ? 'pointer' : 'not-allowed',
+                minHeight: '54px',
+                transition: 'background-color 0.2s'
+              }}
+            >
+              Submit Action
+            </button>
+          </div>
+
+          {/* Player Status Indicator */}
+          <div style={{
+            padding: '16px',
+            background: '#f9f9f9',
+            borderRadius: '8px',
+            border: '1px solid #ddd'
+          }}>
+            <div style={{
+              fontSize: '14px',
+              fontWeight: '600',
+              color: '#333',
+              marginBottom: '12px'
+            }}>
+              Player Status
+            </div>
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              {players.map((player) => {
+                const isSubmitted = submittedPlayers.has(player.id);
+                const isInjuredPlayer = player.injured || false;
+                const isCurrentPlayer = player.id === socket?.id;
+                
+                return (
+                  <div
+                    key={player.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      background: isCurrentPlayer ? '#e3f2fd' : 'white',
+                      borderRadius: '6px',
+                      border: isCurrentPlayer ? '1px solid #2196F3' : '1px solid #e0e0e0'
+                    }}
+                  >
+                    <span style={{
+                      fontSize: '14px',
+                      color: '#333',
+                      fontWeight: isCurrentPlayer ? '600' : '400'
+                    }}>
+                      {player.name}{isCurrentPlayer ? ' (You)' : ''}
+                    </span>
+                    <div style={{
+                      fontSize: '18px',
+                      display: 'flex',
+                      alignItems: 'center'
+                    }}>
+                      {isInjuredPlayer ? (
+                        <span style={{ color: '#f44336' }}>✗</span>
+                      ) : isSubmitted ? (
+                        <span style={{ color: '#4CAF50' }}>✓</span>
+                      ) : (
+                        <span style={{ color: '#999' }}>○</span>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Player Health Card */}
           {myPlayer && (
             <div style={{
-              marginBottom: '30px',
               padding: '20px',
               background: '#f9f9f9',
-              borderRadius: '8px'
+              borderRadius: '8px',
+              border: '1px solid #ddd'
             }}>
               <div style={{
-                fontSize: '24px',
+                fontSize: '20px',
                 fontWeight: 'bold',
                 color: '#333',
-                marginBottom: '15px'
+                marginBottom: '15px',
+                textAlign: 'center'
               }}>
                 {myPlayer.name}
               </div>
@@ -578,7 +839,8 @@ export default function PhoneLobby() {
                   <div style={{
                     fontSize: '16px',
                     color: '#666',
-                    marginBottom: '10px'
+                    marginBottom: '10px',
+                    textAlign: 'center'
                   }}>
                     Health: {myPlayer.health}/10
                   </div>
@@ -601,25 +863,6 @@ export default function PhoneLobby() {
               )}
             </div>
           )}
-
-          {/* Placeholder Message */}
-          <div style={{
-            fontSize: '20px',
-            color: '#666',
-            marginBottom: '20px',
-            fontWeight: '500',
-            lineHeight: '1.6'
-          }}>
-            Events are happening on-screen
-          </div>
-
-          <div style={{
-            fontSize: '14px',
-            color: '#999',
-            fontStyle: 'italic'
-          }}>
-            Watch the big screen to see the game unfold
-          </div>
         </div>
       </div>
     );
