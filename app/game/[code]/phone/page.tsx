@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 
 interface Player {
@@ -18,6 +18,7 @@ interface Stats {
 
 export default function PhoneLobby() {
   const params = useParams();
+  const router = useRouter();
   const code = params.code as string;
 
   // Form state
@@ -57,6 +58,26 @@ export default function PhoneLobby() {
     socketInstance.on('room-update', (data: { players: Player[] }) => {
       console.log('Room update received:', data);
       setPlayers(data.players || []);
+      
+      // Sync ready state from server
+      const currentPlayerId = socketInstance.id;
+      if (currentPlayerId && data.players) {
+        const currentPlayer = data.players.find(p => p.id === currentPlayerId);
+        if (currentPlayer) {
+          setIsReady(currentPlayer.isReady);
+        }
+      }
+    });
+
+    // Listen for game start
+    socketInstance.on('game-start', () => {
+      console.log('Game starting!');
+      // Navigate to the game page
+      router.push(`/game/${code}`);
+    });
+
+    socketInstance.on('all-players-ready', () => {
+      console.log('All players ready!');
     });
 
     socketInstance.on('disconnect', () => {
@@ -105,7 +126,7 @@ export default function PhoneLobby() {
   const handleToggleReady = () => {
     if (socket) {
       socket.emit('toggle-ready');
-      setIsReady(!isReady);
+      // Don't update local state - wait for server confirmation via room-update
     }
   };
 
