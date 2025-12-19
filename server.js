@@ -378,8 +378,27 @@ app.prepare().then(() => {
     console.log('Client connected:', socket.id);
 
     // Handle player joining a room
-    socket.on('join-room', ({ roomCode, playerName, mbtiType }) => {
+    socket.on('join-room', ({ roomCode, playerName, pronouns, stats, mbtiType, isScreen }) => {
+      // Skip validation for screen connections
+      if (isScreen) {
+        socket.join(roomCode);
+        socket.data.roomCode = roomCode;
+        socket.data.isScreen = true;
+        console.log(`Screen connected to room ${roomCode}`);
+        return;
+      }
+
       console.log(`${playerName} (${mbtiType}) joining room ${roomCode}`);
+      
+      // Validate stats if provided
+      if (stats) {
+        const totalStats = (stats.strength || 0) + (stats.intelligence || 0) + (stats.charisma || 0);
+        if (totalStats !== 6) {
+          socket.emit('error', { event: 'error', message: 'Invalid stats distribution' });
+          console.log(`Player ${playerName} rejected: stats sum to ${totalStats}, must be 6`);
+          return;
+        }
+      }
       
       // Join the Socket.io room
       socket.join(roomCode);
@@ -407,7 +426,13 @@ app.prepare().then(() => {
       const player = {
         id: socket.id,
         name: playerName,
+        pronouns: pronouns || '',
         mbtiType: mbtiType || 'INTJ', // Default to INTJ if not provided
+        stats: {
+          strength: stats?.strength || 0,
+          intelligence: stats?.intelligence || 0,
+          charisma: stats?.charisma || 0
+        },
         isReady: false,
         health: 10,
         joinedAt: Date.now(),
