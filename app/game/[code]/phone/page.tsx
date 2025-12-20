@@ -38,6 +38,7 @@ export default function PhoneLobby() {
   const [isReady, setIsReady] = useState(false);
   const [players, setPlayers] = useState<Player[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
   const [narration, setNarration] = useState('');
   const [isInjured, setIsInjured] = useState(false);
@@ -76,6 +77,7 @@ export default function PhoneLobby() {
 
     socketInstance.on('connect', () => {
       console.log('Phone connected to socket');
+      setMyPlayerId(socketInstance.id || null);
     });
 
     // Listen for room updates
@@ -85,11 +87,14 @@ export default function PhoneLobby() {
       
       // Sync ready state and injury status from server
       const currentPlayerId = socketInstance.id;
-      if (currentPlayerId && data.players) {
-        const currentPlayer = data.players.find(p => p.id === currentPlayerId);
-        if (currentPlayer) {
-          setIsReady(currentPlayer.isReady);
-          setIsInjured(currentPlayer.injured || false);
+      if (currentPlayerId) {
+        setMyPlayerId(currentPlayerId);
+        if (data.players) {
+          const currentPlayer = data.players.find(p => p.id === currentPlayerId);
+          if (currentPlayer) {
+            setIsReady(currentPlayer.isReady);
+            setIsInjured(currentPlayer.injured || false);
+          }
         }
       }
     });
@@ -103,6 +108,7 @@ export default function PhoneLobby() {
         // Sync injury status
         const currentPlayerId = socketInstance.id;
         if (currentPlayerId) {
+          setMyPlayerId(currentPlayerId);
           const currentPlayer = data.players.find(p => p.id === currentPlayerId);
           if (currentPlayer) {
             setIsInjured(currentPlayer.injured || false);
@@ -128,6 +134,7 @@ export default function PhoneLobby() {
         // Sync injury status
         const currentPlayerId = socketInstance.id;
         if (currentPlayerId) {
+          setMyPlayerId(currentPlayerId);
           const currentPlayer = data.players.find(p => p.id === currentPlayerId);
           if (currentPlayer) {
             setIsInjured(currentPlayer.injured || false);
@@ -277,8 +284,9 @@ export default function PhoneLobby() {
       });
       setHasSubmittedAction(true);
       // Immediately add current player to submitted set for instant feedback
-      if (socket.id) {
-        setSubmittedPlayers(prev => new Set([...prev, socket.id!]));
+      const currentPlayerId = myPlayerId || socket?.id;
+      if (currentPlayerId) {
+        setSubmittedPlayers(prev => new Set([...prev, currentPlayerId]));
       }
     }
   };
@@ -673,7 +681,7 @@ export default function PhoneLobby() {
 
   // After game starts - Show game-playing UI
   if (gameStarted) {
-    const myPlayer = players.find(p => p.id === socket?.id);
+    const myPlayer = players.find(p => p.id === myPlayerId);
     const canSubmitAction = playerAction.trim().length > 0 && !hasSubmittedAction && !isInjured;
     
     return (
@@ -882,7 +890,7 @@ export default function PhoneLobby() {
               {players.map((player) => {
                 const isSubmitted = submittedPlayers.has(player.id);
                 const isInjuredPlayer = player.injured || false;
-                const isCurrentPlayer = player.id === socket?.id;
+                const isCurrentPlayer = player.id === myPlayerId;
                 
                 return (
                   <div
