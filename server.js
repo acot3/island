@@ -1031,6 +1031,11 @@ app.prepare().then(() => {
               
               if (response.ok) {
                 const data = await response.json();
+                console.log(`[${roomCode}] Action resolution response received:`, {
+                  hasPublicNarration: !!data.publicNarration,
+                  outcomesCount: data.outcomes?.length || 0,
+                  threadUpdatesCount: data.threadUpdates?.length || 0
+                });
                 
                 // Process outcomes
                 for (const outcome of data.outcomes) {
@@ -1089,6 +1094,7 @@ app.prepare().then(() => {
                 }
                 
                 // Send public narration to everyone
+                console.log(`[${roomCode}] Emitting actions-resolved to room (${room.players.length} players)`);
                 io.to(roomCode).emit('actions-resolved', {
                   publicNarration: data.publicNarration,
                   players: room.players, // Updated with new HP
@@ -1098,7 +1104,9 @@ app.prepare().then(() => {
                 });
                 
                 // Send private outcomes to each player
+                console.log(`[${roomCode}] Sending private outcomes to ${data.outcomes.length} players`);
                 for (const outcome of data.outcomes) {
+                  console.log(`[${roomCode}] Sending private outcome to player ${outcome.playerId}`);
                   io.to(outcome.playerId).emit('private-outcome', {
                     privateNarration: outcome.privateNarration,
                     resourcesFound: outcome.resourcesFound,

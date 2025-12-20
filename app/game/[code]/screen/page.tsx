@@ -123,6 +123,24 @@ export default function ScreenLobby() {
       }
     });
 
+    // Listen for actions resolved
+    socketInstance.on('actions-resolved', ({ publicNarration, players, food, water, mapData: updatedMapData }) => {
+      console.log('Actions resolved on screen:', { publicNarration, players, food, water });
+      if (publicNarration) setNarration(publicNarration);
+      if (players) setPlayers(players);
+      if (food !== undefined) setFood(food);
+      if (water !== undefined) setWater(water);
+      if (updatedMapData) {
+        setMapData({
+          landTiles: new Set(updatedMapData.landTiles),
+          waterTiles: new Set(updatedMapData.waterTiles),
+          startingTile: updatedMapData.startingTile,
+          resourceTiles: updatedMapData.resourceTiles,
+          exploredTiles: updatedMapData.exploredTiles,
+        });
+      }
+    });
+
     socketInstance.on('disconnect', () => {
       console.log('Screen disconnected from socket');
     });
@@ -135,6 +153,15 @@ export default function ScreenLobby() {
 
     // Cleanup on unmount
     return () => {
+      socketInstance.off('room-update');
+      socketInstance.off('all-players-ready');
+      socketInstance.off('game-start');
+      socketInstance.off('day-advanced');
+      socketInstance.off('resource-updated');
+      socketInstance.off('map-updated');
+      socketInstance.off('actions-resolved');
+      socketInstance.off('disconnect');
+      socketInstance.off('connect_error');
       socketInstance.disconnect();
     };
   }, [code]);

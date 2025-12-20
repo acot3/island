@@ -180,9 +180,10 @@ export default function PhoneLobby() {
         });
       }
       
-      // Reset action input
+      // Reset action input and submission state
       setPlayerAction('');
       setHasSubmittedAction(false);
+      setSubmittedPlayers(new Set());
     });
 
     // Listen for private outcome
