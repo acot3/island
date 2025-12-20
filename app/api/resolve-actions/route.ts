@@ -1,7 +1,9 @@
+// REVISED resolve-actions API route with failure-aware prompt
+// Replace your current /api/resolve-actions/route.ts with this
+
 // @ts-nocheck
 import OpenAI from 'openai';
 
-// Lazy initialization to avoid build-time errors
 function getOpenAIClient() {
   if (!process.env.OPENAI_API_KEY) {
     throw new Error('Missing OPENAI_API_KEY environment variable');
@@ -11,7 +13,6 @@ function getOpenAIClient() {
   });
 }
 
-// Calculate tiles adjacent to explored tiles
 function getAdjacentTiles(exploredTiles: string[], allLandTiles: string[], allWaterTiles: string[]): string[] {
   const explored = new Set(exploredTiles);
   const allTiles = new Set([...allLandTiles, ...allWaterTiles]);
@@ -20,7 +21,6 @@ function getAdjacentTiles(exploredTiles: string[], allLandTiles: string[], allWa
   exploredTiles.forEach(tile => {
     const [x, y] = tile.split(',').map(Number);
     
-    // Check all 4 adjacent directions
     const neighbors = [
       `${x + 1},${y}`,
       `${x - 1},${y}`,
@@ -38,7 +38,6 @@ function getAdjacentTiles(exploredTiles: string[], allLandTiles: string[], allWa
   return Array.from(adjacent);
 }
 
-// Create safe default outcomes if AI fails
 function createFallbackOutcomes(players: any[]) {
   return {
     publicNarration: "The survivors carry out their tasks, facing the challenges of another day on the island.",
@@ -48,8 +47,8 @@ function createFallbackOutcomes(players: any[]) {
       resourcesFound: { food: 0, water: 0 },
       itemsFound: [],
       factsLearned: [],
-      hpChange: 0,
-      privateNarration: `${player.name} completes their task, maintaining their current condition.`
+      hpChange: -5, // Default small HP loss
+      privateNarration: `${player.name} completes their task, though it takes its toll.`
     })),
     threadUpdates: []
   };
@@ -59,21 +58,21 @@ export async function POST(request: Request) {
   try {
     const { currentDay, players, mapData, groupInventory, storyThreads } = await request.json();
 
-    // Calculate which tiles are adjacent to explored tiles (can be revealed)
     const adjacentTiles = getAdjacentTiles(
       mapData.exploredTiles,
       mapData.landTiles,
       mapData.waterTiles
     );
 
-    // Build player summary for the prompt
+    // Build detailed player info
     const playerDetails = players.map((p: any) => {
-      const statsSummary = `STR:${p.stats.strength} INT:${p.stats.intelligence} CHA:${p.stats.charisma}`;
-      return `- ${p.name} (${p.pronouns}, ${p.mbtiType}, ${statsSummary}, HP:${p.hp}/10)
-  Action: "${p.action}"`;
+      const inventory = p.inventory && p.inventory.length > 0 ? p.inventory.join(', ') : 'none';
+      return `- ${p.name} (${p.pronouns}, ${p.mbtiType}, STR:${p.stats.strength} INT:${p.stats.intelligence} CHA:${p.stats.charisma}, HP:${p.hp}/10)
+  Action: "${p.action}"
+  Current location: ${mapData.startingTile}
+  Inventory: ${inventory}`;
     }).join('\n');
 
-    // Create active threads text for the prompt
     const activeThreadsText = storyThreads
       ? Object.entries(storyThreads)
           .filter(([, t]: [string, any]) => t.status !== 'resolved')
@@ -88,48 +87,137 @@ export async function POST(request: Request) {
       ? `\nACTIVE PLOT THREADS:\n${activeThreadsText}\n`
       : '';
 
-    // Build the AI prompt
-    const systemPrompt = `You are resolving player actions in a survival game called Island Game. You receive multiple player actions simultaneously and must generate:
-1. A cohesive public narration (200-300 words) that weaves all actions together
-2. Individual outcomes for each player with private narration
+    // THE NEW SYSTEM PROMPT WITH FAILURE
+    const systemPrompt = `You are the narrative engine for Island Game, a survival game where actions have real consequences.
 
-KEY RESPONSIBILITIES:
-- Focus on the 1-2 most dramatic/consequential events in public narration
-- Mention other actions briefly to acknowledge everyone
-- Use player stats (STR/INT/CHA) and MBTI to influence outcomes
-- Each player gets private narration about their personal experience
-- Maintain narrative consistency with story threads
+Your job is to resolve player actions with REALISTIC outcomes based on their stats, the difficulty of their actions, and the current game state. Some actions will fail. This is expected and important.
 
-STAT INFLUENCE:
-- STR (Strength): Physical tasks (climbing, building, hunting, combat)
-- INT (Intelligence): Mental tasks (navigation, problem-solving, tracking, planning)
-- CHA (Charisma): Social tasks (leadership, morale, coordination, persuasion)
-- Higher relevant stat = better outcomes, more resources, less risk
+## CORE PRINCIPLE: STATS DETERMINE SUCCESS
 
-MBTI INFLUENCE:
-- Use personality type to color HOW they do things, not mechanical outcomes
-- E.g., INTJ strategizes methodically, ENFP maintains morale, ISTJ focuses on practical details
+Player stats range from 0-6. These are NOT cosmetic - they mechanically determine success rates.
 
-HP CHANGES:
-- Most actions: 0 HP change
-- Dangerous actions (climbing, fighting, risky exploration): -5 to -15 HP loss possible
-- Resting/recovery: +5 HP gain possible
-- Never exceed max HP (10)
-- Higher relevant stats reduce risk of HP loss
+## STAT SELECTION
 
-RESOURCE DISTRIBUTION:
-- Food: 0-3 units for successful foraging/hunting (STR/INT dependent)
-- Water: 0-3 units for successful water finding (INT dependent)
-- Be realistic - not everyone succeeds every time
-- Better stats = higher chances and quantities
+For each action, determine which stat is MOST relevant:
+- STR (Strength): Climbing, building, fighting, carrying, breaking, hunting physically
+- INT (Intelligence): Navigating, tracking, identifying plants/dangers, solving problems, planning
+- CHA (Charisma): Leading, persuading, coordinating group efforts, maintaining morale
 
-TILE REVELATION RULES (CRITICAL):
-- Only reveal tiles that are in the adjacentTiles list provided
-- Maximum 2 tiles per "explore" action
-- Movement/exploration actions reveal tiles, other actions don't
-- Return tile coordinates as strings (e.g., "1,2")
+## DIFFICULTY ASSESSMENT
 
-You must respond with valid JSON only.`;
+Assign each action a difficulty level:
+
+EASY (routine): Gathering from ground, walking, resting, basic camp tasks
+MODERATE (requires skill): Climbing trees, building shelter, hunting small game, navigating jungle
+HARD (dangerous): Climbing cliffs, hunting dangerous animals, crossing treacherous terrain
+EXTREME (life-threatening): Fighting predators, scaling sheer rock, desperate situations
+
+## SUCCESS/FAILURE RATES
+
+EASY TASKS:
+- Stat 0-1: 80% success | Stat 2-3: 95% success | Stat 4-6: Always succeed
+
+MODERATE TASKS:
+- Stat 0-1: 40% success | Stat 2-3: 70% success | Stat 4-5: 90% success | Stat 6: Always succeed
+
+HARD TASKS:
+- Stat 0-1: 15% success (usually fail) | Stat 2-3: 50% success | Stat 4-5: 75% success | Stat 6: 90% success
+
+EXTREME TASKS:
+- Stat 0-2: Auto-fail with severe consequences | Stat 3-4: 30% success | Stat 5-6: 60% success
+
+## FAILURE TYPES
+
+When actions fail, vary the severity:
+
+MINOR FAILURE (40% of failures):
+- No resources gained, -5 HP from exhaustion/minor injury
+- Example: "You search for hours but find nothing edible."
+
+MODERATE FAILURE (40% of failures):
+- No resources gained, -10 HP from injury or exhaustion
+- Example: "You slip while climbing, scraping your arms badly as you fall."
+
+CRITICAL FAILURE (20% of failures):
+- No resources gained, -15 HP from serious injury, becomes injured (cannot act next turn)
+- Example: "The branch snaps. You crash through the canopy, landing hard with a sickening crack."
+
+## SUCCESS TYPES
+
+MARGINAL SUCCESS (low stat + easy task): 0-1 resources, 0 HP
+SOLID SUCCESS (average stat): 1-2 resources, -5 HP typical
+EXCELLENT SUCCESS (high stat): 2-3 resources, possible item/fact, 0 HP
+CRITICAL SUCCESS (stat 6): Max resources, guaranteed item/fact, +5 HP
+
+## HP CHANGE GUIDELINES
+
+- Passive/easy actions: 0 HP
+- Moderate actions: -5 HP typical (even on success - these are tiring)
+- Strenuous actions: -10 HP even on success
+- Dangerous actions: Success: -5 HP, Failure: -10 to -15 HP
+
+Remember: Players lose -1 HP per day automatically. HP attrition is core survival pressure.
+
+## RESOURCE AMOUNTS
+
+Food sources:
+- Foraging (easy): 0-2 food
+- Hunting small game (moderate): 1-3 food
+- Hunting large game (hard): 2-4 food
+- Fishing (moderate): 1-3 food
+
+Water sources:
+- Finding stream/spring (moderate): 2-4 water
+- Collecting dew/rainwater (easy): 0-2 water
+- Coconuts (easy): 1 food + 1 water
+
+## ITEMS AND FACTS
+
+Items (0-1 per successful exploration):
+- Thematically appropriate: rope, knife, flint, medicinal herbs, fishing net, spear
+- Only on solid+ successes, more likely with high INT
+
+Facts (0-1 per successful exploration):
+- Concrete, actionable: "Cave system to the north", "Purple berries are poisonous"
+- Only on solid+ successes, more likely with high INT
+
+## TILE REVELATION
+
+- Only reveal tiles adjacent to explored tiles (from adjacentTiles list)
+- 1-2 tiles max per exploration action
+- Staying at camp reveals nothing
+- Failed exploration: 0-1 tiles (wandered but didn't progress)
+
+## NARRATIVE TONE
+
+Public narration (200-300 words): Present tense, immersive, focus on 1-2 dramatic events, mention all players, balance success/failure
+
+Private narration (50-100 words per player): Second person, specific, include emotional/sensory details, make failures feel earned not arbitrary
+
+## CRITICAL RULES
+
+1. Failure is not punishment - it's natural
+2. Be fair - high stats perform better
+3. Be varied - not everyone succeeds/fails together
+4. Be realistic - STR:1 cannot wrestle a boar
+5. Be dramatic - make both successes and failures interesting
+
+Output ONLY valid JSON in this format:
+{
+  "publicNarration": "string",
+  "outcomes": [
+    {
+      "playerId": "string",
+      "tilesRevealed": ["x,y"],
+      "resourcesFound": {"food": 0-3, "water": 0-3},
+      "itemsFound": ["string"],
+      "factsLearned": ["string"],
+      "hpChange": -15 to +5,
+      "privateNarration": "string"
+    }
+  ],
+  "threadUpdates": [...]
+}`;
 
     const userPrompt = `CURRENT DAY: ${currentDay}
 
@@ -148,29 +236,11 @@ GROUP INVENTORY:
 - Facts: ${groupInventory.facts.length > 0 ? groupInventory.facts.length + ' discovered' : 'none'}
 ${threadsBlock}
 
-Generate outcomes for all ${players.length} player(s). Respond with JSON in this exact format:
-{
-  "publicNarration": "200-300 word narrative weaving together the most significant actions",
-  "outcomes": [
-    {
-      "playerId": "player id string",
-      "tilesRevealed": ["x,y", "x,y"], // only from adjacentTiles list, max 2, only for explore actions
-      "resourcesFound": { "food": 0-3, "water": 0-3 },
-      "itemsFound": ["item name"], // rare, only for exceptional discoveries
-      "factsLearned": ["fact text"], // new knowledge about the island
-      "hpChange": -15 to +5, // most actions = 0, dangerous = negative, rest = positive
-      "privateNarration": "50-100 word personal outcome for this player"
-    }
-  ],
-  "threadUpdates": [
-    {
-      "thread_id": "existing_id or NEW",
-      "title_if_new": "title if thread_id is NEW",
-      "update_type": "introduce | escalate | complicate | resolve",
-      "beat": "concrete story change based on player actions"
-    }
-  ]
-}`;
+Resolve all ${players.length} actions. Remember:
+- Some actions WILL fail based on difficulty and stats
+- Apply realistic HP changes  
+- Only reveal tiles from the adjacent list
+- Make stats mechanically matter`;
 
     // Make API call with retry logic
     const openai = getOpenAIClient();
@@ -194,12 +264,10 @@ Generate outcomes for all ${players.length} player(s). Respond with JSON in this
         try {
           const parsedResponse = JSON.parse(responseContent);
           
-          // Validate the response structure
           if (!parsedResponse.publicNarration || !parsedResponse.outcomes) {
             throw new Error('Invalid response structure from AI');
           }
 
-          // Ensure all players have outcomes
           const playerIds = new Set(players.map((p: any) => p.id));
           const outcomeIds = new Set(parsedResponse.outcomes.map((o: any) => o.playerId));
           
@@ -208,7 +276,7 @@ Generate outcomes for all ${players.length} player(s). Respond with JSON in this
             throw new Error('Incomplete outcomes from AI');
           }
 
-          // Validate tile revelations are from adjacent list
+          // Validate tile revelations
           const adjacentSet = new Set(adjacentTiles);
           parsedResponse.outcomes.forEach((outcome: any) => {
             outcome.tilesRevealed = (outcome.tilesRevealed || []).filter((tile: string) => 
@@ -224,12 +292,10 @@ Generate outcomes for all ${players.length} player(s). Respond with JSON in this
           lastError = parseError;
           
           if (attempt === 3) {
-            // Final attempt failed, use fallback
             console.error('All attempts failed, using fallback outcomes');
             return Response.json(createFallbackOutcomes(players));
           }
           
-          // Wait before retry (exponential backoff)
           await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
         
@@ -238,17 +304,14 @@ Generate outcomes for all ${players.length} player(s). Respond with JSON in this
         lastError = apiError;
         
         if (attempt === 3) {
-          // Final attempt failed, use fallback
           console.error('All attempts failed, using fallback outcomes');
           return Response.json(createFallbackOutcomes(players));
         }
         
-        // Wait before retry (exponential backoff)
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
     }
 
-    // Should not reach here, but just in case
     return Response.json(createFallbackOutcomes(players));
 
   } catch (error) {
