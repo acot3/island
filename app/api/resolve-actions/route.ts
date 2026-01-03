@@ -219,6 +219,24 @@ Output ONLY valid JSON in this format:
   "threadUpdates": [...]
 }`;
 
+    // Build resource tile information
+    let resourceInfo = '';
+    if (mapData.resourceTiles) {
+      const resources = [];
+      const rt = mapData.resourceTiles;
+      if (rt.herbs) resources.push(`herbs at ${rt.herbs}`);
+      if (rt.deer) resources.push(`deer at ${rt.deer}`);
+      if (rt.coconut) resources.push(`coconut at ${rt.coconut}`);
+      if (rt.bottle) resources.push(`bottle at ${rt.bottle}`);
+      if (rt.spring) resources.push(`fresh water spring at ${rt.spring} (unlimited)`);
+      if (rt.clams && rt.clams.length > 0) {
+        rt.clams.forEach((tile: string) => resources.push(`clams at ${tile}`));
+      }
+      if (resources.length > 0) {
+        resourceInfo = `\n- Known resource locations: ${resources.join(', ')}`;
+      }
+    }
+
     const userPrompt = `CURRENT DAY: ${currentDay}
 
 PLAYERS AND THEIR ACTIONS:
@@ -227,7 +245,7 @@ ${playerDetails}
 MAP STATE:
 - Explored tiles: ${mapData.exploredTiles.join(', ')}
 - Adjacent explorable tiles: ${adjacentTiles.length > 0 ? adjacentTiles.join(', ') : 'none available'}
-- Starting location: ${mapData.startingTile}
+- Starting location: ${mapData.startingTile}${resourceInfo}
 
 GROUP INVENTORY:
 - Food: ${groupInventory.food} units
@@ -238,9 +256,11 @@ ${threadsBlock}
 
 Resolve all ${players.length} actions. Remember:
 - Some actions WILL fail based on difficulty and stats
-- Apply realistic HP changes  
+- Apply realistic HP changes
 - Only reveal tiles from the adjacent list
-- Make stats mechanically matter`;
+- Make stats mechanically matter
+- If players visit known resource locations, they should find those resources (use the "Known resource locations" list)
+- Reference the current food/water levels when appropriate (e.g., if food is 0, characters might be desperate; if adequate, they might be cautious about using it)`;
 
     // Make API call with retry logic
     const openai = getOpenAIClient();

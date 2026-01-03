@@ -2,7 +2,6 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
 import { io, Socket } from 'socket.io-client';
 
 interface Player {
@@ -25,7 +24,6 @@ export default function GameRoom() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [gameStarted, setGameStarted] = useState(false);
-  const [myPlayerId, setMyPlayerId] = useState<string | null>(null);
   const [currentDay, setCurrentDay] = useState(1);
   const [showDayTransition, setShowDayTransition] = useState(false);
   const [isTransitionActive, setIsTransitionActive] = useState(false);
@@ -64,9 +62,6 @@ export default function GameRoom() {
   useEffect(() => {
     const socketInstance = io();
     setSocket(socketInstance);
-    if (socketInstance.id) {
-      setMyPlayerId(socketInstance.id);
-    }
 
     // Listen for room updates
     socketInstance.on('room-update', ({ players, gameStarted, currentDay, food, water }) => {
@@ -111,10 +106,9 @@ export default function GameRoom() {
       gameStartedRef.current = true; // Update ref for video end handler
       console.log('Clearing isInitializing - game data received');
       setIsInitializing(false); // Clear loading state when game data arrives
-      // Don't set showIntroVideo here - it's already showing if all players were ready
       setCurrentDay(1); // Reset to day 1 when game starts
       if (narration) setNarration(narration);
-      
+
       setIsInjured(false);
 
       // Set resource states
@@ -287,27 +281,6 @@ export default function GameRoom() {
     }
   };
 
-  const handleAdvanceDay = async () => {
-    if (socket) {
-      const oldDay = currentDay;
-      const newDay = currentDay + 1;
-      
-      // Mark that this player initiated the day change
-      justAdvancedDayRef.current = true;
-      
-      // Send event to server IMMEDIATELY so it can start processing (API call) in parallel
-      // while we show the animation
-      socket.emit('advance-day');
-      
-      // Show day transition animation while server processes
-      await showDayTransitionAnimation(oldDay, newDay);
-      
-      // After animation, we'll receive the 'day-advanced' event from server with narration
-      // The narration should be ready (or nearly ready) by now since server was processing in parallel
-    }
-  };
-
-
   const showDayTransitionAnimation = (oldDay: number, newDay: number): Promise<void> => {
     return new Promise((resolve) => {
       // Start: Show overlay and old day
@@ -354,7 +327,7 @@ export default function GameRoom() {
 
   // Check if a land tile touches water (making it a beach)
   // Only checks cardinal directions (up, down, left, right) - NOT diagonals
-  const isBeachTile = (row: number, col: number, landTiles: Set<string>, waterTiles: Set<string>) => {
+  const isBeachTile = (row: number, col: number, _landTiles: Set<string>, waterTiles: Set<string>) => {
     const getTileKey = (r: number, c: number) => `${r},${c}`;
     const mapSize = 5;
     
@@ -852,28 +825,8 @@ export default function GameRoom() {
           justifyContent: 'center',
           position: 'relative'
         }}>
-          {/* Next Day button - positioned on right side, vertically centered */}
-          <button
-            onClick={handleAdvanceDay}
-            style={{
-              position: 'absolute',
-              right: '20px',
-              top: '50%',
-              transform: 'translateY(-50%)',
-              padding: '10px 20px',
-              fontSize: '14px',
-              fontWeight: 'bold',
-              backgroundColor: '#2196F3',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer',
-              zIndex: 10
-            }}
-          >
-            Next Day →
-          </button>
-          
+          {/* Next Day button removed - day advances automatically after action resolution */}
+
           {/* Player cards container */}
           <div style={{
             display: 'flex',
