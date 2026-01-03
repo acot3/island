@@ -84,7 +84,9 @@ export async function POST(request) {
     ? `\nACTIVE PLOT THREADS (use these; continue from the most recent beats):\n${activeThreadsText}\n`
     : '';
   
-  const prompt = `You are narrating a survival game. Generate a very brief narration for the start of Day ${currentDay}.
+  const prompt = `You are narrating a survival game. Generate a very brief OPENING NARRATION for the beginning of Day ${currentDay}.
+
+IMPORTANT CONTEXT: This narration happens at the START of the day, BEFORE players take actions. Set the scene and mood for what they're about to do.
 
 Current Situation:
 - ${playerSummary}
@@ -104,11 +106,12 @@ The narration should:
 - Use each character's MBTI type to personalize their behavior, reactions, and interactions in the narrative (e.g., INTJs might strategize about resource management, ENFPs might maintain morale despite scarcity, ISTJs might inventory supplies)
 - Focus on the experience through narrative description (NOT game mechanics)
 - Avoid mentioning: health numbers, tiles, maps, grid coordinates, or any explicit game systems
-- Translate game state into story elements: "food: 0" becomes "stomachs growling with hunger", "spring found" becomes "the fresh water they discovered", etc.
-- Set the tone for the day ahead
-- Be very brief (200 words maximum)
+- Translate game state into narrative: "food: 0" becomes "empty stomachs", "spring found" becomes "the fresh water source they discovered", etc.
+- Set the scene for what they're about to decide to do today
+- Be very brief (150-200 words maximum)
+- DO NOT describe actions they take - just set the morning scene and their current state/concerns
 
-${currentDay === 1 ? 'This is the first day after the shipwreck. The survivors are just waking up on the beach.' : ''}
+${currentDay === 1 ? 'This is the first day after the shipwreck. The survivors are just waking up on the beach.' : 'This is the morning of a new day. Describe how they wake up, their immediate concerns based on resources/health, and what challenges face them today.'}
 
 IMPORTANT: You must respond with valid JSON containing:
 {

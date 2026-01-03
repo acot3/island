@@ -263,21 +263,41 @@ export default function GameRoom() {
     if (socket) {
       const myPlayer = players.find((p: Player) => p.id === socket.id);
       const iAmReady = myPlayer?.isReady || false;
-      
+
       // Optimistically update local players state to reflect the toggle
       // This will trigger the useEffect to check if all players are ready
       setPlayers(prevPlayers => {
-        const updated = prevPlayers.map(p => 
+        const updated = prevPlayers.map(p =>
           p.id === socket.id ? { ...p, isReady: !iAmReady } : p
         );
-        
+
         // Don't show video here - wait for server's 'all-players-ready' event
         // This ensures all players receive the signal at the same time
-        
+
         return updated;
       });
-      
+
       socket.emit('toggle-ready');
+    }
+  };
+
+  const handleAdvanceDay = async () => {
+    if (socket) {
+      const oldDay = currentDay;
+      const newDay = currentDay + 1;
+
+      // Mark that this player initiated the day change
+      justAdvancedDayRef.current = true;
+
+      // Send event to server IMMEDIATELY so it can start processing (API call) in parallel
+      // while we show the animation
+      socket.emit('advance-day');
+
+      // Show day transition animation while server processes
+      await showDayTransitionAnimation(oldDay, newDay);
+
+      // After animation, we'll receive the 'day-advanced' event from server with narration
+      // The narration should be ready (or nearly ready) by now since server was processing in parallel
     }
   };
 
@@ -825,7 +845,27 @@ export default function GameRoom() {
           justifyContent: 'center',
           position: 'relative'
         }}>
-          {/* Next Day button removed - day advances automatically after action resolution */}
+          {/* Next Day button - positioned on right side, vertically centered */}
+          <button
+            onClick={handleAdvanceDay}
+            style={{
+              position: 'absolute',
+              right: '20px',
+              top: '50%',
+              transform: 'translateY(-50%)',
+              padding: '10px 20px',
+              fontSize: '14px',
+              fontWeight: 'bold',
+              backgroundColor: '#2196F3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              zIndex: 10
+            }}
+          >
+            Next Day →
+          </button>
 
           {/* Player cards container */}
           <div style={{
