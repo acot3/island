@@ -470,6 +470,7 @@ app.prepare().then(() => {
           storyNotes: [],        // Legacy: persistent narrative canon (keeping during migration)
           storyThreads: {}, // NEW: keyed narrative threads (persistent canon)
           pendingActions: {}, // Actions submitted by players for the current turn
+          conversationHistory: [], // NEW: Full AI conversation history (like claude.ai)
           createdAt: Date.now(),
         });
       }
@@ -603,18 +604,33 @@ app.prepare().then(() => {
               }
               
               // Use localhost for internal API calls (works both locally and on Render)
-              const apiUrl = `http://localhost:${port}/api/generate-narration`;
+              const USE_UNIFIED = process.env.UNIFIED_AGENT === 'true';
+              const apiUrl = USE_UNIFIED
+                ? `http://localhost:${port}/api/unified-narration`
+                : `http://localhost:${port}/api/generate-narration`;
+
+              const requestBody = USE_UNIFIED ? {
+                mode: 'morning',
+                currentDay: 1,
+                players: room.players,
+                food: room.food,
+                water: room.water,
+                mapState: mapState,
+                storyThreads: room.storyThreads,
+                conversationHistory: room.conversationHistory || []
+              } : {
+                currentDay: 1,
+                players: room.players,
+                food: room.food,
+                water: room.water,
+                mapState: mapState,
+                storyThreads: room.storyThreads,
+              };
+
               const narrationResponse = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  currentDay: 1,
-                  players: room.players,
-                  food: room.food,
-                  water: room.water,
-                  mapState: mapState,
-                  storyThreads: room.storyThreads,
-                })
+                body: JSON.stringify(requestBody)
               });
               
               if (narrationResponse.ok) {
@@ -649,7 +665,18 @@ app.prepare().then(() => {
                     room.storyThreads[id].status = 'active';
                   }
                 }
-                
+
+                // Track conversation history (unified agent only)
+                if (USE_UNIFIED) {
+                  if (!room.conversationHistory) room.conversationHistory = [];
+                  room.conversationHistory.push({
+                    role: 'assistant',
+                    content: narration,
+                    timestamp: Date.now(),
+                    day: 1
+                  });
+                }
+
                 console.log(`[${roomCode}] storyThreads:`, JSON.stringify(room.storyThreads, null, 2));
                 console.log('Generated Day 1 narration');
               } else {
@@ -741,18 +768,33 @@ app.prepare().then(() => {
           console.log('Server resourceStates:', JSON.stringify(room.resourceStates, null, 2));
           
           // Use localhost for internal API calls (works both locally and on Render)
-          const apiUrl = `http://localhost:${port}/api/generate-narration`;
+          const USE_UNIFIED = process.env.UNIFIED_AGENT === 'true';
+          const apiUrl = USE_UNIFIED
+            ? `http://localhost:${port}/api/unified-narration`
+            : `http://localhost:${port}/api/generate-narration`;
+
+          const requestBody = USE_UNIFIED ? {
+            mode: 'morning',
+            currentDay: room.currentDay,
+            players: room.players,
+            food: room.food,
+            water: room.water,
+            mapState: mapState,
+            storyThreads: room.storyThreads,
+            conversationHistory: room.conversationHistory || []
+          } : {
+            currentDay: room.currentDay,
+            players: room.players,
+            food: room.food,
+            water: room.water,
+            mapState: mapState,
+            storyThreads: room.storyThreads,
+          };
+
           const narrationResponse = await fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              currentDay: room.currentDay,
-              players: room.players,
-              food: room.food,
-              water: room.water,
-              mapState: mapState,
-              storyThreads: room.storyThreads,
-            })
+            body: JSON.stringify(requestBody)
           });
           
           if (narrationResponse.ok) {
@@ -787,7 +829,18 @@ app.prepare().then(() => {
                 room.storyThreads[id].status = 'active';
               }
             }
-            
+
+            // Track conversation history (unified agent only)
+            if (USE_UNIFIED) {
+              if (!room.conversationHistory) room.conversationHistory = [];
+              room.conversationHistory.push({
+                role: 'assistant',
+                content: narration,
+                timestamp: Date.now(),
+                day: room.currentDay
+              });
+            }
+
             console.log(`[${roomCode}] storyThreads:`, JSON.stringify(room.storyThreads, null, 2));
             console.log(`Generated narration for day ${room.currentDay}`);
           } else {
@@ -1004,29 +1057,58 @@ app.prepare().then(() => {
             
             try {
               // Call action resolution API
-              const apiUrl = `http://127.0.0.1:${port}/api/resolve-actions`;
+              const USE_UNIFIED = process.env.UNIFIED_AGENT === 'true';
+              const apiUrl = USE_UNIFIED
+                ? `http://127.0.0.1:${port}/api/unified-narration`
+                : `http://127.0.0.1:${port}/api/resolve-actions`;
+
+              const requestBody = USE_UNIFIED ? {
+                mode: 'resolution',
+                currentDay: room.currentDay,
+                players: playersWithActions,
+                actions: playersWithActions.map(p => ({ playerId: p.id, action: p.action })),
+                mapData: {
+                  landTiles: room.mapData.landTiles,
+                  waterTiles: room.mapData.waterTiles,
+                  startingTile: room.mapData.startingTile,
+                  exploredTiles: room.mapData.exploredTiles,
+                  explorableTiles: explorableTiles,
+                  resourceTiles: room.mapData.resourceTiles
+                },
+                groupInventory: {
+                  food: room.food,
+                  water: room.water,
+                  items: [],
+                  facts: []
+                },
+                storyThreads: room.storyThreads || {},
+                conversationHistory: room.conversationHistory || [],
+                food: room.food,
+                water: room.water
+              } : {
+                currentDay: room.currentDay,
+                players: playersWithActions,
+                mapData: {
+                  landTiles: room.mapData.landTiles,
+                  waterTiles: room.mapData.waterTiles,
+                  startingTile: room.mapData.startingTile,
+                  exploredTiles: room.mapData.exploredTiles,
+                  explorableTiles: explorableTiles,
+                  resourceTiles: room.mapData.resourceTiles
+                },
+                groupInventory: {
+                  food: room.food,
+                  water: room.water,
+                  items: [],
+                  facts: []
+                },
+                storyThreads: room.storyThreads || {}
+              };
+
               const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  currentDay: room.currentDay,
-                  players: playersWithActions,
-                  mapData: {
-                    landTiles: room.mapData.landTiles,
-                    waterTiles: room.mapData.waterTiles,
-                    startingTile: room.mapData.startingTile,
-                    exploredTiles: room.mapData.exploredTiles,
-                    explorableTiles: explorableTiles,
-                    resourceTiles: room.mapData.resourceTiles
-                  },
-                  groupInventory: {
-                    food: room.food,
-                    water: room.water,
-                    items: [], // We don't have items yet
-                    facts: [] // We don't have facts yet
-                  },
-                  storyThreads: room.storyThreads || {}
-                })
+                body: JSON.stringify(requestBody)
               });
               
               if (response.ok) {
@@ -1092,24 +1174,56 @@ app.prepare().then(() => {
                     }
                   }
                 }
-                
-                // Send private outcomes to each player FIRST (before public narration)
-                console.log(`[${roomCode}] Sending private outcomes to ${data.outcomes.length} players`);
-                for (const outcome of data.outcomes) {
-                  console.log(`[${roomCode}] Sending private outcome to player ${outcome.playerId}`);
-                  io.to(outcome.playerId).emit('private-outcome', {
-                    privateNarration: outcome.privateNarration,
-                    resourcesFound: outcome.resourcesFound,
-                    itemsFound: outcome.itemsFound,
-                    factsLearned: outcome.factsLearned,
-                    hpChange: outcome.hpChange
+
+                // Track conversation history (unified agent only)
+                if (USE_UNIFIED) {
+                  if (!room.conversationHistory) room.conversationHistory = [];
+
+                  // Add player actions as a "user" message
+                  const actionsMessage = playersWithActions.map(p =>
+                    `${p.name} (${p.mbtiType}): ${p.action}`
+                  ).join('\n');
+
+                  room.conversationHistory.push({
+                    role: 'user',
+                    content: actionsMessage,
+                    timestamp: Date.now(),
+                    day: room.currentDay
+                  });
+
+                  // Add AI's response as an "assistant" message
+                  // Unified endpoint returns 'narration', old endpoint returns 'publicNarration'
+                  const narrationContent = data.narration || data.publicNarration;
+                  room.conversationHistory.push({
+                    role: 'assistant',
+                    content: narrationContent,
+                    timestamp: Date.now(),
+                    day: room.currentDay
                   });
                 }
 
+                // Send private outcomes to each player FIRST (before public narration)
+                // For unified agent, skip private narration (user doesn't want it)
+                if (!USE_UNIFIED) {
+                  console.log(`[${roomCode}] Sending private outcomes to ${data.outcomes.length} players`);
+                  for (const outcome of data.outcomes) {
+                    console.log(`[${roomCode}] Sending private outcome to player ${outcome.playerId}`);
+                    io.to(outcome.playerId).emit('private-outcome', {
+                      privateNarration: outcome.privateNarration,
+                      resourcesFound: outcome.resourcesFound,
+                      itemsFound: outcome.itemsFound,
+                      factsLearned: outcome.factsLearned,
+                      hpChange: outcome.hpChange
+                    });
+                  }
+                }
+
                 // Send public narration to everyone
+                // Unified endpoint returns 'narration', old endpoint returns 'publicNarration'
+                const publicNarration = data.narration || data.publicNarration;
                 console.log(`[${roomCode}] Emitting actions-resolved to room (${room.players.length} players)`);
                 io.to(roomCode).emit('actions-resolved', {
-                  publicNarration: data.publicNarration,
+                  publicNarration: publicNarration,
                   players: room.players, // Updated with new HP from actions
                   food: room.food,
                   water: room.water,
