@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.71.2",
     "next": "^15.1.0",
     "openai": "^6.10.0",
     "react": "^19.0.0",

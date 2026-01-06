@@ -1,12 +1,15 @@
-// @ts-nocheck
-import Anthropic from '@anthropic-ai/sdk';
+// REVISED resolve-actions API route with failure-aware prompt
+// Replace your current /api/resolve-actions/route.ts with this
 
-function getAnthropicClient() {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error('Missing ANTHROPIC_API_KEY environment variable');
+// @ts-nocheck
+import OpenAI from 'openai';
+
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('Missing OPENAI_API_KEY environment variable');
   }
-  return new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY,
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
   });
 }
 
@@ -17,7 +20,7 @@ function getAdjacentTiles(exploredTiles: string[], allLandTiles: string[], allWa
 
   exploredTiles.forEach(tile => {
     const [x, y] = tile.split(',').map(Number);
-
+    
     const neighbors = [
       `${x + 1},${y}`,
       `${x - 1},${y}`,
@@ -44,7 +47,7 @@ function createFallbackOutcomes(players: any[]) {
       resourcesFound: { food: 0, water: 0 },
       itemsFound: [],
       factsLearned: [],
-      hpChange: -5,
+      hpChange: -5, // Default small HP loss
       privateNarration: `${player.name} completes their task, though it takes its toll.`
     })),
     threadUpdates: []
@@ -84,6 +87,7 @@ export async function POST(request: Request) {
       ? `\nACTIVE PLOT THREADS:\n${activeThreadsText}\n`
       : '';
 
+    // THE NEW SYSTEM PROMPT WITH FAILURE
     const systemPrompt = `You are the narrative engine for Island Game, a survival game where actions have real consequences.
 
 Your job is to resolve player actions with REALISTIC outcomes based on their stats, the difficulty of their actions, and the current game state. Some actions will fail. This is expected and important.
@@ -259,36 +263,34 @@ Resolve all ${players.length} actions. Remember:
 - Reference the current food/water levels when appropriate (e.g., if food is 0, characters might be desperate; if adequate, they might be cautious about using it)`;
 
     // Make API call with retry logic
-    const anthropic = getAnthropicClient();
+    const openai = getOpenAIClient();
     let lastError: any = null;
-
+    
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
-        const completion = await anthropic.messages.create({
-          model: "claude-sonnet-4-5-20250929",
-          max_tokens: 4096,
-          temperature: 0.7,
-          system: systemPrompt,
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o",
           messages: [
-            {
-              role: "user",
-              content: userPrompt
-            }
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
           ],
+          response_format: { type: "json_object" },
+          max_tokens: 1500,
+          temperature: 0.7,
         });
 
-        const responseContent = completion.content[0].text;
-
+        const responseContent = completion.choices[0].message.content;
+        
         try {
           const parsedResponse = JSON.parse(responseContent);
-
+          
           if (!parsedResponse.publicNarration || !parsedResponse.outcomes) {
             throw new Error('Invalid response structure from AI');
           }
 
           const playerIds = new Set(players.map((p: any) => p.id));
           const outcomeIds = new Set(parsedResponse.outcomes.map((o: any) => o.playerId));
-
+          
           if (playerIds.size !== outcomeIds.size) {
             console.warn('AI did not provide outcomes for all players, using fallback');
             throw new Error('Incomplete outcomes from AI');
@@ -297,35 +299,35 @@ Resolve all ${players.length} actions. Remember:
           // Validate tile revelations
           const adjacentSet = new Set(adjacentTiles);
           parsedResponse.outcomes.forEach((outcome: any) => {
-            outcome.tilesRevealed = (outcome.tilesRevealed || []).filter((tile: string) =>
+            outcome.tilesRevealed = (outcome.tilesRevealed || []).filter((tile: string) => 
               adjacentSet.has(tile)
             );
           });
 
           return Response.json(parsedResponse);
-
+          
         } catch (parseError) {
           console.error(`Attempt ${attempt}: Failed to parse AI response:`, parseError);
           console.error('Raw response:', responseContent);
           lastError = parseError;
-
+          
           if (attempt === 3) {
             console.error('All attempts failed, using fallback outcomes');
             return Response.json(createFallbackOutcomes(players));
           }
-
+          
           await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
         }
-
+        
       } catch (apiError) {
-        console.error(`Attempt ${attempt}: Anthropic API error:`, apiError);
+        console.error(`Attempt ${attempt}: OpenAI API error:`, apiError);
         lastError = apiError;
-
+        
         if (attempt === 3) {
           console.error('All attempts failed, using fallback outcomes');
           return Response.json(createFallbackOutcomes(players));
         }
-
+        
         await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
       }
     }
@@ -335,7 +337,7 @@ Resolve all ${players.length} actions. Remember:
   } catch (error) {
     console.error('Error in resolve-actions endpoint:', error);
     return Response.json(
-      {
+      { 
         error: 'Failed to resolve actions',
         message: error instanceof Error ? error.message : 'Unknown error'
       },
