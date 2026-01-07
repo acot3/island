@@ -1115,16 +1115,22 @@ app.prepare().then(() => {
                 const data = await response.json();
                 console.log(`[${roomCode}] Action resolution response received:`, {
                   hasPublicNarration: !!data.publicNarration,
+                  hasNarration: !!data.narration,
                   outcomesCount: data.outcomes?.length || 0,
                   threadUpdatesCount: data.threadUpdates?.length || 0
                 });
-                
+
+                // DEBUG: Log full outcomes to see what AI returned
+                console.log(`[${roomCode}] Full outcomes from AI:`, JSON.stringify(data.outcomes, null, 2));
+
                 // Process outcomes
                 for (const outcome of data.outcomes) {
                   const player = room.players.find(p => p.id === outcome.playerId);
                   if (player) {
+                    const oldHealth = player.health;
                     // Update player HP
                     player.health = Math.max(0, Math.min(10, player.health + outcome.hpChange));
+                    console.log(`[${roomCode}] ${player.name}: HP ${oldHealth} + ${outcome.hpChange} = ${player.health}`);
                     
                     // Update resources (group inventory)
                     room.food += outcome.resourcesFound.food;

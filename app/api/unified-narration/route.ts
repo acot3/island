@@ -357,10 +357,13 @@ async function handleActionResolution({
   food,
   water
 }) {
+  // DEBUG: Log player IDs being sent to AI
+  console.log('[Action Resolution] Player IDs being sent to AI:', players.map(p => ({ id: p.id, name: p.name })));
+
   // Build player actions text
   const playerActions = players.map((p) => {
     const action = actions?.find(a => a.playerId === p.id)?.action || 'No action';
-    return `${p.name} (${p.mbtiType}, HP: ${p.health}/10, Stats: STR ${p.stats?.strength || 2} INT ${p.stats?.intelligence || 2} CHA ${p.stats?.charisma || 2}): ${action}`;
+    return `Player ID: ${p.id}, Name: ${p.name} (${p.mbtiType}, HP: ${p.hp || p.health}/10, Stats: STR ${p.stats?.strength || 2} INT ${p.stats?.intelligence || 2} CHA ${p.stats?.charisma || 2}): ${action}`;
   }).join('\n');
 
   // Create active threads text
@@ -385,7 +388,7 @@ async function handleActionResolution({
 
   const userPrompt = `Resolve the player actions for Day ${currentDay}.
 
-PLAYER ACTIONS:
+PLAYER ACTIONS (Each line starts with "Player ID:" - you MUST use this exact ID in outcomes):
 ${playerActions}
 
 MAP STATE: ${mapSummary}
@@ -404,12 +407,14 @@ Generate a single public narration (200-300 words) describing the outcomes for A
 
 CRITICAL: Return ONLY valid JSON. Do NOT wrap in markdown code blocks. Do NOT include \`\`\`json or \`\`\`.
 
+CRITICAL: For each outcome, use the EXACT player "id" field from the input (NOT the name). Each player in the input has an "id" field - use that exact value for "playerId" in the outcomes.
+
 Response Format (JSON):
 {
   "narration": "200-300 word public narrative with inline health for all players",
   "outcomes": [
     {
-      "playerId": "socket_id",
+      "playerId": "MUST be the exact 'id' value from the player object in the input",
       "hpChange": -5,
       "resourcesFound": { "food": 2, "water": 1 },
       "tilesRevealed": ["2,3"],
