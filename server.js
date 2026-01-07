@@ -244,6 +244,8 @@ const generateMap = () => {
       return {
         landTiles: Array.from(landTiles),
         waterTiles: Array.from(waterTiles),
+        beachTiles: beachTiles, // Beach tiles (land adjacent to water)
+        grassTiles: grassTiles, // Interior/jungle tiles
         startingTile,
         resourceTiles,
         exploredTiles: [startingTile], // Start with just the starting tile explored
@@ -265,6 +267,8 @@ const generateMap = () => {
   return {
     landTiles: Array.from(landTiles),
     waterTiles: Array.from(waterTiles),
+    beachTiles: [], // No beach in fallback
+    grassTiles: Array.from(landTiles), // All land is grass in fallback
     startingTile,
     resourceTiles: {},
     exploredTiles: [startingTile],
@@ -1109,6 +1113,8 @@ app.prepare().then(() => {
                 mapData: {
                   landTiles: room.mapData.landTiles,
                   waterTiles: room.mapData.waterTiles,
+                  beachTiles: room.mapData.beachTiles || [],
+                  grassTiles: room.mapData.grassTiles || [],
                   startingTile: room.mapData.startingTile,
                   campTile: campTile,
                   exploredTiles: room.mapData.exploredTiles,
@@ -1133,6 +1139,8 @@ app.prepare().then(() => {
                 mapData: {
                   landTiles: room.mapData.landTiles,
                   waterTiles: room.mapData.waterTiles,
+                  beachTiles: room.mapData.beachTiles || [],
+                  grassTiles: room.mapData.grassTiles || [],
                   startingTile: room.mapData.startingTile,
                   campTile: campTile,
                   exploredTiles: room.mapData.exploredTiles,

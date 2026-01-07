@@ -54,7 +54,7 @@ export async function POST(request) {
   }
 }
 
-// System prompt from Combined-Agent-Prompt.md with inline health instructions
+// System prompt from Combined-Agent-Prompt.md
 const SYSTEM_PROMPT = `## Task Context
 
 You are a game master agent for a fantasy role-playing game (think Dungeons and Dragons meets Jackbox) where players play as themselves to explore and survive the imaginary island that they find themselves in. Each day, you will creates personalized narratives, prompt players to take actions, determine the outcome of the action, narrate the outcome of the action, track resources available to them, and the health of the players. Each session dynamically adapts through branching storylines that evolve from player decisions. You will take the information about players, and player decisions and outcomes from the prior day to provide a narration of what occurs each day before prompting users to see what they would like to do next.
@@ -67,7 +67,7 @@ Your tone should be dramatic and silly to create fun narrations.
 
 The game scenario is that all the players are stranded on a desert island together. Their boat capsized during a storm.
 
-Reference the MBTI and Horoscope of the players to understand how they would feel and what they would do in the narration.
+Use (but never explicitly reference) a player's MBTI to understand how they would feel and what they would do in the narration.
 
 Keep track of what day it is. After day 1, you will take the player decisions and outcome results as input to build on what could happen next.
 
@@ -165,20 +165,10 @@ The island keeps its secrets close.
 - Determine if they addressed the basic necessities of survival.
 - In the next narration, provide the rationale as to why their health has changed.
 
-## ADDITIONAL RULES FOR INLINE HEALTH
-
-When narrating, ALWAYS embed health status inline in the narrative:
-- Format: "Name (HP: X/10, status)" where status describes their condition
-- Status examples: "healthy", "exhausted", "injured", "starving", "bleeding", "recovering", "weakened"
-- Mention health naturally in narrative flow within character descriptions
-- Example: "Marcus (HP: 7/10, exhausted) staggers back to camp..."
-- Include health mentions for EACH player at least once in the narration
-
 ## MODE-SPECIFIC BEHAVIOR
 
 ### MORNING MODE
 - Generate daily narration (250 words max)
-- Embed current health for all players inline in the narrative
 - Has access to full conversation history (all previous narrations and actions)
 - End with "What do you do?"
 - For Day 1, follow special Day 1 rules (Skipper's boat, his death)
@@ -187,7 +177,6 @@ When narrating, ALWAYS embed health status inline in the narrative:
 - Resolve all player actions based on narrative logic
 - Generate single public narration (200-300 words) describing outcomes for all players
 - Calculate HP changes based on outcomes (success/failure, injuries, exhaustion)
-- Embed updated health inline for all players in the narration
 - Return structured outcomes with HP changes, resources found, tiles revealed, items, facts
 - Success and failure should be balanced based on what is most likely to occur`;
 
@@ -232,15 +221,13 @@ ${currentDay === 1
   ? 'This is Day 1. Follow the Day 1 Specific Rules: capsizing of Skipper\'s Boat, players waking on island, Skipper\'s death scene where he reveals he\'s been here before and warns them to survive and escape.'
   : 'This is Day ' + currentDay + '. Continue the story from previous days.'}
 
-IMPORTANT: Embed health status inline for each player (e.g., "Marcus (HP: ${players[0]?.health || 10}/10, exhausted)") within the narrative.
-
 Generate a ${currentDay === 1 ? 'dramatic opening' : 'continuation'} narration (250 words max) following all Narration Rules.
 
 CRITICAL: Return ONLY valid JSON. Do NOT wrap in markdown code blocks. Do NOT include \`\`\`json or \`\`\`.
 
 Response Format (JSON):
 {
-  "narration": "250 word maximum narrative text with inline health",
+  "narration": "250 word maximum narrative text",
   "thread_updates": [
     {
       "thread_id": "existing_thread_id | NEW",
@@ -388,6 +375,8 @@ async function handleActionResolution({
   const explorableTiles = mapData?.explorableTiles || [];
   const numExplorers = mapData?.numExplorers || 0;
   const areCoordinating = mapData?.areCoordinating || false;
+  const beachTiles = mapData?.beachTiles || [];
+  const grassTiles = mapData?.grassTiles || [];
 
   let explorationContext = '';
   if (numExplorers === 0) {
@@ -400,9 +389,25 @@ async function handleActionResolution({
     explorationContext = `${numExplorers} explorers going in different directions independently - each can only reach tiles within 1 tile of camp`;
   }
 
-  const explorableTilesText = explorableTiles.length > 0
-    ? `Tiles that can be explored: ${explorableTiles.join(', ')}`
-    : 'No new tiles are explorable from camp at this time';
+  // Build terrain-aware explorable tiles list
+  const explorableBeach = explorableTiles.filter(tile => beachTiles.includes(tile));
+  const explorableGrass = explorableTiles.filter(tile => grassTiles.includes(tile));
+  const explorableWater = explorableTiles.filter(tile => mapData?.waterTiles?.includes(tile));
+
+  let explorableTilesText = 'No new tiles are explorable from camp at this time';
+  if (explorableTiles.length > 0) {
+    const terrainParts = [];
+    if (explorableBeach.length > 0) {
+      terrainParts.push(`Beach tiles: ${explorableBeach.join(', ')}`);
+    }
+    if (explorableGrass.length > 0) {
+      terrainParts.push(`Jungle/grass tiles: ${explorableGrass.join(', ')}`);
+    }
+    if (explorableWater.length > 0) {
+      terrainParts.push(`Water tiles: ${explorableWater.join(', ')}`);
+    }
+    explorableTilesText = `Tiles that can be explored:\n  ${terrainParts.join('\n  ')}`;
+  }
 
   const userPrompt = `Resolve the player actions for Day ${currentDay}.
 
@@ -410,7 +415,8 @@ PLAYER ACTIONS (Each line starts with "Player ID:" - you MUST use this exact ID 
 ${playerActions}
 
 MAP STATE:
-- Explored: ${exploredCount}/${totalTiles} tiles
+- Map is a 5x5 grid with coordinates (row,col)
+- Directions: NORTH = lower row, SOUTH = higher row, WEST = lower col, EAST = higher col
 - Current camp location: ${campTile} (all players return here at day's end)
 - Exploration: ${explorationContext}
 - ${explorableTilesText}
@@ -425,12 +431,20 @@ Based on each player's action, their stats, and narrative logic:
 3. Determine resources found (0-5 food, 0-5 water)
 4. Determine if new map tiles are revealed:
    - ONLY reveal tiles from the explorable tiles list above
-   - DO NOT reveal any tiles that aren't in that list
+   - Match BOTH direction AND terrain to the player's action:
+     * Use the coordinate system to determine which tiles are north/south/east/west of camp
+     * "explore north" → reveal tiles with lower row than camp
+     * "explore south" → reveal tiles with higher row than camp
+     * "explore east" → reveal tiles with higher col than camp
+     * "explore west" → reveal tiles with lower col than camp
+     * "explore jungle/forest" → reveal jungle/grass tiles
+     * "explore beach/coast" → reveal beach tiles
+   - DO NOT reveal tiles that don't match BOTH direction and terrain
    - Exploration actions can reveal 0-3 tiles depending on success
    - Return tile coordinates as strings (e.g., "2,3")
 5. Determine if items or facts are discovered
 
-Generate a single public narration (200-300 words) describing the outcomes for ALL players. Embed updated health inline (e.g., "Marcus (HP: 5/10, bleeding) collapses...").
+Generate a single public narration (200-300 words) describing the outcomes for ALL players.
 
 CRITICAL: Return ONLY valid JSON. Do NOT wrap in markdown code blocks. Do NOT include \`\`\`json or \`\`\`.
 
@@ -438,7 +452,7 @@ CRITICAL: For each outcome, use the EXACT player "id" field from the input (NOT 
 
 Response Format (JSON):
 {
-  "narration": "200-300 word public narrative with inline health for all players",
+  "narration": "200-300 word public narrative describing what happened",
   "outcomes": [
     {
       "playerId": "MUST be the exact 'id' value from the player object in the input",
