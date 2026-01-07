@@ -278,39 +278,33 @@ function getTileDistance(tile1, tile2) {
   return Math.abs(r1 - r2) + Math.abs(c1 - c2);
 }
 
-// Get all tiles adjacent to a given tile (including diagonals)
-function getAdjacentTiles(tileKey) {
-  const [row, col] = tileKey.split(',').map(Number);
-  const adjacent = [];
-  
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      if (dr === 0 && dc === 0) continue; // Skip the tile itself
-      adjacent.push(`${row + dr},${col + dc}`);
-    }
-  }
-  
-  return adjacent;
-}
+// Calculate which tiles can be explored based on camp location and number of explorers
+function getExplorableTiles(mapData, campTile, numExplorers = 1) {
+  if (!mapData || !campTile) return [];
 
-// Calculate which tiles can be explored (within range of explored tiles)
-function getExplorableTiles(mapData) {
-  if (!mapData || !mapData.exploredTiles) return [];
-  
   const allTiles = new Set([...mapData.landTiles, ...mapData.waterTiles]);
-  const explored = new Set(mapData.exploredTiles);
+  const explored = new Set(mapData.exploredTiles || []);
   const explorable = new Set();
-  
-  // For each explored tile, add its adjacent unexplored tiles
-  for (const exploredTile of mapData.exploredTiles) {
-    const adjacent = getAdjacentTiles(exploredTile);
-    for (const tile of adjacent) {
-      if (allTiles.has(tile) && !explored.has(tile)) {
-        explorable.add(tile);
-      }
+
+  // Determine exploration range:
+  // 1 player: adjacent tiles only (distance 1)
+  // 2+ players: up to 2 tiles away (distance 2)
+  const maxDistance = numExplorers >= 2 ? 2 : 1;
+
+  const [campRow, campCol] = campTile.split(',').map(Number);
+
+  // Check all tiles within range
+  for (const tile of allTiles) {
+    if (explored.has(tile)) continue; // Skip already explored
+
+    const [tileRow, tileCol] = tile.split(',').map(Number);
+    const distance = Math.abs(tileRow - campRow) + Math.abs(tileCol - campCol); // Manhattan distance
+
+    if (distance <= maxDistance) {
+      explorable.add(tile);
     }
   }
-  
+
   return Array.from(explorable);
 }
 
@@ -576,6 +570,7 @@ app.prepare().then(() => {
             // Generate the map
             const mapData = generateMap();
             room.mapData = mapData;
+            room.campTile = mapData.startingTile; // Initialize camp at shipwreck
             console.log(`Generated map for room ${roomCode}, starting tile: ${mapData.startingTile}`);
             
             // Generate Day 1 narration
@@ -1052,8 +1047,52 @@ app.prepare().then(() => {
               hp: player.health,
               action: room.pendingActions[player.id]
             }));
-            
-            const explorableTiles = getExplorableTiles(room.mapData);
+
+            // Count how many players are exploring (keywords: explore, scout, search, venture, investigate)
+            const explorationKeywords = ['explore', 'scout', 'search', 'venture', 'investigate', 'travel', 'trek', 'wander'];
+            const explorers = playersWithActions.filter(p => {
+              const action = (p.action || '').toLowerCase();
+              return explorationKeywords.some(keyword => action.includes(keyword));
+            });
+            const numExplorers = explorers.length;
+
+            // Check if explorers are coordinating (exploring together in same direction)
+            let areCoordinating = false;
+            if (numExplorers >= 2) {
+              // Check for coordination keywords
+              const coordinationKeywords = ['together', 'with', 'join', 'help', 'assist', 'accompany', 'follow', 'team up', 'group'];
+              const hasCoordinationKeyword = explorers.some(p => {
+                const action = (p.action || '').toLowerCase();
+                return coordinationKeywords.some(keyword => action.includes(keyword));
+              });
+
+              // Check if they mention same direction or landmark
+              const directions = ['north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest'];
+              const landmarks = ['beach', 'jungle', 'forest', 'mountain', 'coast', 'shore', 'inland', 'cliff', 'valley', 'hill'];
+
+              const explorerDirections = explorers.map(p => {
+                const action = (p.action || '').toLowerCase();
+                const foundDirection = directions.find(d => action.includes(d));
+                const foundLandmark = landmarks.find(l => action.includes(l));
+                return { direction: foundDirection, landmark: foundLandmark };
+              });
+
+              // Check if at least 2 explorers mention same direction or landmark
+              const sameDirection = explorerDirections.filter(e => e.direction).length >= 2 &&
+                                   explorerDirections.every(e => !e.direction || e.direction === explorerDirections.find(x => x.direction)?.direction);
+              const sameLandmark = explorerDirections.filter(e => e.landmark).length >= 2 &&
+                                  explorerDirections.every(e => !e.landmark || e.landmark === explorerDirections.find(x => x.landmark)?.landmark);
+
+              areCoordinating = hasCoordinationKeyword || sameDirection || sameLandmark;
+            }
+
+            // Determine exploration range: distance 2 only if 2+ coordinating explorers
+            const effectiveExplorers = (numExplorers >= 2 && areCoordinating) ? numExplorers : 1;
+
+            const campTile = room.campTile || room.mapData.startingTile;
+            const explorableTiles = getExplorableTiles(room.mapData, campTile, effectiveExplorers);
+
+            console.log(`[${roomCode}] Camp at ${campTile}, ${numExplorers} explorer(s), coordinating: ${areCoordinating}, range: ${effectiveExplorers >= 2 ? '2' : '1'}, ${explorableTiles.length} explorable tiles`);
             
             try {
               // Call action resolution API
@@ -1071,8 +1110,11 @@ app.prepare().then(() => {
                   landTiles: room.mapData.landTiles,
                   waterTiles: room.mapData.waterTiles,
                   startingTile: room.mapData.startingTile,
+                  campTile: campTile,
                   exploredTiles: room.mapData.exploredTiles,
                   explorableTiles: explorableTiles,
+                  numExplorers: numExplorers,
+                  areCoordinating: areCoordinating,
                   resourceTiles: room.mapData.resourceTiles
                 },
                 groupInventory: {
@@ -1092,8 +1134,11 @@ app.prepare().then(() => {
                   landTiles: room.mapData.landTiles,
                   waterTiles: room.mapData.waterTiles,
                   startingTile: room.mapData.startingTile,
+                  campTile: campTile,
                   exploredTiles: room.mapData.exploredTiles,
                   explorableTiles: explorableTiles,
+                  numExplorers: numExplorers,
+                  areCoordinating: areCoordinating,
                   resourceTiles: room.mapData.resourceTiles
                 },
                 groupInventory: {
@@ -1137,15 +1182,44 @@ app.prepare().then(() => {
                     room.water += outcome.resourcesFound.water;
                   }
                   
-                  // Update explored tiles
+                  // Update explored tiles (validate against explorable list)
                   if (outcome.tilesRevealed && outcome.tilesRevealed.length > 0) {
-                    const newTiles = outcome.tilesRevealed.filter(t => 
-                      !room.mapData.exploredTiles.includes(t)
+                    const validTiles = outcome.tilesRevealed.filter(tile =>
+                      explorableTiles.includes(tile) && !room.mapData.exploredTiles.includes(tile)
                     );
-                    room.mapData.exploredTiles.push(...newTiles);
+
+                    if (validTiles.length > 0) {
+                      room.mapData.exploredTiles.push(...validTiles);
+                      console.log(`[${roomCode}] Revealed tiles: ${validTiles.join(', ')}`);
+                    }
+
+                    const invalidTiles = outcome.tilesRevealed.filter(tile => !explorableTiles.includes(tile));
+                    if (invalidTiles.length > 0) {
+                      console.log(`[${roomCode}] WARNING: AI tried to reveal invalid tiles (filtered out): ${invalidTiles.join(', ')}`);
+                    }
                   }
                 }
                 
+                // Check if players set up a new camp/shelter (simple detection)
+                const campKeywords = ['build shelter', 'build camp', 'set up camp', 'new base', 'establish camp', 'make camp', 'move camp'];
+                const newCampAction = playersWithActions.find(p => {
+                  const action = (p.action || '').toLowerCase();
+                  return campKeywords.some(keyword => action.includes(keyword));
+                });
+
+                if (newCampAction) {
+                  // Check if any tiles were explored - if so, move camp to first explored tile
+                  const allRevealedTiles = data.outcomes
+                    .flatMap(o => o.tilesRevealed || [])
+                    .filter(tile => room.mapData.exploredTiles.includes(tile));
+
+                  if (allRevealedTiles.length > 0) {
+                    const newCampTile = allRevealedTiles[0];
+                    console.log(`[${roomCode}] Moving camp from ${room.campTile} to ${newCampTile}`);
+                    room.campTile = newCampTile;
+                  }
+                }
+
                 // Update story threads
                 if (data.threadUpdates) {
                   if (!room.storyThreads) room.storyThreads = {};

@@ -382,16 +382,39 @@ async function handleActionResolution({
     : '';
 
   // Map data summary
-  const exploredCount = mapData?.tiles ? mapData.tiles.filter(t => t.explored).length : 0;
-  const totalTiles = mapData?.tiles ? mapData.tiles.length : 25;
-  const mapSummary = `Explored: ${exploredCount}/${totalTiles} tiles`;
+  const exploredCount = mapData?.exploredTiles?.length || 0;
+  const totalTiles = (mapData?.landTiles?.length || 0) + (mapData?.waterTiles?.length || 0);
+  const campTile = mapData?.campTile || mapData?.startingTile || '0,0';
+  const explorableTiles = mapData?.explorableTiles || [];
+  const numExplorers = mapData?.numExplorers || 0;
+  const areCoordinating = mapData?.areCoordinating || false;
+
+  let explorationContext = '';
+  if (numExplorers === 0) {
+    explorationContext = 'No players are exploring this turn';
+  } else if (numExplorers === 1) {
+    explorationContext = '1 explorer can reach tiles within 1 tile of camp';
+  } else if (numExplorers >= 2 && areCoordinating) {
+    explorationContext = `${numExplorers} explorers working together in same direction - can reach tiles up to 2 tiles away from camp`;
+  } else if (numExplorers >= 2 && !areCoordinating) {
+    explorationContext = `${numExplorers} explorers going in different directions independently - each can only reach tiles within 1 tile of camp`;
+  }
+
+  const explorableTilesText = explorableTiles.length > 0
+    ? `Tiles that can be explored: ${explorableTiles.join(', ')}`
+    : 'No new tiles are explorable from camp at this time';
 
   const userPrompt = `Resolve the player actions for Day ${currentDay}.
 
 PLAYER ACTIONS (Each line starts with "Player ID:" - you MUST use this exact ID in outcomes):
 ${playerActions}
 
-MAP STATE: ${mapSummary}
+MAP STATE:
+- Explored: ${exploredCount}/${totalTiles} tiles
+- Current camp location: ${campTile} (all players return here at day's end)
+- Exploration: ${explorationContext}
+- ${explorableTilesText}
+
 RESOURCES: Food ${food}, Water ${water}
 ITEMS: ${(groupInventory?.items || []).join(', ') || 'none'}
 FACTS LEARNED: ${(groupInventory?.facts || []).join(', ') || 'none'}${threadsBlock}
@@ -400,7 +423,11 @@ Based on each player's action, their stats, and narrative logic:
 1. Determine success or failure for each action (balance successes and failures realistically)
 2. Calculate HP changes (-1 to -15 for failures/injuries, 0 for neutral, +1 to +3 for good outcomes)
 3. Determine resources found (0-5 food, 0-5 water)
-4. Determine if new map tiles are revealed (provide tile coordinates like "2,3")
+4. Determine if new map tiles are revealed:
+   - ONLY reveal tiles from the explorable tiles list above
+   - DO NOT reveal any tiles that aren't in that list
+   - Exploration actions can reveal 0-3 tiles depending on success
+   - Return tile coordinates as strings (e.g., "2,3")
 5. Determine if items or facts are discovered
 
 Generate a single public narration (200-300 words) describing the outcomes for ALL players. Embed updated health inline (e.g., "Marcus (HP: 5/10, bleeding) collapses...").
