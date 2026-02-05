@@ -1,12 +1,4 @@
-'use client';
-
-export default function Error({
-  error,
-  reset,
-}: {
-  error: Error & { digest?: string };
-  reset: () => void;
-}) {
+export default function NotFound() {
   return (
     <div style={{
       minHeight: '100vh',
@@ -18,29 +10,30 @@ export default function Error({
       padding: '20px',
       textAlign: 'center'
     }}>
-      <h2 style={{ fontSize: '24px', marginBottom: '16px', color: '#333' }}>
-        Something went wrong!
+      <h2 style={{ fontSize: '32px', marginBottom: '16px', color: '#333' }}>
+        404
       </h2>
-      <p style={{ color: '#666', marginBottom: '24px' }}>
-        {error.message || 'An unexpected error occurred'}
+      <p style={{ fontSize: '18px', color: '#666', marginBottom: '24px' }}>
+        Page not found
       </p>
-      <button
-        onClick={reset}
+      <a
+        href="/"
         style={{
           padding: '12px 24px',
           fontSize: '16px',
           backgroundColor: '#4CAF50',
           color: 'white',
-          border: 'none',
+          textDecoration: 'none',
           borderRadius: '6px',
-          cursor: 'pointer'
+          display: 'inline-block'
         }}
       >
-        Try again
-      </button>
+        Go home
+      </a>
     </div>
   );
 }
+
 
 
 

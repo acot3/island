@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import { io, Socket } from 'socket.io-client';
 
@@ -39,6 +39,64 @@ export default function ScreenLobby() {
     exploredTiles?: string[];
   } | null>(null);
   const [resourceStates, setResourceStates] = useState<Record<string, boolean>>({});
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const lastNarrationRef = useRef<string>('');
+  const [audioEnabled, setAudioEnabled] = useState(false);
+  const audioUnlockedRef = useRef<boolean>(false);
+
+  // Function to play narration via TTS
+  const playNarration = async (text: string, unlockAudio: boolean = false) => {
+    try {
+      // Stop any currently playing audio
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+
+      lastNarrationRef.current = text;
+
+      // If this is the first play, create a silent audio to unlock
+      if (unlockAudio && !audioUnlockedRef.current) {
+        const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAASW5mbwAAAA8AAAACAAABhADAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD///////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAYYSNrVDJUwAAAAAAAAAAAAAAAAAAAAAA//sQZAAP8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAETEFNRTMuMTAwVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV//sQZA8P8AAAaQAAAAgAAA0gAAABAAABpAAAACAAADSAAAAEVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV');
+        await silentAudio.play().catch(() => {});
+        audioUnlockedRef.current = true;
+      }
+
+      const response = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+
+      if (!response.ok) {
+        console.error('TTS request failed:', response.status);
+        return;
+      }
+
+      const audioBlob = await response.blob();
+      const audioUrl = URL.createObjectURL(audioBlob);
+      const audio = new Audio(audioUrl);
+      audioRef.current = audio;
+
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        audioRef.current = null;
+      };
+
+      await audio.play().catch((err) => {
+        console.error('Audio playback failed:', err);
+      });
+    } catch (error) {
+      console.error('TTS error:', error);
+    }
+  };
+
+  // TTS: Play narration when it changes
+  useEffect(() => {
+    // Only auto-play if audio is enabled, there's narration, it's new, AND audio has been unlocked
+    if (!audioEnabled || !narration || narration === lastNarrationRef.current || !audioUnlockedRef.current) return;
+    playNarration(narration);
+  }, [narration, audioEnabled]);
 
   useEffect(() => {
     // Connect to Socket.io server (same origin as Next.js app)
@@ -260,12 +318,50 @@ export default function ScreenLobby() {
             border: '2px solid #2196F3',
             padding: '20px',
             overflow: 'auto',
-            boxSizing: 'border-box'
+            boxSizing: 'border-box',
+            position: 'relative'
           }}>
-            <h2 style={{ color: '#333', marginBottom: '10px' }}>Day {currentDay}</h2>
-            <p style={{ 
-              color: '#333', 
-              fontSize: '16px', 
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h2 style={{ color: '#333', margin: 0 }}>Day {currentDay}</h2>
+              <button
+                onClick={() => {
+                  const newAudioEnabled = !audioEnabled;
+                  setAudioEnabled(newAudioEnabled);
+
+                  if (newAudioEnabled) {
+                    // Turning audio ON - play current narration if it exists
+                    // Pass unlockAudio=true to unlock audio playback on first user interaction
+                    if (narration && narration !== lastNarrationRef.current) {
+                      playNarration(narration, true);
+                    }
+                  } else {
+                    // Turning audio OFF - stop any playing audio
+                    if (audioRef.current) {
+                      audioRef.current.pause();
+                      audioRef.current = null;
+                    }
+                  }
+                }}
+                style={{
+                  padding: '8px 16px',
+                  fontSize: '13px',
+                  backgroundColor: audioEnabled ? '#2196F3' : '#e0e0e0',
+                  color: audioEnabled ? 'white' : '#666',
+                  border: audioEnabled ? '2px solid #1976D2' : '2px solid #bdbdbd',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  transition: 'all 0.2s',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.5px'
+                }}
+              >
+                {audioEnabled ? 'Narration On' : 'Narration Off'}
+              </button>
+            </div>
+            <p style={{
+              color: '#333',
+              fontSize: '16px',
               lineHeight: '1.6',
               whiteSpace: 'pre-wrap',
               marginTop: '15px',
