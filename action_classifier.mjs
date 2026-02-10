@@ -5,7 +5,7 @@ const client = new Anthropic({
 });
 
 const SYSTEM_PROMPT =
-  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to classify it.";
+  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.";
 
 const CLASSIFY_TOOL = {
   name: "classify_action",
@@ -28,22 +28,27 @@ const CLASSIFY_TOOL = {
       },
       difficulty: {
         type: "string",
-        enum: ["easy", "moderate", "hard", "extreme"],
-        description: "How difficult the action is given the survival context.",
+        enum: ["trivial", "easy", "moderate", "hard", "extreme", "impossible"],
+        description: "How difficult the action is given the survival context. Use 'trivial' for effortless actions and 'impossible' for things that cannot be done.",
       },
     },
     required: ["type", "difficulty"],
   },
 };
 
-export async function classifyAction(actionText) {
+export async function classifyAction(actionText, narrationHistory = []) {
+  let historyBlock = "";
+  if (narrationHistory.length > 0) {
+    historyBlock = `Story so far:\n${narrationHistory.map((s, i) => `Day ${i + 1}: ${s}`).join("\n")}\n\n`;
+  }
+
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
     system: SYSTEM_PROMPT,
     tools: [CLASSIFY_TOOL],
     tool_choice: { type: "tool", name: "classify_action" },
-    messages: [{ role: "user", content: actionText }],
+    messages: [{ role: "user", content: `${historyBlock}Action: "${actionText}"` }],
   });
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");

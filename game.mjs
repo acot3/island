@@ -46,7 +46,7 @@ function prompt() {
       return;
     }
 
-    const classification = await classifyAction(input);
+    const classification = await classifyAction(input, state.narration);
     const outcome = determineSuccess(classification.difficulty);
 
     console.log(`\n  Type: ${classification.type}`);
