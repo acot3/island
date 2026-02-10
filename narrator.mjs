@@ -1,11 +1,14 @@
+import { readFileSync } from "fs";
 import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+const lore = readFileSync(new URL("./lore.txt", import.meta.url), "utf-8");
+
 const SYSTEM_PROMPT =
-  "You are a narrator for an island survival game. You receive a player's action, how it was classified, and whether it succeeded or failed. Use the narrate_outcome tool to describe what happened and determine the consequences.";
+  `You are a narrator for an island survival game. You receive a player's action, how it was classified, and whether it succeeded or failed. Use the narrate_outcome tool to describe what happened and determine the consequences.\n\n${lore}`;
 
 const NARRATE_TOOL = {
   name: "narrate_outcome",
@@ -66,7 +69,7 @@ export async function narrateIntro(playerName) {
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
     system:
-      "You are a narrator for an island survival game. Write a brief 2-3 sentence introduction in the third person. Set the scene: the player has just washed ashore on a deserted island after a shipwreck. Be vivid but concise.",
+      `You are a narrator for an island survival game. Write a brief 2-3 sentence introduction in the third person. Set the scene: the player has just washed ashore on a deserted island after a shipwreck. Be vivid but concise. Write only prose narrative — no markdown formatting, headers, or bullet points. Strictly 2-3 sentences.\n\n${lore}`,
     messages: [
       {
         role: "user",

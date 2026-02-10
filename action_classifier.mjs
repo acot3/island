@@ -1,11 +1,14 @@
+import { readFileSync } from "fs";
 import Anthropic from "@anthropic-ai/sdk";
 
 const client = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
+const lore = readFileSync(new URL("./lore.txt", import.meta.url), "utf-8");
+
 const SYSTEM_PROMPT =
-  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.";
+  `You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.\n\n${lore}`;
 
 const CLASSIFY_TOOL = {
   name: "classify_action",
