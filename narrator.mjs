@@ -61,6 +61,23 @@ const NARRATE_TOOL = {
   },
 };
 
+export async function narrateIntro(playerName) {
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 256,
+    system:
+      "You are a narrator for an island survival game. Write a brief 2-3 sentence introduction in the third person. Set the scene: the player has just washed ashore on a deserted island after a shipwreck. Be vivid but concise.",
+    messages: [
+      {
+        role: "user",
+        content: `Player: ${playerName}`,
+      },
+    ],
+  });
+
+  return response.content[0].text;
+}
+
 export async function narrate(playerName, actionText, classification, outcome, narrationHistory = []) {
   let historyBlock = "";
   if (narrationHistory.length > 0) {

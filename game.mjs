@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createInterface } from "readline";
 import { classifyAction } from "./action_classifier.mjs";
 import { determineSuccess } from "./success_determiner.mjs";
-import { narrate } from "./narrator.mjs";
+import { narrate, narrateIntro } from "./narrator.mjs";
 
 const state = {
   day: 1,
@@ -74,6 +74,13 @@ function prompt() {
   });
 }
 
-console.log("Island survival. Describe your action.\n");
-printState();
-prompt();
+async function start() {
+  console.log("Island survival.\n");
+  const intro = await narrateIntro(state.players[0].name);
+  console.log(`  ${intro}`);
+  state.narration.push(intro);
+  printState();
+  prompt();
+}
+
+start();
