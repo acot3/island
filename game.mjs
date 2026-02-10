@@ -20,7 +20,7 @@ const state = {
     water: 0,
     items: [],
   },
-  storyBeats: [],
+  narration: [],
 };
 
 const rl = createInterface({
@@ -54,8 +54,19 @@ function prompt() {
     console.log(`  Roll: ${outcome.roll} vs ${outcome.threshold} needed`);
     console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
 
-    const narration = await narrate(state.players[0].name, input, classification, outcome);
-    console.log(`\n  ${narration}`);
+    const result = await narrate(state.players[0].name, input, classification, outcome, state.narration);
+    console.log(`\n  ${result.narration}`);
+
+    state.narration.push(result.narration);
+
+    const player = state.players[0];
+    player.hp = Math.max(0, Math.min(100, player.hp + result.hpChange));
+    player.injured = result.injured;
+    state.group.food = Math.max(0, state.group.food + result.foodChange);
+    state.group.water = Math.max(0, state.group.water + result.waterChange);
+    for (const item of result.itemsGained) {
+      state.group.items.push(item);
+    }
 
     state.day++;
     printState();
