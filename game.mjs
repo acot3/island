@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createInterface } from "readline";
 import { classifyAction } from "./action_classifier.mjs";
 import { determineSuccess } from "./success_determiner.mjs";
+import { narrate } from "./narrator.mjs";
 
 const state = {
   day: 1,
@@ -53,6 +54,10 @@ function prompt() {
     console.log(`  Roll: ${outcome.roll} vs ${outcome.threshold} needed`);
     console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
 
+    const narration = await narrate(state.players[0].name, input, classification, outcome);
+    console.log(`\n  ${narration}`);
+
+    state.day++;
     printState();
     prompt();
   });
