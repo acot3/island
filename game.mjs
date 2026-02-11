@@ -79,8 +79,23 @@ function prompt() {
       state.group.items.push(item);
     }
 
+    // Day-pass costs
+    for (const p of state.players) {
+      p.hp = Math.max(0, p.hp - 15);
+    }
+    state.group.food = Math.max(0, state.group.food - state.players.length);
+    state.group.water = Math.max(0, state.group.water - state.players.length);
+
     state.day++;
     printState();
+
+    const dead = state.players.find((p) => p.hp <= 0);
+    if (dead) {
+      console.log(`\n  ${dead.name} has perished. Game over.`);
+      rl.close();
+      return;
+    }
+
     prompt();
   });
 }

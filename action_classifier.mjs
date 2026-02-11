@@ -56,7 +56,7 @@ export async function classifyAction(actionText, narrationHistory = []) {
   }
 
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
     system: SYSTEM_PROMPT,
     tools: [CLASSIFY_TOOL],

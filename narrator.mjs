@@ -67,7 +67,7 @@ const NARRATE_TOOL = {
 
 export async function narrateIntro(playerName) {
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
     system: [
       {
@@ -94,7 +94,7 @@ export async function narrate(playerName, actionText, classification, outcome, n
   }
 
   const response = await client.messages.create({
-    model: "claude-haiku-4-5-20251001",
+    model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
     system: [
       {
