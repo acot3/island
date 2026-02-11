@@ -3,9 +3,13 @@ import { createInterface } from "readline";
 import { classifyAction } from "./action_classifier.mjs";
 import { determineSuccess } from "./success_determiner.mjs";
 import { narrate, narrateIntro } from "./narrator.mjs";
+import { generateMap, getLocationContext } from "./map_generator.mjs";
+
+const map = generateMap();
 
 const state = {
   day: 1,
+  map,
   players: [
     {
       name: "Albert",
@@ -13,6 +17,7 @@ const state = {
       stats: { strength: 1, intelligence: 4, charisma: 1},
       hp: 100,
       injured: false,
+      location: "beach",
     },
   ],
   group: {
@@ -31,7 +36,10 @@ const rl = createInterface({
 function printState() {
   console.log(`\n--- Day ${state.day} ---`);
   for (const p of state.players) {
+    const zone = state.map.zones[p.location];
+    const nearby = zone.connections.map((id) => state.map.zones[id].name).join(", ");
     console.log(`  ${p.name} | HP: ${p.hp} | STR: ${p.stats.strength} INT: ${p.stats.intelligence} CHA: ${p.stats.charisma}`);
+    console.log(`  Location: ${zone.name} | Nearby: ${nearby}`);
   }
   console.log(`  Food: ${state.group.food} | Water: ${state.group.water}`);
   if (state.group.items.length > 0) {
@@ -46,7 +54,10 @@ function prompt() {
       return;
     }
 
-    const classification = await classifyAction(input, state.narration);
+    const player = state.players[0];
+    const locationContext = getLocationContext(state.map, player.location);
+
+    const classification = await classifyAction(input, state.narration, locationContext);
 
     let outcome;
 
@@ -64,13 +75,23 @@ function prompt() {
       console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
     }
 
+    // Handle movement before narration so the narrator knows the new location
+    if (classification.moveTo && outcome.success && state.map.zones[classification.moveTo]) {
+      const zone = state.map.zones[classification.moveTo];
+      if (state.map.zones[player.location].connections.includes(classification.moveTo)) {
+        const from = state.map.zones[player.location].name;
+        console.log(`\n  [moved: ${from} → ${zone.name}]`);
+        player.location = classification.moveTo;
+      }
+    }
+
+    const narrateLocationContext = getLocationContext(state.map, player.location);
     const narrateClassification = classification.type ? classification : null;
-    const result = await narrate(state.players[0].name, input, narrateClassification, outcome, state.narration);
+    const result = await narrate(state.players[0].name, input, narrateClassification, outcome, state.narration, narrateLocationContext);
     console.log(`\n  ${result.narration}`);
 
     state.narration.push(result.narration);
 
-    const player = state.players[0];
     if (result.healed) player.hp = Math.min(100, player.hp + 10 + Math.floor(Math.random() * 6)); // 10-15
     player.injured = result.injured;
     if (result.foundFood) state.group.food += 3 + Math.floor(Math.random() * 3); // 3-5
@@ -109,7 +130,8 @@ function prompt() {
 
 async function start() {
   console.log("Island survival.\n");
-  const intro = await narrateIntro(state.players[0].name);
+  const introLocationContext = getLocationContext(state.map, state.players[0].location);
+  const intro = await narrateIntro(state.players[0].name, introLocationContext);
   console.log(`  ${intro}`);
   state.narration.push(intro);
   printState();

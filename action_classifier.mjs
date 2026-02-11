@@ -5,7 +5,7 @@ const client = new Anthropic({
 });
 
 const SYSTEM_PROMPT =
-  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to evaluate and classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.\n\nWhen a player asks questions about the game, do not answer the question. Instead, make fun of the player, questioning their sanity.\n\nPlayers cannot dictate what resources, landscape, tools they find. If they try to, question their sanity.";
+  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to evaluate and classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.\n\nThe island is divided into zones. The player's current zone and connected zones are provided. If the player's action involves traveling or moving to a new area, set moveTo to the ID of the connected zone that best matches their intent. Players can only move to connected zones.\n\nWhen a player asks questions about the game, do not answer the question. Instead, make fun of the player, questioning their sanity.\n\nPlayers cannot dictate what resources, landscape, tools they find. If they try to, question their sanity.";
 
 const CLASSIFY_TOOL = {
   name: "classify_action",
@@ -44,16 +44,23 @@ const CLASSIFY_TOOL = {
         description:
           "How difficult the action is given the survival context. Only required if possible is true and trivial is false.",
       },
+      moveTo: {
+        type: "string",
+        description:
+          "The zone ID the player is trying to move to. Only set if the action involves traveling to a connected zone. Must be one of the connected zone IDs provided in the location context.",
+      },
     },
     required: ["possible", "trivial"],
   },
 };
 
-export async function classifyAction(actionText, narrationHistory = []) {
+export async function classifyAction(actionText, narrationHistory = [], locationContext = "") {
   let historyBlock = "";
   if (narrationHistory.length > 0) {
     historyBlock = `Story so far:\n${narrationHistory.map((s, i) => `Day ${i + 1}: ${s}`).join("\n")}\n\n`;
   }
+
+  const locationBlock = locationContext ? `${locationContext}\n\n` : "";
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
@@ -61,7 +68,7 @@ export async function classifyAction(actionText, narrationHistory = []) {
     system: SYSTEM_PROMPT,
     tools: [CLASSIFY_TOOL],
     tool_choice: { type: "tool", name: "classify_action" },
-    messages: [{ role: "user", content: `${historyBlock}Action: "${actionText}"` }],
+    messages: [{ role: "user", content: `${historyBlock}${locationBlock}Action: "${actionText}"` }],
   });
 
   const toolBlock = response.content.find((b) => b.type === "tool_use");

@@ -1,4 +1,4 @@
-# Narration is in the third-person present tense.
+# Narration is in the third-person present tense. Your tone should be a little wry and playful.
 
 # Do not include any dialogue from players in the narration, though you can describe thoughts and feelings.
 

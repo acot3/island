@@ -39,7 +39,7 @@ const NARRATE_TOOL = {
         type: "array",
         items: { type: "string" },
         description:
-          "Any items found or crafted. Empty array if none. Keep items short and concrete, e.g. 'sharp rock', 'vine rope'.",
+          "Non-consumable items found or crafted — tools, materials, objects. Empty array if none. Keep items short and concrete, e.g. 'sharp rock', 'vine rope'. Do NOT include food or water here; use foundFood and foundWater instead.",
       },
       injured: {
         type: "boolean",
@@ -58,7 +58,7 @@ const NARRATE_TOOL = {
   },
 };
 
-export async function narrateIntro(playerName) {
+export async function narrateIntro(playerName, locationContext = "") {
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
@@ -72,7 +72,7 @@ export async function narrateIntro(playerName) {
     messages: [
       {
         role: "user",
-        content: `Player: ${playerName}`,
+        content: `${locationContext ? locationContext + "\n\n" : ""}Player: ${playerName}`,
       },
     ],
   });
@@ -80,11 +80,13 @@ export async function narrateIntro(playerName) {
   return response.content[0].text;
 }
 
-export async function narrate(playerName, actionText, classification, outcome, narrationHistory = []) {
+export async function narrate(playerName, actionText, classification, outcome, narrationHistory = [], locationContext = "") {
   let historyBlock = "";
   if (narrationHistory.length > 0) {
     historyBlock = `\n\nStory so far:\n${narrationHistory.map((s, i) => `Day ${i + 1}: ${s}`).join("\n")}\n`;
   }
+
+  const locationBlock = locationContext ? `\n\n${locationContext}` : "";
 
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
@@ -101,7 +103,7 @@ export async function narrate(playerName, actionText, classification, outcome, n
     messages: [
       {
         role: "user",
-        content: `${historyBlock}Player: ${playerName}\nAction: "${actionText}"${classification ? `\nType: ${classification.type}\nDifficulty: ${classification.difficulty}` : ""}\nResult: ${outcome.success ? "SUCCESS" : "FAILURE"}`,
+        content: `${historyBlock}${locationBlock}\nPlayer: ${playerName}\nAction: "${actionText}"${classification ? `\nType: ${classification.type}\nDifficulty: ${classification.difficulty}` : ""}\nResult: ${outcome.success ? "SUCCESS" : "FAILURE"}`,
       },
     ],
   });
