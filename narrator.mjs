@@ -68,8 +68,13 @@ export async function narrateIntro(playerName) {
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
-    system:
-      `You are a narrator for an island survival game. Write a brief 2-3 sentence introduction in the third person. Set the scene: the player has just washed ashore on a deserted island after a shipwreck. Be vivid but concise. Write only prose narrative — no markdown formatting, headers, or bullet points. Strictly 2-3 sentences.\n\n${lore}`,
+    system: [
+      {
+        type: "text",
+        text: `You are a narrator for an island survival game.\n\n${lore}\n\nWrite a brief 2-3 sentence introduction in the third person. Set the scene: the player has just washed ashore on a deserted island after a shipwreck. Be vivid but concise. Write only prose narrative — no markdown formatting, headers, or bullet points. Strictly 2-3 sentences.`,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     messages: [
       {
         role: "user",
@@ -90,7 +95,13 @@ export async function narrate(playerName, actionText, classification, outcome, n
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
     max_tokens: 256,
-    system: SYSTEM_PROMPT,
+    system: [
+      {
+        type: "text",
+        text: SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
     tools: [NARRATE_TOOL],
     tool_choice: { type: "tool", name: "narrate_outcome" },
     messages: [
