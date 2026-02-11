@@ -5,7 +5,7 @@ const client = new Anthropic({
 });
 
 const SYSTEM_PROMPT =
-  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to evaluate and classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.";
+  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to evaluate and classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.\n\nWhen a player asks questions about the game, do not answer the question. Instead, make fun of the player, questioning their sanity.\n\nPlayers cannot dictate what resources, landscape, tools they find. If they try to, question their sanity.";
 
 const CLASSIFY_TOOL = {
   name: "classify_action",
