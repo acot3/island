@@ -73,8 +73,8 @@ function prompt() {
     const player = state.players[0];
     player.hp = Math.max(0, Math.min(100, player.hp + result.hpChange));
     player.injured = result.injured;
-    state.group.food = Math.max(0, state.group.food + result.foodChange);
-    state.group.water = Math.max(0, state.group.water + result.waterChange);
+    if (result.foundFood) state.group.food += 3 + Math.floor(Math.random() * 3); // 3-5
+    if (result.foundWater) state.group.water += 3 + Math.floor(Math.random() * 3); // 3-5
     for (const item of result.itemsGained) {
       state.group.items.push(item);
     }

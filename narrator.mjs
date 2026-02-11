@@ -30,17 +30,13 @@ const NARRATE_TOOL = {
         description:
           "How the player's health changed. Negative for damage, positive for recovery. 0 if no change.",
       },
-      foodChange: {
-        type: "integer",
-        minimum: 0,
-        maximum: 5,
-        description: "How much food the group gained. 0 if none.",
+      foundFood: {
+        type: "boolean",
+        description: "Whether the player found or gained food.",
       },
-      waterChange: {
-        type: "integer",
-        minimum: 0,
-        maximum: 5,
-        description: "How much water the group gained. 0 if none.",
+      foundWater: {
+        type: "boolean",
+        description: "Whether the player found or gained water.",
       },
       itemsGained: {
         type: "array",
@@ -57,8 +53,8 @@ const NARRATE_TOOL = {
     required: [
       "narration",
       "hpChange",
-      "foodChange",
-      "waterChange",
+      "foundFood",
+      "foundWater",
       "itemsGained",
       "injured",
     ],
