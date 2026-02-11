@@ -28,18 +28,14 @@ Gameplay implication: Character dynamics evolve. Alliances and personalities shi
 
 # Manifestations of the Magic
 
-1. The Shifting Paths
-
-Trails that existed yesterday may be gone today. Clearings appear where dense jungle stood. The island's geography is not fixed—it rearranges itself according to principles no outsider has decoded. Some believe the island is guiding survivors toward specific encounters. Others think it's simply playing with them.
-
-2. The Whisper Tide
+## The Whisper Tide
 
 At certain hours—usually dusk and the darkest part of night—the ocean speaks. Those who listen at the shoreline hear voices: warnings, promises, fragments of truth wrapped in riddle. The Whisper Tide has saved lives and destroyed them in equal measure. Trusting it is a gamble.
 
-3. The Bloom
+## The Bloom
 
 Scattered across the island are flowers that glow faintly in darkness—moonseed blooms. Eating one grants a single flash of insight: a vision, a truth about another survivor, a glimpse of what's to come. But the visions are not always clear, and not always kind. Some who've eaten the bloom have been driven mad by what they saw.
 
-4. The Verdict Fire
+## The Verdict Fire
 
 At the island's heart, an ancient fire pit sits in a clearing that never overgrows. When survivors gather there and make a collective decision—a judgment, an accusation, an exile—the flames respond. They rise for truth. They dim for lies. They turn strange colors that the old stories never fully explained.

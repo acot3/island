@@ -23,12 +23,9 @@ const NARRATE_TOOL = {
         description:
           "One vivid sentence in the third person describing what happened.",
       },
-      hpChange: {
-        type: "integer",
-        minimum: -20,
-        maximum: 20,
-        description:
-          "How the player's health changed. Negative for damage, positive for recovery. 0 if no change.",
+      healed: {
+        type: "boolean",
+        description: "Whether the player recovered health (e.g. from resting).",
       },
       foundFood: {
         type: "boolean",
@@ -52,7 +49,7 @@ const NARRATE_TOOL = {
     },
     required: [
       "narration",
-      "hpChange",
+      "healed",
       "foundFood",
       "foundWater",
       "itemsGained",

@@ -7,5 +7,3 @@
 # There are no other people on the island except for the player(s).
 
 # Every few days, there should be a threat to survival that occurs and the player(s) must take action to eliminate the threat.
-
-# When a player rests, restore between 10 and 15 HP via hpChange.

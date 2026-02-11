@@ -71,7 +71,7 @@ function prompt() {
     state.narration.push(result.narration);
 
     const player = state.players[0];
-    player.hp = Math.max(0, Math.min(100, player.hp + result.hpChange));
+    if (result.healed) player.hp = Math.min(100, player.hp + 10 + Math.floor(Math.random() * 6)); // 10-15
     player.injured = result.injured;
     if (result.foundFood) state.group.food += 3 + Math.floor(Math.random() * 3); // 3-5
     if (result.foundWater) state.group.water += 3 + Math.floor(Math.random() * 3); // 3-5
