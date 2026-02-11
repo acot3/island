@@ -80,11 +80,18 @@ function prompt() {
     }
 
     // Day-pass costs
+    const foodNeeded = state.players.length;
+    const waterNeeded = state.players.length;
+    const noFood = state.group.food < foodNeeded;
+    const noWater = state.group.water < waterNeeded;
+    state.group.food = Math.max(0, state.group.food - foodNeeded);
+    state.group.water = Math.max(0, state.group.water - waterNeeded);
     for (const p of state.players) {
-      p.hp = Math.max(0, p.hp - 15);
+      let hpLoss = 0;
+      if (noFood) hpLoss += 10;
+      if (noWater) hpLoss += 10;
+      p.hp = Math.max(0, p.hp - hpLoss);
     }
-    state.group.food = Math.max(0, state.group.food - state.players.length);
-    state.group.water = Math.max(0, state.group.water - state.players.length);
 
     state.day++;
     printState();
