@@ -1,10 +1,8 @@
 const THRESHOLDS = {
-  trivial: 1,
   easy: 0.8,
   moderate: 0.6,
   hard: 0.35,
   extreme: 0.15,
-  impossible: 0,
 };
 
 export function determineSuccess(difficulty) {

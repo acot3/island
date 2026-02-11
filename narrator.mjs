@@ -107,7 +107,7 @@ export async function narrate(playerName, actionText, classification, outcome, n
     messages: [
       {
         role: "user",
-        content: `${historyBlock}Player: ${playerName}\nAction: "${actionText}"\nType: ${classification.type}\nDifficulty: ${classification.difficulty}\nResult: ${outcome.success ? "SUCCESS" : "FAILURE"}`,
+        content: `${historyBlock}Player: ${playerName}\nAction: "${actionText}"${classification ? `\nType: ${classification.type}\nDifficulty: ${classification.difficulty}` : ""}\nResult: ${outcome.success ? "SUCCESS" : "FAILURE"}`,
       },
     ],
   });

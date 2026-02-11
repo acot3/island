@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createInterface } from "readline";
-import { classifyAction } from "./action_classifier.mjs";
+import { checkPossibility, classifyAction } from "./action_classifier.mjs";
 import { determineSuccess } from "./success_determiner.mjs";
 import { narrate, narrateIntro } from "./narrator.mjs";
 
@@ -46,13 +46,25 @@ function prompt() {
       return;
     }
 
-    const classification = await classifyAction(input, state.narration);
-    const outcome = determineSuccess(classification.difficulty);
+    const check = await checkPossibility(input, state.narration);
 
-    console.log(`\n  Type: ${classification.type}`);
-    console.log(`  Difficulty: ${classification.difficulty}`);
-    console.log(`  Roll: ${outcome.roll} vs ${outcome.threshold} needed`);
-    console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
+    let classification = null;
+    let outcome;
+
+    if (!check.possible) {
+      console.log(`\n  Impossible — auto FAILURE`);
+      outcome = { success: false };
+    } else if (check.trivial) {
+      console.log(`\n  Trivial — auto SUCCESS`);
+      outcome = { success: true };
+    } else {
+      classification = await classifyAction(input);
+      outcome = determineSuccess(classification.difficulty);
+      console.log(`\n  Type: ${classification.type}`);
+      console.log(`  Difficulty: ${classification.difficulty}`);
+      console.log(`  Roll: ${outcome.roll} vs ${outcome.threshold} needed`);
+      console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
+    }
 
     const result = await narrate(state.players[0].name, input, classification, outcome, state.narration);
     console.log(`\n  ${result.narration}`);
