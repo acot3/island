@@ -80,7 +80,7 @@ export async function narrateIntro(playerName, locationContext = "") {
   return response.content[0].text;
 }
 
-export async function narrate(playerName, actionText, classification, outcome, narrationHistory = [], locationContext = "") {
+export async function narrate(playerName, actionText, classification, outcome, narrationHistory = [], locationContext = "", { failedMoveTo } = {}) {
   let historyBlock = "";
   if (narrationHistory.length > 0) {
     historyBlock = `\n\nStory so far:\n${narrationHistory.map((s, i) => `Day ${i + 1}: ${s}`).join("\n")}\n`;
@@ -103,7 +103,7 @@ export async function narrate(playerName, actionText, classification, outcome, n
     messages: [
       {
         role: "user",
-        content: `${historyBlock}${locationBlock}\nPlayer: ${playerName}\nAction: "${actionText}"${classification ? `\nType: ${classification.type}\nDifficulty: ${classification.difficulty}` : ""}\nResult: ${outcome.success ? "SUCCESS" : "FAILURE"}`,
+        content: `${historyBlock}${locationBlock}\nPlayer: ${playerName}\nAction: "${actionText}"${classification ? `\nType: ${classification.type}\nDifficulty: ${classification.difficulty}` : ""}\nResult: ${outcome.success ? "SUCCESS" : "FAILURE"}${failedMoveTo ? `\nMovement failed: the player tried to reach ${failedMoveTo} but could not. They are still at their current location. The narration must reflect this.` : ""}`,
       },
     ],
   });

@@ -78,11 +78,33 @@ export function generateMap() {
   return { zones };
 }
 
-export function getLocationContext(map, zoneId) {
+export function getLocationContext(map, zoneId, visited = null) {
   const zone = map.zones[zoneId];
-  const connections = zone.connections.map((id) => {
+  const directIds = zone.connections;
+  const connections = directIds.map((id) => {
     const z = map.zones[id];
     return `${z.name} (id: ${z.id}) — ${z.description}`;
   });
-  return `Current location: ${zone.name} — ${zone.description}\nConnected zones:\n${connections.join("\n")}`;
+
+  let context = `Current location: ${zone.name} — ${zone.description}\nConnected zones:\n${connections.join("\n")}`;
+
+  if (visited) {
+    const twoLinkIds = new Set();
+    for (const neighborId of directIds) {
+      for (const id of map.zones[neighborId].connections) {
+        if (id !== zoneId && !directIds.includes(id) && visited.has(id)) {
+          twoLinkIds.add(id);
+        }
+      }
+    }
+    if (twoLinkIds.size > 0) {
+      const known = [...twoLinkIds].map((id) => {
+        const z = map.zones[id];
+        return `${z.name} (id: ${z.id}) — ${z.description}`;
+      });
+      context += `\nKnown zones (previously visited, reachable via longer trek):\n${known.join("\n")}`;
+    }
+  }
+
+  return context;
 }

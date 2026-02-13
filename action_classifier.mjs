@@ -5,7 +5,7 @@ const client = new Anthropic({
 });
 
 const SYSTEM_PROMPT =
-  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to evaluate and classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.\n\nThe island is divided into zones. The player's current zone and connected zones are provided. If the player's action involves traveling or moving to a new area, set moveTo to the ID of the connected zone that best matches their intent. Players can only move to connected zones.\n\nWhen a player asks questions about the game, do not answer the question. Instead, make fun of the player, questioning their sanity.\n\nPlayers cannot dictate what resources, landscape, tools they find. If they try to, question their sanity.";
+  "You are an action classifier for an island survival game. A player describes what they want to do. Use the classify_action tool to evaluate and classify it. You will receive the story so far for context — use it to judge what is possible and how difficult things are.\n\nThe island is divided into zones. The player's current zone, connected zones, and known zones (previously visited) are provided. If the player's action references or describes a specific reachable zone (connected or known) — even partially, like 'shore' for 'Rocky Shore' or 'jungle' for 'Dense Jungle' — that is a movement action and you MUST set moveTo to that zone's ID. Only treat an action as in-place exploration if it does NOT reference any reachable zone (e.g. 'look around', 'explore this area', 'search for food').\n\nWhen a player asks questions about the game, do not answer the question. Instead, make fun of the player, questioning their sanity.\n\nPlayers cannot dictate what resources, landscape, tools they find. If they try to, question their sanity.";
 
 const CLASSIFY_TOOL = {
   name: "classify_action",
@@ -47,7 +47,7 @@ const CLASSIFY_TOOL = {
       moveTo: {
         type: "string",
         description:
-          "The zone ID the player is trying to move to. Only set if the action involves traveling to a connected zone. Must be one of the connected zone IDs provided in the location context.",
+          "The zone ID the player is trying to move to. Only set if the action involves traveling. Must be one of the zone IDs listed in the location context (connected or known).",
       },
     },
     required: ["possible", "trivial"],

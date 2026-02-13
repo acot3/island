@@ -18,6 +18,7 @@ const state = {
       hp: 100,
       injured: false,
       location: "beach",
+      visited: new Set(["beach"]),
     },
   ],
   group: {
@@ -55,9 +56,30 @@ function prompt() {
     }
 
     const player = state.players[0];
-    const locationContext = getLocationContext(state.map, player.location);
+    const locationContext = getLocationContext(state.map, player.location, player.visited);
 
     const classification = await classifyAction(input, state.narration, locationContext);
+
+    // Determine link distance for movement actions
+    let moveLinkDistance = 0;
+    if (classification.moveTo && state.map.zones[classification.moveTo]) {
+      const directConnections = state.map.zones[player.location].connections;
+      if (directConnections.includes(classification.moveTo)) {
+        moveLinkDistance = 1;
+      } else if (player.visited.has(classification.moveTo)) {
+        const isTwoLink = directConnections.some((neighborId) =>
+          state.map.zones[neighborId].connections.includes(classification.moveTo)
+        );
+        if (isTwoLink) moveLinkDistance = 2;
+      }
+    }
+
+    // Override difficulty for movement actions
+    if (moveLinkDistance > 0) {
+      classification.difficulty = moveLinkDistance === 1 ? "easy" : "moderate";
+      classification.possible = true;
+      classification.trivial = false;
+    }
 
     let outcome;
 
@@ -76,18 +98,22 @@ function prompt() {
     }
 
     // Handle movement before narration so the narrator knows the new location
-    if (classification.moveTo && outcome.success && state.map.zones[classification.moveTo]) {
+    let failedMoveTo = null;
+    if (moveLinkDistance > 0) {
       const zone = state.map.zones[classification.moveTo];
-      if (state.map.zones[player.location].connections.includes(classification.moveTo)) {
+      if (outcome.success) {
         const from = state.map.zones[player.location].name;
         console.log(`\n  [moved: ${from} → ${zone.name}]`);
         player.location = classification.moveTo;
+        player.visited.add(classification.moveTo);
+      } else {
+        failedMoveTo = zone.name;
       }
     }
 
-    const narrateLocationContext = getLocationContext(state.map, player.location);
+    const narrateLocationContext = getLocationContext(state.map, player.location, player.visited);
     const narrateClassification = classification.type ? classification : null;
-    const result = await narrate(state.players[0].name, input, narrateClassification, outcome, state.narration, narrateLocationContext);
+    const result = await narrate(state.players[0].name, input, narrateClassification, outcome, state.narration, narrateLocationContext, { failedMoveTo });
     console.log(`\n  ${result.narration}`);
 
     state.narration.push(result.narration);
@@ -130,7 +156,7 @@ function prompt() {
 
 async function start() {
   console.log("Island survival.\n");
-  const introLocationContext = getLocationContext(state.map, state.players[0].location);
+  const introLocationContext = getLocationContext(state.map, state.players[0].location, state.players[0].visited);
   const intro = await narrateIntro(state.players[0].name, introLocationContext);
   console.log(`  ${intro}`);
   state.narration.push(intro);
