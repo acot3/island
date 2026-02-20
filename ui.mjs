@@ -72,6 +72,25 @@ export function getHTML(initialNarrative, initialState) {
 
     let state = ${JSON.stringify(initialState)};
 
+    let currentAudio = null;
+
+    function stopAudio() {
+      if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+    }
+
+    async function playNarration(text) {
+      stopAudio();
+      const res = await fetch("/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      currentAudio = new Audio(url);
+      await currentAudio.play().catch(() => {});
+    }
+
     function updateUI(narrative) {
       const inv = state.inventory.length ? state.inventory.join(", ") : "empty";
       statusEl.textContent = "Day " + state.day + " " + state.time + " | HP: " + state.hp + "/100 | Inventory: " + inv;
@@ -79,10 +98,12 @@ export function getHTML(initialNarrative, initialState) {
     }
 
     updateUI(${JSON.stringify(initialNarrative)});
+    playNarration(${JSON.stringify(initialNarrative)});
 
     async function submit() {
       const action = actionEl.value.trim();
       if (!action) return;
+      stopAudio();
       actionEl.value = "";
       actionEl.disabled = true;
       submitEl.disabled = true;
@@ -96,6 +117,7 @@ export function getHTML(initialNarrative, initialState) {
       const data = await res.json();
       state = data.gameState;
       updateUI(data.narrative);
+      playNarration(data.narrative);
 
       if (state.hp <= 0) {
         actionEl.placeholder = "Game over.";

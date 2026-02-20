@@ -1,9 +1,11 @@
 import "dotenv/config";
 import Anthropic from "@anthropic-ai/sdk";
+import OpenAI from "openai";
 import express from "express";
 import { getHTML } from "./ui.mjs";
 
 const client = new Anthropic();
+const openai = new OpenAI();
 const app = express();
 app.use(express.json());
 
@@ -132,6 +134,19 @@ app.post("/action", async (req, res) => {
   const { action } = req.body;
   const narrative = await turn(action);
   res.json({ narrative, gameState });
+});
+
+app.post("/tts", async (req, res) => {
+  const { text } = req.body;
+  const mp3 = await openai.audio.speech.create({
+    model: "gpt-4o-mini-tts",
+    voice: "ash",
+    input: text.slice(0, 4096),
+    instructions:
+      "Voice Affect: Convey tension and intrigue.",
+  });
+  const buffer = Buffer.from(await mp3.arrayBuffer());
+  res.set("Content-Type", "audio/mpeg").send(buffer);
 });
 
 app.listen(3000, () => {
