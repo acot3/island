@@ -1,167 +1,139 @@
 import "dotenv/config";
-import { createInterface } from "readline";
-import { classifyAction } from "./action_classifier.mjs";
-import { determineSuccess } from "./success_determiner.mjs";
-import { narrate, narrateIntro } from "./narrator.mjs";
-import { generateMap, getLocationContext } from "./map_generator.mjs";
+import Anthropic from "@anthropic-ai/sdk";
+import express from "express";
+import { getHTML } from "./ui.mjs";
 
-const map = generateMap();
+const client = new Anthropic();
+const app = express();
+app.use(express.json());
 
-const state = {
-  day: 1,
-  map,
-  players: [
-    {
-      name: "Albert",
-      pronouns: "he/him",
-      stats: { strength: 1, intelligence: 4, charisma: 1},
-      hp: 100,
-      injured: false,
-      location: "beach",
-      visited: new Set(["beach"]),
+const gameState = { hp: 60, inventory: [], day: 1, time: "AM" };
+
+const tools = [
+  {
+    name: "update_game_state",
+    description:
+      "Update the player's game state after narrating. Call this EVERY turn to reflect what happened.",
+    input_schema: {
+      type: "object",
+      properties: {
+        hp_change: {
+          type: "number",
+          description:
+            "Amount to add or subtract from HP (e.g. -10 for damage, +5 for healing). Use 0 if unchanged.",
+        },
+        add_items: {
+          type: "array",
+          items: { type: "string" },
+          description: "Items the player gained this turn. Empty array if none.",
+        },
+        remove_items: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Items the player lost or consumed this turn. Empty array if none.",
+        },
+      },
+      required: ["hp_change", "add_items", "remove_items"],
     },
-  ],
-  group: {
-    food: 0,
-    water: 0,
-    items: [],
   },
-  narration: [],
-};
+];
 
-const rl = createInterface({
-  input: process.stdin,
-  output: process.stdout,
+function buildSystem() {
+  const inv = gameState.inventory.length
+    ? gameState.inventory.join(", ")
+    : "empty";
+  return `You are the narrator and game master for a solo island survival game. A player named Albert has just washed ashore on a mysterious island. Narrate in third-person present tense. Keep responses to 1 brief paragraph.
+
+CURRENT GAME STATE:
+Day ${gameState.day}, ${gameState.time}
+HP: ${gameState.hp}/100
+Inventory: ${inv}
+
+After narrating, ALWAYS call the update_game_state tool to reflect any changes to HP or inventory. Even if nothing changed, call it with hp_change: 0 and empty arrays.`;
+}
+
+const messages = [];
+
+function advanceTime() {
+  if (gameState.time === "AM") {
+    gameState.time = "PM";
+  } else {
+    gameState.time = "AM";
+    gameState.day++;
+  }
+}
+
+function applyStateChange({ hp_change, add_items, remove_items }) {
+  gameState.hp = Math.max(0, Math.min(100, gameState.hp + hp_change));
+  for (const item of add_items) gameState.inventory.push(item);
+  for (const item of remove_items) {
+    const idx = gameState.inventory.indexOf(item);
+    if (idx !== -1) gameState.inventory.splice(idx, 1);
+  }
+  advanceTime();
+}
+
+async function turn(userMessage) {
+  messages.push({ role: "user", content: userMessage });
+  const response = await client.messages.create({
+    model: "claude-sonnet-4-5-20250929",
+    max_tokens: 1024,
+    system: buildSystem(),
+    tools,
+    messages,
+  });
+
+  let narrative = "";
+  let toolUseId = null;
+  let toolInput = null;
+
+  for (const block of response.content) {
+    if (block.type === "text") narrative = block.text;
+    if (block.type === "tool_use") {
+      toolUseId = block.id;
+      toolInput = block.input;
+    }
+  }
+
+  messages.push({ role: "assistant", content: response.content });
+
+  if (toolInput) {
+    applyStateChange(toolInput);
+    messages.push({
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: toolUseId,
+          content: "State updated.",
+        },
+      ],
+    });
+  }
+
+  return narrative;
+}
+
+// Cache the opening narrative so it's ready when the page loads
+let openingNarrative = null;
+const openingReady = turn(
+  "Start the game. Describe Albert waking up on the shore."
+).then((n) => {
+  openingNarrative = n;
 });
 
-function printState() {
-  console.log(`\n--- Day ${state.day} ---`);
-  for (const p of state.players) {
-    const zone = state.map.zones[p.location];
-    const nearby = zone.connections.map((id) => state.map.zones[id].name).join(", ");
-    console.log(`  ${p.name} | HP: ${p.hp} | STR: ${p.stats.strength} INT: ${p.stats.intelligence} CHA: ${p.stats.charisma}`);
-    console.log(`  Location: ${zone.name} | Nearby: ${nearby}`);
-  }
-  console.log(`  Food: ${state.group.food} | Water: ${state.group.water}`);
-  if (state.group.items.length > 0) {
-    console.log(`  Items: ${state.group.items.join(", ")}`);
-  }
-}
+app.get("/", async (_req, res) => {
+  await openingReady;
+  res.send(getHTML(openingNarrative, gameState));
+});
 
-function prompt() {
-  rl.question("\nWhat do you do? ", async (input) => {
-    if (!input || input === "quit") {
-      rl.close();
-      return;
-    }
+app.post("/action", async (req, res) => {
+  const { action } = req.body;
+  const narrative = await turn(action);
+  res.json({ narrative, gameState });
+});
 
-    const player = state.players[0];
-    const locationContext = getLocationContext(state.map, player.location, player.visited);
-
-    const classification = await classifyAction(input, state.narration, locationContext);
-
-    // Determine link distance for movement actions
-    let moveLinkDistance = 0;
-    if (classification.moveTo && state.map.zones[classification.moveTo]) {
-      const directConnections = state.map.zones[player.location].connections;
-      if (directConnections.includes(classification.moveTo)) {
-        moveLinkDistance = 1;
-      } else if (player.visited.has(classification.moveTo)) {
-        const isTwoLink = directConnections.some((neighborId) =>
-          state.map.zones[neighborId].connections.includes(classification.moveTo)
-        );
-        if (isTwoLink) moveLinkDistance = 2;
-      }
-    }
-
-    // Override difficulty for movement actions
-    if (moveLinkDistance > 0) {
-      classification.difficulty = moveLinkDistance === 1 ? "easy" : "moderate";
-      classification.possible = true;
-      classification.trivial = false;
-    }
-
-    let outcome;
-
-    if (!classification.possible) {
-      console.log(`\n  Impossible — auto FAILURE`);
-      outcome = { success: false };
-    } else if (classification.trivial) {
-      console.log(`\n  Trivial — auto SUCCESS`);
-      outcome = { success: true };
-    } else {
-      outcome = determineSuccess(classification.difficulty);
-      console.log(`\n  Type: ${classification.type}`);
-      console.log(`  Difficulty: ${classification.difficulty}`);
-      console.log(`  Roll: ${outcome.roll} vs ${outcome.threshold} needed`);
-      console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
-    }
-
-    // Handle movement before narration so the narrator knows the new location
-    let failedMoveTo = null;
-    if (moveLinkDistance > 0) {
-      const zone = state.map.zones[classification.moveTo];
-      if (outcome.success) {
-        const from = state.map.zones[player.location].name;
-        console.log(`\n  [moved: ${from} → ${zone.name}]`);
-        player.location = classification.moveTo;
-        player.visited.add(classification.moveTo);
-      } else {
-        failedMoveTo = zone.name;
-      }
-    }
-
-    const narrateLocationContext = getLocationContext(state.map, player.location, player.visited);
-    const narrateClassification = classification.type ? classification : null;
-    const result = await narrate(state.players[0].name, input, narrateClassification, outcome, state.narration, narrateLocationContext, { failedMoveTo });
-    console.log(`\n  ${result.narration}`);
-
-    state.narration.push(result.narration);
-
-    if (result.healed) player.hp = Math.min(100, player.hp + 10 + Math.floor(Math.random() * 6)); // 10-15
-    player.injured = result.injured;
-    if (result.foundFood) state.group.food += 3 + Math.floor(Math.random() * 3); // 3-5
-    if (result.foundWater) state.group.water += 3 + Math.floor(Math.random() * 3); // 3-5
-    for (const item of result.itemsGained) {
-      state.group.items.push(item);
-    }
-
-    // Day-pass costs
-    const foodNeeded = state.players.length;
-    const waterNeeded = state.players.length;
-    const noFood = state.group.food < foodNeeded;
-    const noWater = state.group.water < waterNeeded;
-    state.group.food = Math.max(0, state.group.food - foodNeeded);
-    state.group.water = Math.max(0, state.group.water - waterNeeded);
-    for (const p of state.players) {
-      let hpLoss = 0;
-      if (noFood) hpLoss += 10;
-      if (noWater) hpLoss += 10;
-      p.hp = Math.max(0, p.hp - hpLoss);
-    }
-
-    state.day++;
-    printState();
-
-    const dead = state.players.find((p) => p.hp <= 0);
-    if (dead) {
-      console.log(`\n  ${dead.name} has perished. Game over.`);
-      rl.close();
-      return;
-    }
-
-    prompt();
-  });
-}
-
-async function start() {
-  console.log("Island survival.\n");
-  const introLocationContext = getLocationContext(state.map, state.players[0].location, state.players[0].visited);
-  const intro = await narrateIntro(state.players[0].name, introLocationContext);
-  console.log(`  ${intro}`);
-  state.narration.push(intro);
-  printState();
-  prompt();
-}
-
-start();
+app.listen(3000, () => {
+  console.log("Island game running at http://localhost:3000");
+});

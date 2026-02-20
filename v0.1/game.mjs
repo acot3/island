@@ -1,0 +1,222 @@
+import "dotenv/config";
+import { createInterface } from "readline";
+import { classifyAction } from "./action_classifier.mjs";
+import { determineSuccess } from "./success_determiner.mjs";
+import { narrate, narrateIntro } from "./narrator.mjs";
+import { evolve } from "./story_architect.mjs";
+import { generateMap, getLocationContext } from "./map_generator.mjs";
+
+const map = generateMap();
+
+const state = {
+  day: 1,
+  map,
+  players: [
+    {
+      name: "Albert",
+      pronouns: "he/him",
+      stats: { strength: 1, intelligence: 4, charisma: 1},
+      hp: 100,
+      injured: false,
+      location: "beach",
+      visited: new Set(["beach"]),
+    },
+  ],
+  group: {
+    food: 0,
+    water: 0,
+    items: [],
+  },
+  narration: [],
+  plotPoints: [],
+};
+
+const rl = createInterface({
+  input: process.stdin,
+  output: process.stdout,
+});
+
+function printState() {
+  console.log(`\n--- Day ${state.day} ---`);
+  for (const p of state.players) {
+    const zone = state.map.zones[p.location];
+    const nearby = zone.connections.map((id) => state.map.zones[id].name).join(", ");
+    console.log(`  ${p.name} | HP: ${p.hp} | STR: ${p.stats.strength} INT: ${p.stats.intelligence} CHA: ${p.stats.charisma}`);
+    console.log(`  Location: ${zone.name} | Nearby: ${nearby}`);
+  }
+  console.log(`  Food: ${state.group.food} | Water: ${state.group.water}`);
+  if (state.group.items.length > 0) {
+    console.log(`  Items: ${state.group.items.join(", ")}`);
+  }
+}
+
+function prompt() {
+  rl.question("\nWhat do you do? ", async (input) => {
+    if (!input || input === "quit") {
+      rl.close();
+      return;
+    }
+
+    const player = state.players[0];
+    const locationContext = getLocationContext(state.map, player.location, player.visited);
+
+    const classification = await classifyAction(input, state.narration, locationContext);
+
+    // Determine link distance for movement actions
+    let moveLinkDistance = 0;
+    if (classification.moveTo && state.map.zones[classification.moveTo]) {
+      const directConnections = state.map.zones[player.location].connections;
+      if (directConnections.includes(classification.moveTo)) {
+        moveLinkDistance = 1;
+      } else if (player.visited.has(classification.moveTo)) {
+        const isTwoLink = directConnections.some((neighborId) =>
+          state.map.zones[neighborId].connections.includes(classification.moveTo)
+        );
+        if (isTwoLink) moveLinkDistance = 2;
+      }
+    }
+
+    // Override difficulty for movement actions
+    if (moveLinkDistance > 0) {
+      classification.difficulty = moveLinkDistance === 1 ? "easy" : "moderate";
+      classification.possible = true;
+      classification.trivial = false;
+    }
+
+    let outcome;
+
+    if (!classification.possible) {
+      console.log(`\n  Impossible — auto FAILURE`);
+      outcome = { success: false };
+    } else if (classification.trivial) {
+      console.log(`\n  Trivial — auto SUCCESS`);
+      outcome = { success: true };
+    } else {
+      outcome = determineSuccess(classification.difficulty);
+      console.log(`\n  Type: ${classification.type}`);
+      console.log(`  Difficulty: ${classification.difficulty}`);
+      console.log(`  Roll: ${outcome.roll} vs ${outcome.threshold} needed`);
+      console.log(`  Result: ${outcome.success ? "SUCCESS" : "FAILURE"}`);
+    }
+
+    // Handle movement before narration so the narrator knows the new location
+    let failedMoveTo = null;
+    if (moveLinkDistance > 0) {
+      const zone = state.map.zones[classification.moveTo];
+      if (outcome.success) {
+        const from = state.map.zones[player.location].name;
+        console.log(`\n  [moved: ${from} → ${zone.name}]`);
+        player.location = classification.moveTo;
+        player.visited.add(classification.moveTo);
+      } else {
+        failedMoveTo = zone.name;
+      }
+    }
+
+    const narrateLocationContext = getLocationContext(state.map, player.location, player.visited);
+    const narrateClassification = classification.type ? classification : null;
+    const result = await narrate(state.players[0].name, input, narrateClassification, outcome, state.narration, narrateLocationContext, { failedMoveTo }, state.plotPoints);
+    console.log(`\n  ${result.narration}`);
+
+    state.narration.push(result.narration);
+
+    // Story architect: evolve plot points based on what just happened
+    const prevPlotPoints = state.plotPoints;
+    try {
+      const plotUpdate = await evolve(result.narration, state.plotPoints, {
+        day: state.day,
+        playerName: player.name,
+        location: state.map.zones[player.location].name,
+        hp: player.hp,
+        injured: player.injured,
+        food: state.group.food,
+        water: state.group.water,
+        items: state.group.items,
+        narrationHistory: state.narration,
+      });
+      const validated = plotUpdate.plotPoints.filter(
+        (pp) => pp.id && pp.name && pp.stage && pp.seed && Array.isArray(pp.beats)
+      );
+      state.plotPoints = validated;
+      console.log(`\n  [Story Architect] ${plotUpdate.reasoning}`);
+      for (const pp of validated) {
+        const isNew = !prevPlotPoints.find((old) => old.id === pp.id);
+        const label = isNew ? "NEW" : pp.stage.toUpperCase();
+        console.log(`    ${label}: "${pp.name}" (${pp.id})`);
+        console.log(`      stage: ${pp.stage} | seeded: day ${pp.seedDay} | last beat: day ${pp.lastBeatDay}`);
+        console.log(`      beats: ${pp.beats.join(" → ")}`);
+        if (pp.nextBeatHint) console.log(`      next hint: ${pp.nextBeatHint}`);
+      }
+    } catch (err) {
+      console.error("  [story architect unavailable, plot points unchanged]");
+    }
+
+    if (result.healed) player.hp = Math.min(100, player.hp + 10 + Math.floor(Math.random() * 6)); // 10-15
+    player.injured = result.injured;
+    if (result.foundFood) state.group.food += 3 + Math.floor(Math.random() * 3); // 3-5
+    if (result.foundWater) state.group.water += 3 + Math.floor(Math.random() * 3); // 3-5
+    for (const item of result.itemsGained) {
+      state.group.items.push(item);
+    }
+
+    // Day-pass costs
+    const foodNeeded = state.players.length;
+    const waterNeeded = state.players.length;
+    const noFood = state.group.food < foodNeeded;
+    const noWater = state.group.water < waterNeeded;
+    state.group.food = Math.max(0, state.group.food - foodNeeded);
+    state.group.water = Math.max(0, state.group.water - waterNeeded);
+    for (const p of state.players) {
+      let hpLoss = 0;
+      if (noFood) hpLoss += 10;
+      if (noWater) hpLoss += 10;
+      p.hp = Math.max(0, p.hp - hpLoss);
+    }
+
+    state.day++;
+    printState();
+
+    const dead = state.players.find((p) => p.hp <= 0);
+    if (dead) {
+      console.log(`\n  ${dead.name} has perished. Game over.`);
+      rl.close();
+      return;
+    }
+
+    prompt();
+  });
+}
+
+async function start() {
+  console.log("Island survival.\n");
+  const introLocationContext = getLocationContext(state.map, state.players[0].location, state.players[0].visited);
+  const intro = await narrateIntro(state.players[0].name, introLocationContext);
+  console.log(`  ${intro}`);
+  state.narration.push(intro);
+
+  // Seed initial plot point from intro
+  try {
+    const plotUpdate = await evolve(intro, state.plotPoints, {
+      day: state.day,
+      playerName: state.players[0].name,
+      location: state.map.zones[state.players[0].location].name,
+      hp: state.players[0].hp,
+      injured: state.players[0].injured,
+      food: state.group.food,
+      water: state.group.water,
+      items: state.group.items,
+      narrationHistory: state.narration,
+    });
+    const validated = plotUpdate.plotPoints.filter(
+      (pp) => pp.id && pp.name && pp.stage && pp.seed && Array.isArray(pp.beats)
+    );
+    state.plotPoints = validated;
+  } catch (err) {
+    console.error("  [story architect unavailable for intro]");
+  }
+
+  printState();
+  prompt();
+}
+
+start();

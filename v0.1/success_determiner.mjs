@@ -1,6 +1,6 @@
 const THRESHOLDS = {
-  easy: 0.8,
-  moderate: 0.6,
+  easy: 0.9,
+  moderate: 0.7,
   hard: 0.35,
   extreme: 0.15,
 };
