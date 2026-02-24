@@ -9,7 +9,40 @@ const openai = new OpenAI();
 const app = express();
 app.use(express.json());
 
-const gameState = { hp: 60, inventory: [], day: 1, time: "AM" };
+// prettier-ignore
+const map = [
+  ["🌊","🌊","🌊","🌊","🌊","🌊","🌊","🌊","🌊"],
+  ["🌊"," "," ","🌿","🌲","🌲","🌿"," ","🌊"],
+  ["🌊"," ","🌿","🌲","🌲","⛰️","🌿"," ","🌊"],
+  ["🌊","🌿","🌲","🌲","🌿","🌿","🌿","🌿","🌊"],
+  ["🌊","🌿","🌿","🌿","🌲","🌿","🌲","🌿","🌊"],
+  ["🌊"," ","🌿","🌿","🌿","🌿","🌲","⛰️","🌊"],
+  ["🌊"," ","🌲","🌿","🌿","⛰️","⛰️"," ","🌊"],
+  ["🌊"," "," ","🌿","🌿","🌿"," "," ","🌊"],
+  ["🌊","🌊","🌊","🌊","🌊","🌊","🌊","🌊","🌊"],
+];
+
+const LEGEND = "(blank) = beach, 🌿 = grassland, 🌲 = forest, ⛰️ = mountain, 🌊 = ocean (impassable), 🙂 = player";
+
+const gameState = { hp: 60, inventory: [], day: 1, time: "AM", x: 1, y: 7, terrain: " " };
+
+function renderMap() {
+  return map.map((row, y) =>
+    row.map((cell, x) => {
+      if (x === gameState.x && y === gameState.y) return "🙂";
+      if (cell === " ") return "\u3000"; // fullwidth space to match emoji width
+      return cell;
+    }).join("")
+  ).join("\n");
+}
+
+// Text version for the AI (easier to reason about coordinates)
+function renderMapForAI() {
+  const symbols = { "🌊": "~", " ": ".", "🌿": ",", "🌲": "#", "⛰️": "^" };
+  return map.map((row, y) =>
+    row.map((cell, x) => (x === gameState.x && y === gameState.y ? "@" : (symbols[cell] || "?"))).join(" ")
+  ).join("\n");
+}
 
 const tools = [
   {
@@ -35,8 +68,14 @@ const tools = [
           description:
             "Items the player lost or consumed this turn. Empty array if none.",
         },
+        direction: {
+          type: "string",
+          enum: ["north", "south", "east", "west", "none"],
+          description:
+            "Direction to move the player on the map. Use 'none' if the player doesn't move this turn.",
+        },
       },
-      required: ["hp_change", "add_items", "remove_items"],
+      required: ["hp_change", "add_items", "remove_items", "direction"],
     },
   },
 ];
@@ -45,14 +84,18 @@ function buildSystem() {
   const inv = gameState.inventory.length
     ? gameState.inventory.join(", ")
     : "empty";
-  return `You are the narrator and game master for a solo island survival game. A player named Albert has just washed ashore on a mysterious island. Narrate in third-person present tense. Keep responses to 1 brief paragraph.
+  return `You are the narrator and game master for a solo island survival game. A player named Albert has just washed ashore on a mysterious island. Narrate in third-person present tense. Keep responses to two brief sentences. Reflect the day and time state changes given to you in the game state when you narrate.
+
+MAP (${LEGEND}):
+${renderMapForAI()}
+Player is at row ${gameState.y}, col ${gameState.x}. . = beach, , = grass, # = forest, ^ = mountain, ~ = ocean (impassable).
 
 CURRENT GAME STATE:
 Day ${gameState.day}, ${gameState.time}
 HP: ${gameState.hp}/100
 Inventory: ${inv}
 
-After narrating, ALWAYS call the update_game_state tool to reflect any changes to HP or inventory. Even if nothing changed, call it with hp_change: 0 and empty arrays.`;
+After narrating, ALWAYS call the update_game_state tool. Include a direction to move the player on the map, or "none" if they stay put. The player cannot move into ocean (~).`;
 }
 
 const messages = [];
@@ -66,17 +109,31 @@ function advanceTime() {
   }
 }
 
-function applyStateChange({ hp_change, add_items, remove_items }) {
+const DIRS = { north: [0, -1], south: [0, 1], east: [1, 0], west: [-1, 0] };
+
+function applyStateChange({ hp_change, add_items, remove_items, direction }) {
   gameState.hp = Math.max(0, Math.min(100, gameState.hp + hp_change));
   for (const item of add_items) gameState.inventory.push(item);
   for (const item of remove_items) {
     const idx = gameState.inventory.indexOf(item);
     if (idx !== -1) gameState.inventory.splice(idx, 1);
   }
-  advanceTime();
+  if (direction && direction !== "none") {
+    const [dx, dy] = DIRS[direction] || [0, 0];
+    const nx = gameState.x + dx;
+    const ny = gameState.y + dy;
+    if (map[ny]?.[nx] && map[ny][nx] !== "🌊") {
+      gameState.x = nx;
+      gameState.y = ny;
+      gameState.terrain = map[ny][nx];
+    }
+  }
 }
 
+let firstTurn = true;
 async function turn(userMessage) {
+  if (!firstTurn) advanceTime();
+  firstTurn = false;
   messages.push({ role: "user", content: userMessage });
   const response = await client.messages.create({
     model: "claude-sonnet-4-5-20250929",
@@ -127,13 +184,13 @@ const openingReady = turn(
 
 app.get("/", async (_req, res) => {
   await openingReady;
-  res.send(getHTML(openingNarrative, gameState));
+  res.send(getHTML(openingNarrative, gameState, renderMap()));
 });
 
 app.post("/action", async (req, res) => {
   const { action } = req.body;
   const narrative = await turn(action);
-  res.json({ narrative, gameState });
+  res.json({ narrative, gameState, map: renderMap() });
 });
 
 app.post("/tts", async (req, res) => {
@@ -143,7 +200,7 @@ app.post("/tts", async (req, res) => {
     voice: "ash",
     input: text.slice(0, 4096),
     instructions:
-      "Voice Affect: Convey tension and intrigue.",
+      "Voice Affect: Silly.",
   });
   const buffer = Buffer.from(await mp3.arrayBuffer());
   res.set("Content-Type", "audio/mpeg").send(buffer);
