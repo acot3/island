@@ -1,0 +1,254 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  background: #000;
+  color: #ddd;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 14px;
+  overflow: hidden;
+}
+
+#layout {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+#left {
+  width: 75%;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #333;
+}
+
+#right {
+  width: 25%;
+  display: flex;
+  flex-direction: column;
+}
+
+#narration {
+  flex: 5;
+  border-bottom: 1px solid #333;
+}
+
+#debug {
+  flex: 1;
+}
+
+#player-jack {
+  flex: 1;
+  border-bottom: 1px solid #333;
+}
+
+#player-jill {
+  flex: 1;
+}
+
+.panel {
+  position: relative;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.panel-label {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  font-size: 10px;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+#narration-content {
+  padding-top: 12px;
+}
+
+#narration-content h1 {
+  font-size: 24px;
+  font-weight: normal;
+  color: #fff;
+  margin-bottom: 8px;
+}
+
+#narration-content p {
+  margin-bottom: 12px;
+  line-height: 1.6;
+}
+
+.player-content {
+  padding-top: 12px;
+}
+
+.player-content p {
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+/* Buttons */
+button {
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+  margin: 4px 4px 4px 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+button:hover {
+  border-color: #aaa;
+  color: #fff;
+}
+
+button:disabled {
+  border-color: #333;
+  color: #444;
+  cursor: default;
+}
+
+button.selected {
+  border-color: #fff;
+  color: #fff;
+  background: #222;
+}
+
+/* Action suggestions */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.suggestions button {
+  text-align: left;
+  width: 100%;
+}
+
+/* Custom action input */
+.custom-action {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.custom-action input {
+  flex: 1;
+  background: #111;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  padding: 8px;
+}
+
+.custom-action input:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
+/* Campfire food sharing */
+.campfire-share {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.campfire-share input[type="number"] {
+  width: 50px;
+  background: #111;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  padding: 6px;
+  text-align: center;
+}
+
+.campfire-share input[type="number"]:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
+/* Food display */
+.food-count {
+  color: #888;
+  font-size: 12px;
+}
+
+/* Group food pool */
+.group-food {
+  position: absolute;
+  bottom: 8px;
+  right: 16px;
+  font-size: 13px;
+  color: #b5a06a;
+}
+
+/* Player header (hearts + food) */
+.player-header {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+/* Hearts */
+.hearts {
+  font-size: 32px;
+  letter-spacing: 6px;
+  margin-right: 8px;
+  display: inline-block;
+  transform: scaleY(0.8);
+  vertical-align: middle;
+}
+
+.heart.full {
+  color: #c44;
+}
+
+.heart.half {
+  background: linear-gradient(to right, #c44 50%, #444 50%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.heart.empty {
+  color: #444;
+}
+
+.btn-eat {
+  font-size: 11px;
+  padding: 2px 8px;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+/* Debug console */
+#debug {
+  padding-top: 20px;
+}
+
+.debug-line {
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.debug-info { color: #555; }
+.debug-phase { color: #6a9fb5; }
+.debug-api { color: #8a8a5c; }
+.debug-action { color: #7c8a5c; }
+.debug-food { color: #b5a06a; }
+.debug-error { color: #b56a6a; }
