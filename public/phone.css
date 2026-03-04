@@ -1,0 +1,342 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body {
+  height: 100%;
+  background: #000;
+  color: #ddd;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 16px;
+  -webkit-text-size-adjust: 100%;
+}
+
+.hidden {
+  display: none !important;
+}
+
+#screen {
+  min-height: 100vh;
+  padding: 24px 20px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* --- Join screen --- */
+
+#join-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 16px;
+}
+
+#join-screen h1 {
+  font-size: 28px;
+  font-weight: normal;
+  color: #fff;
+  margin-bottom: 16px;
+}
+
+#join-screen input {
+  width: 100%;
+  max-width: 280px;
+  background: #111;
+  border: 1px solid #555;
+  color: #fff;
+  font-family: inherit;
+  font-size: 18px;
+  padding: 14px 16px;
+  text-align: center;
+  border-radius: 0;
+  -webkit-appearance: none;
+}
+
+#input-code {
+  text-transform: uppercase;
+  letter-spacing: 8px;
+  font-size: 24px;
+}
+
+#join-screen input:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
+#join-screen button {
+  width: 100%;
+  max-width: 280px;
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+#join-screen button:hover,
+#join-screen button:active {
+  border-color: #fff;
+  color: #fff;
+}
+
+.error {
+  color: #b56a6a;
+  font-size: 13px;
+  min-height: 1.4em;
+}
+
+/* --- Game screen --- */
+
+#game-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+#player-header {
+  padding-bottom: 16px;
+  border-bottom: 1px solid #333;
+  margin-bottom: 16px;
+}
+
+#player-content {
+  flex: 1;
+}
+
+/* Hearts */
+.hearts {
+  font-size: 36px;
+  letter-spacing: 8px;
+  display: inline-block;
+  transform: scaleY(0.8);
+  vertical-align: middle;
+}
+
+.heart.full { color: #c44; }
+.heart.half {
+  background: linear-gradient(to right, #c44 50%, #444 50%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.heart.empty { color: #444; }
+
+.stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.food-count {
+  color: #888;
+  font-size: 14px;
+}
+
+.player-name {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+/* Action buttons */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.suggestion-btn {
+  width: 100%;
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 15px;
+  padding: 14px 16px;
+  text-align: left;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.suggestion-btn:hover,
+.suggestion-btn:active {
+  border-color: #aaa;
+  color: #fff;
+}
+
+.suggestion-btn.selected {
+  border-color: #fff;
+  color: #fff;
+  background: #222;
+}
+
+.suggestion-btn:disabled {
+  border-color: #333;
+  color: #444;
+  cursor: default;
+}
+
+/* Custom action */
+.custom-action {
+  display: flex;
+  gap: 8px;
+}
+
+.custom-action input {
+  flex: 1;
+  background: #111;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 15px;
+  padding: 14px 12px;
+  border-radius: 0;
+  -webkit-appearance: none;
+}
+
+.custom-action input:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
+.custom-action button {
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 15px;
+  padding: 14px 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+/* Campfire */
+.campfire-share {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.campfire-share input[type="number"] {
+  width: 60px;
+  background: #111;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 18px;
+  padding: 12px;
+  text-align: center;
+  border-radius: 0;
+  -webkit-appearance: none;
+}
+
+.campfire-share input[type="number"]:focus {
+  outline: none;
+  border-color: #aaa;
+}
+
+.campfire-share button {
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 15px;
+  padding: 12px 20px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+/* Eat button */
+.btn-eat {
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 4px 12px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+/* Status messages */
+.status-msg {
+  color: #888;
+  font-size: 14px;
+  margin-top: 16px;
+}
+
+.food-result {
+  margin-top: 12px;
+}
+
+.food-result .amount {
+  color: #b5a06a;
+  font-size: 18px;
+  margin-top: 4px;
+}
+
+.day-label {
+  color: #888;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+/* Make Public button */
+.btn-make-public {
+  width: 100%;
+  max-width: 280px;
+  background: none;
+  border: 1px solid #555;
+  color: #888;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 16px;
+  cursor: pointer;
+  margin-top: 16px;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+.btn-make-public:hover,
+.btn-make-public:active {
+  border-color: #aaa;
+  color: #ddd;
+}
+
+.btn-make-public:disabled {
+  border-color: #333;
+  color: #555;
+  cursor: default;
+}
+
+/* Assist option */
+.assist-btn {
+  border-color: #6a9fb5;
+}
+
+.assist-wrapper {
+  display: flex;
+  flex-direction: column;
+}
+
+.assist-label {
+  color: #6a9fb5;
+  font-size: 13px;
+  padding: 4px 0 0 16px;
+}

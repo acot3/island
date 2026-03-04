@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Island — Join</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="phone.css">
+</head>
+<body>
+  <div id="screen">
+    <div id="join-screen">
+      <h1>ISLAND</h1>
+      <input type="text" id="input-code" placeholder="Room code" maxlength="4" autocapitalize="characters" autocomplete="off">
+      <input type="text" id="input-name" placeholder="Your name" maxlength="16" autocomplete="off">
+      <button id="btn-join">Join</button>
+      <p id="join-error" class="error"></p>
+    </div>
+    <div id="game-screen" class="hidden">
+      <div id="player-header"></div>
+      <div id="player-content"></div>
+    </div>
+  </div>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="phone.js"></script>
+</body>
+</html>

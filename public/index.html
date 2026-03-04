@@ -11,34 +11,21 @@
 </head>
 <body>
   <div id="layout">
-    <div id="left">
+    <div id="main">
       <div id="narration" class="panel">
         <div class="panel-label">NARRATION</div>
         <div id="narration-content">
           <h1>ISLAND</h1>
           <p>A survival story.</p>
-          <button id="btn-start">Start Game</button>
+          <button id="btn-create">Create Game</button>
         </div>
       </div>
       <div id="debug" class="panel">
         <div class="panel-label">DEBUG</div>
       </div>
     </div>
-    <div id="right">
-      <div id="player-jack" class="panel player-panel">
-        <div class="panel-label">JACK</div>
-        <div class="player-content" data-player="Jack">
-          <p class="status">Waiting...</p>
-        </div>
-      </div>
-      <div id="player-jill" class="panel player-panel">
-        <div class="panel-label">JILL</div>
-        <div class="player-content" data-player="Jill">
-          <p class="status">Waiting...</p>
-        </div>
-      </div>
-    </div>
   </div>
+  <script src="/socket.io/socket.io.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
