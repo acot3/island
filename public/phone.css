@@ -120,14 +120,15 @@ html, body {
   vertical-align: middle;
 }
 
-.heart.full { color: #c44; }
+.heart.full { color: #c44; -webkit-text-stroke: 2px #666; }
 .heart.half {
-  background: linear-gradient(to right, #c44 50%, #444 50%);
+  background: linear-gradient(to right, #c44 37%, #000 37%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  -webkit-text-stroke: 2px #666;
 }
-.heart.empty { color: #444; }
+.heart.empty { color: #666; }
 
 .stats {
   display: flex;

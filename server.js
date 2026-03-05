@@ -54,12 +54,19 @@ Narration must be from the third-person perspective and in present tense. Vary s
 
 You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
-Make sure interesting, specific plotlines emerge and develop.`;
+Make sure interesting, specific plotlines emerge and develop. Bring about the conclusion of the story by Day 10.`;
 
 async function callModel(params) {
   try {
-    const message = await anthropic.messages.create(params);
+    // Add thinking and switch to auto tool choice for compatibility
+    const apiParams = {
+      ...params,
+      thinking: { type: 'enabled', budget_tokens: 1024 },
+      tool_choice: { type: 'auto' },
+    };
+    const message = await anthropic.messages.create(apiParams);
     const toolUse = message.content.find(b => b.type === 'tool_use');
+    if (!toolUse) throw new Error('Model did not return a tool call');
     return { result: toolUse.input, provider: 'anthropic' };
   } catch (err) {
     if (err.status !== 529) throw err;
@@ -75,10 +82,7 @@ async function callModel(params) {
       function: { name: tool.name, description: tool.description, parameters: tool.input_schema },
     }));
 
-    let openaiToolChoice;
-    if (params.tool_choice && params.tool_choice.type === 'tool') {
-      openaiToolChoice = { type: 'function', function: { name: params.tool_choice.name } };
-    }
+    const openaiToolChoice = { type: 'function', function: { name: params.tools[0].name } };
 
     const response = await openai.chat.completions.create({
       model: 'gpt-4o',
@@ -256,9 +260,11 @@ io.on('connection', (socket) => {
       // Save history
       room.history.push({
         day: room.day,
+        morning: room.morningNarration,
         narration: data.narration,
         actions,
-        food: Object.fromEntries(playerNames.map(n => [n, data.food[n]?.units || 0])),
+        food: Object.fromEntries(playerNames.map(n => [n, { units: data.food[n]?.units || 0, description: data.food[n]?.description || '' }])),
+        hp: Object.fromEntries(playerNames.map(n => [n, room.players.get(n).hp])),
       });
 
       room.phase = 'narration';
@@ -466,15 +472,15 @@ async function callMorning(room, playerNames) {
     suggestionProperties[name] = {
       type: 'array',
       items: { type: 'string' },
-      description: `Three suggested survival actions for ${name}. Short phrases (2-5 words) consistent with the narration so far.`,
+      description: `Three suggested actions for ${name}. Short phrases (2-5 words). Do not introduce things or locations not already mentioned in the narration.`,
     };
   });
 
   const isDay1 = room.day === 1;
-  const history = room.history.slice(-5);
+  const history = room.history;
 
   const historyBlock = history.length > 0
-    ? `\n<history>\n${history.map(h => `Day ${h.day}: ${h.narration} (Actions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')})`).join('\n')}\n</history>`
+    ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\n${h.narration}\nActions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')}\nFood: ${Object.entries(h.food).map(([n, f]) => `${n}: ${f.units}${f.description && f.description !== 'You found nothing.' ? ` (${f.description})` : ''}`).join(', ')}\nHP: ${Object.entries(h.hp).map(([n, hp]) => `${n}: ${hp}/6`).join(', ')}`).join('\n\n')}\n</history>`
     : '';
 
   const morningPrompt = isDay1
@@ -491,10 +497,9 @@ Write a morning narration (1 or 2 sentences) — weather, atmosphere, and a thre
 
   const { result, provider } = await callModel({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 512,
+    max_tokens: 2048,
     system: NARRATOR_SYSTEM,
     messages: [{ role: 'user', content: morningPrompt }],
-    tool_choice: { type: 'tool', name: 'morning_report' },
     tools: [{
       name: 'morning_report',
       description: 'Report the morning narration and action suggestions for each player.',
@@ -530,9 +535,9 @@ async function callDay(room, playerNames, actions) {
     };
   });
 
-  const history = room.history.slice(-5);
+  const history = room.history;
   const historyBlock = history.length > 0
-    ? `\n<history>\n${history.map(h => `Day ${h.day}: ${h.narration} (Actions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')})`).join('\n')}\n</history>`
+    ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\n${h.narration}\nActions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')}\nFood: ${Object.entries(h.food).map(([n, f]) => `${n}: ${f.units}${f.description && f.description !== 'You found nothing.' ? ` (${f.description})` : ''}`).join(', ')}\nHP: ${Object.entries(h.hp).map(([n, hp]) => `${n}: ${hp}/6`).join(', ')}`).join('\n\n')}\n</history>`
     : '';
 
   const morningBlock = room.morningNarration ? `\n<morning>\n${room.morningNarration}\n</morning>` : '';
@@ -546,19 +551,18 @@ ${playerLines}
 </actions>
 
 <task>
-Write a narration (2-4 sentences, 2 paragraphs) weaving both actions into one cohesive story. Build on previous events. The day ends at the campfire, so make sure nothing you say is inconsistent with that.
+Write a narration (2-4 sentences, 2 paragraphs) weaving the player actions into one cohesive story. Build on previous events. The day ends at the campfire. You don't always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).
 
-As part of the narration, decide whether each player found food. Food should be rare unless the action was explicitly about foraging or hunting. The narration should naturally reflect the food outcomes — if someone found food, work it into the story; if not, that should be consistent too.
+If a player's action is "Assist [name]", they are helping that player with their action. Players working together should be more likely to succeed and achieve better outcomes than working alone. The narration should reflect their teamwork.
 
-Then, for each player, also return the structured food data: a unit count (0-5) and a short private description shown only to that player. The description should match what happened in the narration. If units is 0, the description must be exactly: "You found nothing."
+Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
 </task>`;
 
   const { result, provider } = await callModel({
     model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
+    max_tokens: 2048,
     system: NARRATOR_SYSTEM,
     messages: [{ role: 'user', content: dayPrompt }],
-    tool_choice: { type: 'tool', name: 'day_report' },
     tools: [{
       name: 'day_report',
       description: 'Report the day narration and food findings for each player.',
@@ -574,46 +578,6 @@ Then, for each player, also return the structured food data: a unit count (0-5) 
   });
 
   console.log(`[API] Day OK [${provider}]`);
-
-  // Consistency check: does the narration contradict the food outcomes?
-  const foodSummary = playerNames.map(name => {
-    const f = result.food[name] || { units: 0 };
-    return `${name}: ${f.units > 0 ? `found ${f.units} food` : 'found no food'}`;
-  }).join(', ');
-
-  const consistencyPrompt = `<narration>
-${result.narration}
-</narration>
-
-<food_outcomes>
-${foodSummary}
-</food_outcomes>
-
-<task>
-Check if the narration contradicts the food outcomes. For example: does the narration say someone found nothing when they actually found food, or vice versa? If there is a contradiction, rewrite the narration to be consistent with the food outcomes while keeping the same tone and style. If there is no contradiction, return the narration unchanged.
-</task>`;
-
-  const { result: fixedResult, provider: fixProvider } = await callModel({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 1024,
-    system: NARRATOR_SYSTEM,
-    messages: [{ role: 'user', content: consistencyPrompt }],
-    tool_choice: { type: 'tool', name: 'consistency_check' },
-    tools: [{
-      name: 'consistency_check',
-      description: 'Return the narration, corrected if needed.',
-      input_schema: {
-        type: 'object',
-        properties: {
-          narration: { type: 'string', description: 'The narration, fixed for consistency or unchanged if already consistent.' },
-        },
-        required: ['narration'],
-      },
-    }],
-  });
-
-  console.log(`[API] Consistency OK [${fixProvider}]`);
-  result.narration = fixedResult.narration;
 
   return result;
 }
