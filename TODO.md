@@ -2,7 +2,7 @@ BIO PROTOTYPE
 
 1. Figure out an end-state. Instruct the game to bring about a conclusion by a certain day.
 
-2. Separate private screens so people can access on their phones.
+X 2. Separate private screens so people can access on their phones.
 
 3. Refine food system.
 

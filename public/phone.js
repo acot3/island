@@ -207,13 +207,27 @@ socket.on('campfire-turn', ({ hp, food, pendingFood }) => {
   });
 });
 
-socket.on('campfire-confirmed', ({ shared, food }) => {
+socket.on('campfire-confirmed', ({ shared, food, groupFood }) => {
   myFood = food;
   renderHeader();
   contentEl.innerHTML = `
     <p>Shared ${shared} food with the group.</p>
-    <p class="status-msg">Waiting for others...</p>
+    <button id="btn-take" class="btn-take">Take a portion</button>
+    <p class="status-msg" id="pool-status">Pool: ${groupFood}</p>
   `;
+  document.getElementById('btn-take').addEventListener('click', () => {
+    socket.emit('take-portion');
+  });
+});
+
+socket.on('campfire-pool', ({ groupFood }) => {
+  const btn = document.getElementById('btn-take');
+  if (btn) {
+    btn.disabled = groupFood <= 0;
+    if (groupFood <= 0) btn.textContent = 'Pool empty';
+  }
+  const status = document.getElementById('pool-status');
+  if (status) status.textContent = `Pool: ${groupFood}`;
 });
 
 // --- Stats update (from eating) ---

@@ -153,18 +153,29 @@ socket.on('day-narration', ({ day, narration, groupFood }) => {
 socket.on('campfire-start', ({ day, groupFood }) => {
   debug('Campfire phase', 'phase');
   setNarration(`
-    <div class="group-food">Food: ${groupFood}</div>
     <p class="food-count">Day ${day} — Campfire</p>
     <p>The fire crackles. What will you share?</p>
+    <div class="campfire-food">
+      <div class="campfire-food-label">Food</div>
+      <div class="campfire-food-number" id="campfire-pool-num">${groupFood}</div>
+    </div>
     <div id="campfire-log" class="campfire-log"></div>
+    <div class="campfire-actions">
+      <button id="btn-next">Next Day</button>
+    </div>
   `);
+  document.getElementById('btn-next').addEventListener('click', function() {
+    socket.emit('next-day');
+    this.disabled = true;
+    this.textContent = 'Loading...';
+  });
 });
 
-socket.on('campfire-update', ({ name, shared, groupFood, allReady }) => {
+socket.on('campfire-update', ({ name, shared, groupFood }) => {
   debug(`${name} shared ${shared} food (pool: ${groupFood})`, 'food');
 
-  const gf = document.querySelector('.group-food');
-  if (gf) gf.textContent = `Food: ${groupFood}`;
+  const num = document.getElementById('campfire-pool-num');
+  if (num) num.textContent = groupFood;
 
   const log = document.getElementById('campfire-log');
   if (log) {
@@ -172,17 +183,19 @@ socket.on('campfire-update', ({ name, shared, groupFood, allReady }) => {
     entry.textContent = `${name} shared ${shared} food.`;
     log.appendChild(entry);
   }
+});
 
-  if (allReady) {
-    const btn = document.createElement('button');
-    btn.id = 'btn-next';
-    btn.textContent = 'Next Day';
-    btn.addEventListener('click', () => {
-      socket.emit('next-day');
-      btn.disabled = true;
-      btn.textContent = 'Loading...';
-    });
-    narrationContent.appendChild(btn);
+socket.on('campfire-take', ({ name, groupFood }) => {
+  debug(`${name} took a portion (pool: ${groupFood})`, 'food');
+
+  const num = document.getElementById('campfire-pool-num');
+  if (num) num.textContent = groupFood;
+
+  const log = document.getElementById('campfire-log');
+  if (log) {
+    const entry = document.createElement('p');
+    entry.textContent = `${name} took a portion.`;
+    log.appendChild(entry);
   }
 });
 

@@ -340,3 +340,31 @@ html, body {
   font-size: 13px;
   padding: 4px 0 0 16px;
 }
+
+/* Take a portion */
+.btn-take {
+  width: 100%;
+  max-width: 280px;
+  background: none;
+  border: 1px solid #b5a06a;
+  color: #b5a06a;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+  margin-top: 16px;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+.btn-take:hover,
+.btn-take:active {
+  border-color: #ddd;
+  color: #ddd;
+}
+
+.btn-take:disabled {
+  border-color: #333;
+  color: #555;
+  cursor: default;
+}

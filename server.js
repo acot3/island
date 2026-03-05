@@ -332,7 +332,7 @@ io.on('connection', (socket) => {
     room.sharedFood += val;
     room.groupFood += val;
 
-    socket.emit('campfire-confirmed', { shared: val, food: player.food });
+    socket.emit('campfire-confirmed', { shared: val, food: player.food, groupFood: room.groupFood });
 
     // Notify host
     io.to(room.hostSocket).emit('campfire-update', {
@@ -341,7 +341,38 @@ io.on('connection', (socket) => {
       groupFood: room.groupFood,
       allReady: Array.from(room.players.values()).every(p => p.campfireReady),
     });
+
+    // Broadcast pool to all phones
+    for (const [, p] of room.players) {
+      if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood });
+    }
+
     console.log(`[Room ${currentRoom}] ${currentName} shared ${val} food`);
+  });
+
+  // Player takes a portion from the communal pool
+  socket.on('take-portion', () => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'campfire') return;
+
+    const player = room.players.get(currentName);
+    if (!player || room.groupFood <= 0) return;
+
+    room.groupFood--;
+    player.food++;
+
+    socket.emit('stats-update', { hp: player.hp, food: player.food });
+
+    // Notify host
+    io.to(room.hostSocket).emit('campfire-take', { name: currentName, groupFood: room.groupFood });
+
+    // Broadcast pool to all phones
+    for (const [, p] of room.players) {
+      if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood });
+    }
+
+    console.log(`[Room ${currentRoom}] ${currentName} took a portion (pool: ${room.groupFood})`);
   });
 
   // Host advances to next day
@@ -350,16 +381,12 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room) return;
 
-    // Consume food
+    // Each day costs 1 HP (half a heart)
     const playerNames = Array.from(room.players.keys());
-    if (room.groupFood >= playerNames.length) {
-      room.groupFood -= playerNames.length;
-    } else {
-      playerNames.forEach(name => {
-        const p = room.players.get(name);
-        p.hp = Math.max(0, p.hp - 1);
-      });
-    }
+    playerNames.forEach(name => {
+      const p = room.players.get(name);
+      p.hp = Math.max(0, p.hp - 1);
+    });
 
     room.day++;
     room.sharedFood = 0;
