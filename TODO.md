@@ -14,4 +14,8 @@ BIO PROTOTYPE
 
 7. Add ghosts.
 
-8. Add TTS.
+    X 8. Add MBTI
+
+9. Add TTS.
+
+10. Add items: Use ... to ...

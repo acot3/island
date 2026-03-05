@@ -434,6 +434,36 @@ html, body {
   padding: 4px 0 0 16px;
 }
 
+/* Hungry warning */
+.hungry-warning {
+  color: #c44;
+  font-size: 14px;
+  margin-top: 12px;
+}
+
+/* Share +/- buttons */
+.share-adjust {
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 20px;
+  width: 40px;
+  height: 40px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#share-display {
+  font-size: 18px;
+  min-width: 60px;
+  text-align: center;
+}
+
 /* Take a portion */
 .btn-take {
   width: 100%;

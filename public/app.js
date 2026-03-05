@@ -150,7 +150,7 @@ socket.on('day-narration', ({ day, narration, groupFood }) => {
 
 // --- Campfire ---
 
-socket.on('campfire-start', ({ day, groupFood }) => {
+socket.on('campfire-start', ({ day, groupFood, playerCount }) => {
   debug('Campfire phase', 'phase');
   setNarration(`
     <p class="food-count">Day ${day} — Campfire</p>
@@ -159,11 +159,13 @@ socket.on('campfire-start', ({ day, groupFood }) => {
       <div class="campfire-food-label">Food</div>
       <div class="campfire-food-number" id="campfire-pool-num">${groupFood}</div>
     </div>
+    <p id="hungry-warning" class="hungry-warning" style="display:${groupFood < playerCount ? 'block' : 'none'}">The group will go hungry tonight.</p>
     <div id="campfire-log" class="campfire-log"></div>
     <div class="campfire-actions">
       <button id="btn-next">Next Day</button>
     </div>
   `);
+  window._campfirePlayerCount = playerCount;
   document.getElementById('btn-next').addEventListener('click', function() {
     socket.emit('next-day');
     this.disabled = true;
@@ -171,31 +173,44 @@ socket.on('campfire-start', ({ day, groupFood }) => {
   });
 });
 
-socket.on('campfire-update', ({ name, shared, groupFood }) => {
+function updateHungryWarning(groupFood) {
+  const warn = document.getElementById('hungry-warning');
+  if (warn) warn.style.display = groupFood < (window._campfirePlayerCount || 0) ? 'block' : 'none';
+}
+
+socket.on('campfire-update', ({ name, shared, groupFood, playerCount }) => {
   debug(`${name} shared ${shared} food (pool: ${groupFood})`, 'food');
+  if (playerCount != null) window._campfirePlayerCount = playerCount;
 
   const num = document.getElementById('campfire-pool-num');
   if (num) num.textContent = groupFood;
+  updateHungryWarning(groupFood);
 
   const log = document.getElementById('campfire-log');
   if (log) {
     const entry = document.createElement('p');
+    entry.id = `campfire-entry-${name}`;
+    entry.dataset.shared = shared;
+    entry.dataset.took = 0;
     entry.textContent = `${name} shared ${shared} food.`;
     log.appendChild(entry);
   }
 });
 
-socket.on('campfire-take', ({ name, groupFood }) => {
-  debug(`${name} took a portion (pool: ${groupFood})`, 'food');
+socket.on('campfire-take', ({ name, groupFood, playerCount }) => {
+  debug(`${name} took an extra portion (pool: ${groupFood})`, 'food');
+  if (playerCount != null) window._campfirePlayerCount = playerCount;
 
   const num = document.getElementById('campfire-pool-num');
   if (num) num.textContent = groupFood;
+  updateHungryWarning(groupFood);
 
-  const log = document.getElementById('campfire-log');
-  if (log) {
-    const entry = document.createElement('p');
-    entry.textContent = `${name} took a portion.`;
-    log.appendChild(entry);
+  const entry = document.getElementById(`campfire-entry-${name}`);
+  if (entry) {
+    const took = (parseInt(entry.dataset.took, 10) || 0) + 1;
+    entry.dataset.took = took;
+    const shared = entry.dataset.shared;
+    entry.textContent = `${name} shared ${shared} food. Took ${took} extra portion${took > 1 ? 's' : ''}.`;
   }
 });
 

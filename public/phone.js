@@ -253,19 +253,40 @@ socket.on('day-result', ({ hp, food, pendingFood, pendingDescription }) => {
 
 // --- Campfire ---
 
-socket.on('campfire-turn', ({ hp, food, pendingFood }) => {
+let campfirePlayerCount = 0;
+
+function renderPostShare(groupFood) {
+  renderHeader();
+  let html = '';
+  if (groupFood > campfirePlayerCount) {
+    html += `<button id="btn-take" class="btn-take">Take an extra portion</button>`;
+  } else {
+    html += '<p class="status-msg">Waiting for next day...</p>';
+  }
+  contentEl.innerHTML = html;
+
+  const btnTake = document.getElementById('btn-take');
+  if (btnTake) {
+    btnTake.addEventListener('click', () => {
+      socket.emit('take-portion');
+    });
+  }
+}
+
+socket.on('campfire-turn', ({ hp, food }) => {
   myHp = hp;
   myFood = food;
   renderHeader();
 
-  let html = '<p class="day-label">Campfire</p>';
-  if (pendingFood > 0) {
+  let html = '';
+  if (food > 0) {
     html += `
-      <p>You have ${pendingFood} food to share.</p>
+      <p>You have ${food} portions of food to share.</p>
       <div class="campfire-share">
         <label>Share:</label>
-        <input type="number" id="share-amount" min="0" max="${pendingFood}" value="${pendingFood}">
-        <span>/ ${pendingFood}</span>
+        <button type="button" class="share-adjust" id="share-minus">−</button>
+        <span id="share-display">0 / ${food}</span>
+        <button type="button" class="share-adjust" id="share-plus">+</button>
         <button id="btn-share">Share</button>
       </div>
     `;
@@ -275,34 +296,48 @@ socket.on('campfire-turn', ({ hp, food, pendingFood }) => {
   }
   contentEl.innerHTML = html;
 
-  document.getElementById('btn-share').addEventListener('click', () => {
-    const input = document.getElementById('share-amount');
-    const amount = input ? parseInt(input.value, 10) || 0 : 0;
-    socket.emit('submit-campfire', { amount });
-  });
-});
-
-socket.on('campfire-confirmed', ({ shared, food, groupFood }) => {
-  myFood = food;
-  renderHeader();
-  contentEl.innerHTML = `
-    <p>Shared ${shared} food with the group.</p>
-    <button id="btn-take" class="btn-take">Take a portion</button>
-    <p class="status-msg" id="pool-status">Pool: ${groupFood}</p>
-  `;
-  document.getElementById('btn-take').addEventListener('click', () => {
-    socket.emit('take-portion');
-  });
-});
-
-socket.on('campfire-pool', ({ groupFood }) => {
-  const btn = document.getElementById('btn-take');
-  if (btn) {
-    btn.disabled = groupFood <= 0;
-    if (groupFood <= 0) btn.textContent = 'Pool empty';
+  if (food > 0) {
+    let shareVal = 0;
+    const display = document.getElementById('share-display');
+    const update = () => { display.textContent = `${shareVal} / ${food}`; };
+    document.getElementById('share-minus').addEventListener('click', () => {
+      if (shareVal > 0) { shareVal--; update(); }
+    });
+    document.getElementById('share-plus').addEventListener('click', () => {
+      if (shareVal < food) { shareVal++; update(); }
+    });
+    document.getElementById('btn-share').addEventListener('click', () => {
+      socket.emit('submit-campfire', { amount: shareVal });
+    });
+  } else {
+    document.getElementById('btn-share').addEventListener('click', () => {
+      socket.emit('submit-campfire', { amount: 0 });
+    });
   }
-  const status = document.getElementById('pool-status');
-  if (status) status.textContent = `Pool: ${groupFood}`;
+});
+
+socket.on('campfire-confirmed', ({ food, groupFood, playerCount }) => {
+  myFood = food;
+  campfirePlayerCount = playerCount;
+  renderPostShare(groupFood);
+});
+
+socket.on('campfire-take-ok', ({ food, groupFood, playerCount }) => {
+  myFood = food;
+  campfirePlayerCount = playerCount;
+  renderPostShare(groupFood);
+});
+
+socket.on('campfire-pool', ({ groupFood, playerCount }) => {
+  if (playerCount != null) campfirePlayerCount = playerCount;
+  const btnTake = document.getElementById('btn-take');
+  const hasSurplus = groupFood > campfirePlayerCount;
+  // Re-render if surplus state changed (gained or lost)
+  if (btnTake && !hasSurplus) {
+    renderPostShare(groupFood);
+  } else if (!btnTake && hasSurplus && contentEl.querySelector('.status-msg')) {
+    renderPostShare(groupFood);
+  }
 });
 
 // --- Stats update (from eating) ---

@@ -314,19 +314,19 @@ io.on('connection', (socket) => {
       p.shareFood = 0;
     });
 
-    io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood });
+    io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood, playerCount: playerNames.length });
 
     playerNames.forEach(name => {
       const p = room.players.get(name);
       io.to(p.socketId).emit('campfire-turn', {
         hp: p.hp,
         food: p.food,
-        pendingFood: p.pendingFood,
+        playerCount: playerNames.length,
       });
     });
   });
 
-  // Player submits campfire share
+  // Player submits campfire share (one-time)
   socket.on('submit-campfire', ({ amount }) => {
     if (!currentRoom || !currentName) return;
     const room = rooms.get(currentRoom);
@@ -337,7 +337,7 @@ io.on('connection', (socket) => {
 
     let val = parseInt(amount, 10);
     if (isNaN(val) || val < 0) val = 0;
-    if (val > player.pendingFood) val = player.pendingFood;
+    if (val > player.food) val = player.food;
 
     player.shareFood = val;
     player.food -= val;
@@ -345,47 +345,51 @@ io.on('connection', (socket) => {
     room.sharedFood += val;
     room.groupFood += val;
 
-    socket.emit('campfire-confirmed', { shared: val, food: player.food, groupFood: room.groupFood });
+    const playerCount = room.players.size;
+
+    socket.emit('campfire-confirmed', { food: player.food, groupFood: room.groupFood, playerCount });
 
     // Notify host
     io.to(room.hostSocket).emit('campfire-update', {
       name: currentName,
       shared: val,
       groupFood: room.groupFood,
+      playerCount,
       allReady: Array.from(room.players.values()).every(p => p.campfireReady),
     });
 
     // Broadcast pool to all phones
     for (const [, p] of room.players) {
-      if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood });
+      if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood, playerCount });
     }
 
     console.log(`[Room ${currentRoom}] ${currentName} shared ${val} food`);
   });
 
-  // Player takes a portion from the communal pool
+  // Player takes an extra portion from surplus
   socket.on('take-portion', () => {
     if (!currentRoom || !currentName) return;
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'campfire') return;
 
     const player = room.players.get(currentName);
-    if (!player || room.groupFood <= 0) return;
+    const playerCount = room.players.size;
+    if (!player || !player.campfireReady || room.groupFood <= playerCount) return;
 
     room.groupFood--;
     player.food++;
 
-    socket.emit('stats-update', { hp: player.hp, food: player.food });
+    socket.emit('campfire-take-ok', { food: player.food, groupFood: room.groupFood, playerCount });
 
     // Notify host
-    io.to(room.hostSocket).emit('campfire-take', { name: currentName, groupFood: room.groupFood });
+    io.to(room.hostSocket).emit('campfire-take', { name: currentName, groupFood: room.groupFood, playerCount });
 
     // Broadcast pool to all phones
     for (const [, p] of room.players) {
-      if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood });
+      if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood, playerCount });
     }
 
-    console.log(`[Room ${currentRoom}] ${currentName} took a portion (pool: ${room.groupFood})`);
+    console.log(`[Room ${currentRoom}] ${currentName} took an extra portion (pool: ${room.groupFood})`);
   });
 
   // Host advances to next day
@@ -394,12 +398,18 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room) return;
 
-    // Each day costs 1 HP (half a heart)
     const playerNames = Array.from(room.players.keys());
-    playerNames.forEach(name => {
-      const p = room.players.get(name);
-      p.hp = Math.max(0, p.hp - 1);
-    });
+
+    // If the food pool is less than the number of players, everyone loses 1 HP (half a heart)
+    // Otherwise, reduce pool by number of players (feeding the group)
+    if (room.groupFood < playerNames.length) {
+      playerNames.forEach(name => {
+        const p = room.players.get(name);
+        p.hp = Math.max(0, p.hp - 1);
+      });
+    } else {
+      room.groupFood -= playerNames.length;
+    }
 
     room.day++;
     room.sharedFood = 0;
