@@ -43,7 +43,7 @@ function createRoom() {
 }
 
 function newPlayerState() {
-  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 6, chosenAction: null, suggestions: [], campfireReady: false, shareFood: 0 };
+  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 6, chosenAction: null, isPublic: false, suggestions: [], campfireReady: false, shareFood: 0 };
 }
 
 // --- Model helper ---
@@ -173,9 +173,10 @@ io.on('connection', (socket) => {
       });
 
       // Send suggestions to each player's phone
+      const suggestions = data.suggestions || {};
       playerNames.forEach(name => {
         const p = room.players.get(name);
-        p.suggestions = data.suggestions[name] || [];
+        p.suggestions = suggestions[name] || [];
         p.chosenAction = null;
         io.to(p.socketId).emit('your-turn', {
           day: room.day,
@@ -205,11 +206,17 @@ io.on('connection', (socket) => {
     // Notify host
     const submitted = [];
     const pending = [];
+    const assists = {};
     for (const [name, p] of room.players) {
-      if (p.chosenAction !== null) submitted.push(name);
-      else pending.push(name);
+      if (p.chosenAction !== null) {
+        submitted.push(name);
+        const match = p.chosenAction.match(/^Assist (.+)$/);
+        if (match) assists[name] = match[1];
+      } else {
+        pending.push(name);
+      }
     }
-    io.to(room.hostSocket).emit('action-status', { submitted, pending });
+    io.to(room.hostSocket).emit('action-status', { submitted, pending, assists });
     console.log(`[Room ${currentRoom}] ${currentName} chose: "${action}"`);
   });
 
@@ -222,6 +229,8 @@ io.on('connection', (socket) => {
     const player = room.players.get(currentName);
     if (!player || player.chosenAction === null) return;
 
+    player.isPublic = true;
+
     // Notify host to show the action
     io.to(room.hostSocket).emit('action-public', { name: currentName, action: player.chosenAction });
 
@@ -233,6 +242,82 @@ io.on('connection', (socket) => {
     }
 
     console.log(`[Room ${currentRoom}] ${currentName} made action public: "${player.chosenAction}"`);
+  });
+
+  // Player cancels their readied action
+  socket.on('cancel-action', () => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'action') return;
+
+    const player = room.players.get(currentName);
+    if (!player || player.chosenAction === null) return;
+
+    const wasPublic = player.isPublic;
+    player.chosenAction = null;
+    player.isPublic = false;
+
+    // Cancel any players who were assisting this player
+    for (const [name, p] of room.players) {
+      if (name !== currentName && p.chosenAction === `Assist ${currentName}` && p.socketId) {
+        p.chosenAction = null;
+        p.isPublic = false;
+        io.to(p.socketId).emit('your-turn', {
+          day: room.day,
+          suggestions: p.suggestions,
+          hp: p.hp,
+          food: p.food,
+        });
+        // Re-send any active assist options to them
+        for (const [otherName, op] of room.players) {
+          if (otherName !== name && op.isPublic && op.chosenAction) {
+            io.to(p.socketId).emit('assist-option', { name: otherName, action: op.chosenAction });
+          }
+        }
+      }
+    }
+
+    // Re-send action selection to the player
+    socket.emit('your-turn', {
+      day: room.day,
+      suggestions: player.suggestions,
+      hp: player.hp,
+      food: player.food,
+    });
+
+    // Update host status
+    const submitted = [];
+    const pending = [];
+    const assists = {};
+    for (const [name, p] of room.players) {
+      if (p.chosenAction !== null) {
+        submitted.push(name);
+        const match = p.chosenAction.match(/^Assist (.+)$/);
+        if (match) assists[name] = match[1];
+      } else {
+        pending.push(name);
+      }
+    }
+    io.to(room.hostSocket).emit('action-status', { submitted, pending, assists });
+
+    // If was public, notify host and other players to remove it
+    if (wasPublic) {
+      io.to(room.hostSocket).emit('action-unpublic', { name: currentName });
+      for (const [name, p] of room.players) {
+        if (name !== currentName && p.socketId) {
+          io.to(p.socketId).emit('assist-removed', { name: currentName });
+        }
+      }
+    }
+
+    // Re-send assist options for any currently public actions (from other players)
+    for (const [name, p] of room.players) {
+      if (name !== currentName && p.isPublic && p.chosenAction) {
+        socket.emit('assist-option', { name, action: p.chosenAction });
+      }
+    }
+
+    console.log(`[Room ${currentRoom}] ${currentName} cancelled action`);
   });
 
   // Host triggers day narration
@@ -417,6 +502,7 @@ io.on('connection', (socket) => {
       const p = room.players.get(name);
       p.suggestions = [];
       p.chosenAction = null;
+      p.isPublic = false;
       p.pendingFood = 0;
       p.pendingDescription = '';
       p.campfireReady = false;
@@ -438,9 +524,10 @@ io.on('connection', (socket) => {
         playerNames,
       });
 
+      const suggestions = data.suggestions || {};
       playerNames.forEach(name => {
         const p = room.players.get(name);
-        p.suggestions = data.suggestions[name] || [];
+        p.suggestions = suggestions[name] || [];
         p.chosenAction = null;
         io.to(p.socketId).emit('your-turn', {
           day: room.day,
@@ -512,7 +599,7 @@ async function callMorning(room, playerNames) {
   const morningPrompt = isDay1
     ? `${profilesBlock}
 <task>
-Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies.
+Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper MUST DIE at the end of the scene.
 </task>`
     : `${profilesBlock}
 <context>
@@ -520,7 +607,7 @@ It is Day ${room.day}. The players are: ${playerNames.join(', ')}.${historyBlock
 </context>
 
 <task>
-Write a morning narration (1 or 2 sentences) — weather, atmosphere, and a thread from recent events if relevant. Then suggest three varied survival actions for each player, informed by the story so far.
+Write a morning narration (1-3 sentences) — weather, atmosphere, and any promising threads from recent events. Then suggest three varied survival actions for each player, informed by the story so far.
 </task>`;
 
   const { result, provider } = await callModel({
@@ -582,9 +669,9 @@ ${playerLines}
 </actions>
 
 <task>
-Write a narration (2-4 sentences, 2 paragraphs) weaving the player actions into one cohesive story. Build on previous events. The day ends at the campfire. You don't always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).
+Write a narration weaving the player actions into one cohesive story. Build on previous events. The day ends at the campfire. You don't always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).
 
-If a player's action is "Assist [name]", they are helping that player with their action. Players working together should be more likely to succeed and achieve better outcomes than working alone. The narration should reflect their teamwork.
+If a player's action is "Assist [name]", they are helping that player with their action. Players working together should be more likely to succeed and achieve better outcomes than working alone. The effect stacks with additional players. The narration should reflect their teamwork.
 
 Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
 </task>`;
@@ -600,7 +687,7 @@ Then, for each player, also return the structured food data: a unit count (0-6) 
       input_schema: {
         type: 'object',
         properties: {
-          narration: { type: 'string', description: 'A 2-4 sentence (2 paragraphs) shared narration of the day.' },
+          narration: { type: 'string', description: 'A shared narration of the day. If 1 player, a 1-3 sentence paragraph. If 2 players, two 1-2 sentence paragraphs. If 3+ players, two 2-3 sentence paragraphs.' },
           food: { type: 'object', properties: foodProperties, required: playerNames },
         },
         required: ['narration', 'food'],

@@ -200,16 +200,26 @@ function submitAction(action) {
 }
 
 socket.on('action-confirmed', ({ action }) => {
+  const isAssist = action.startsWith('Assist ');
+  const dayLabel = contentEl.querySelector('.day-label');
+  const dayHtml = dayLabel ? `<p class="day-label">${dayLabel.textContent}</p>` : '';
   contentEl.innerHTML = `
-    <p class="status-msg">Action chosen:</p>
-    <p style="color:#fff; margin-top:8px;">${action}</p>
-    <button id="btn-make-public" class="btn-make-public">Make Public</button>
-    <p class="status-msg" style="margin-top:16px;">Waiting for other players...</p>
+    ${dayHtml}
+    <div class="chosen-action${isAssist ? ' assist' : ''}">${action}</div>
+    ${!isAssist ? '<button id="btn-make-public" class="btn-make-public">Make public</button>' : ''}
+    <button id="btn-cancel-action" class="btn-cancel-action">Cancel</button>
   `;
-  document.getElementById('btn-make-public').addEventListener('click', function() {
-    socket.emit('make-public');
-    this.textContent = 'Shared';
-    this.disabled = true;
+  const makePublicBtn = document.getElementById('btn-make-public');
+  if (makePublicBtn) {
+    makePublicBtn.addEventListener('click', function() {
+      socket.emit('make-public');
+      this.remove();
+      const box = contentEl.querySelector('.chosen-action');
+      if (box) box.classList.add('public');
+    });
+  }
+  document.getElementById('btn-cancel-action').addEventListener('click', function() {
+    socket.emit('cancel-action');
   });
 });
 
@@ -232,6 +242,20 @@ socket.on('assist-option', ({ name, action }) => {
   wrapper.appendChild(btn);
   wrapper.appendChild(label);
   suggestions.appendChild(wrapper);
+});
+
+socket.on('assist-removed', ({ name }) => {
+  // Remove the assist option for this player if still choosing
+  const wrappers = contentEl.querySelectorAll('.assist-wrapper');
+  wrappers.forEach(w => {
+    const label = w.querySelector('.assist-label');
+    if (label && label.textContent === `Assist ${name}`) w.remove();
+  });
+  // Also remove standalone assist buttons (no wrapper)
+  const btns = contentEl.querySelectorAll('.assist-btn');
+  btns.forEach(btn => {
+    if (btn.textContent === `Assist ${name}`) btn.remove();
+  });
 });
 
 // --- Day result (private food) ---

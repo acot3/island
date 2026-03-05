@@ -390,8 +390,57 @@ html, body {
   margin-bottom: 8px;
 }
 
-/* Make Public button */
+/* Chosen action display */
+.chosen-action {
+  width: 100%;
+  border: 1px solid #7c8a5c;
+  color: #7c8a5c;
+  font-size: 15px;
+  padding: 14px 16px;
+  text-align: left;
+  margin-bottom: 16px;
+}
+
+.chosen-action.assist {
+  border-color: #b5a06a;
+  color: #b5a06a;
+}
+
+.chosen-action.public {
+  border-color: #6a9fb5;
+  color: #6a9fb5;
+}
+
+/* Make public button */
 .btn-make-public {
+  width: 100%;
+  max-width: 280px;
+  background: none;
+  border: 1px solid #6a9fb5;
+  color: #6a9fb5;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 10px 16px;
+  cursor: pointer;
+  margin-top: 24px;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+.btn-make-public:hover,
+.btn-make-public:active {
+  border-color: #8bbfd5;
+  color: #8bbfd5;
+}
+
+.btn-make-public:disabled {
+  border-color: #333;
+  color: #555;
+  cursor: default;
+}
+
+/* Cancel action button */
+.btn-cancel-action {
   width: 100%;
   max-width: 280px;
   background: none;
@@ -401,26 +450,21 @@ html, body {
   font-size: 14px;
   padding: 10px 16px;
   cursor: pointer;
-  margin-top: 16px;
+  margin-top: 8px;
   -webkit-appearance: none;
   border-radius: 0;
 }
 
-.btn-make-public:hover,
-.btn-make-public:active {
+.btn-cancel-action:hover,
+.btn-cancel-action:active {
   border-color: #aaa;
   color: #ddd;
 }
 
-.btn-make-public:disabled {
-  border-color: #333;
-  color: #555;
-  cursor: default;
-}
-
 /* Assist option */
 .assist-btn {
-  border-color: #6a9fb5;
+  border-color: #b5a06a;
+  color: #b5a06a;
 }
 
 .assist-wrapper {
@@ -429,7 +473,7 @@ html, body {
 }
 
 .assist-label {
-  color: #6a9fb5;
+  color: #b5a06a;
   font-size: 13px;
   padding: 4px 0 0 16px;
 }

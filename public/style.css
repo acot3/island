@@ -105,6 +105,10 @@ html, body {
   gap: 48px;
 }
 
+.status-group {
+  text-align: center;
+}
+
 .status-item {
   font-size: 1em;
   text-align: center;
@@ -116,6 +120,20 @@ html, body {
 
 .status-item.pending {
   color: #888;
+}
+
+.status-name {
+  color: #6a9fb5;
+}
+
+.status-public-action {
+  color: #6a9fb5;
+}
+
+.status-assist {
+  color: #b5a06a;
+  font-size: 0.75em;
+  margin-top: 4px;
 }
 
 .status-action {

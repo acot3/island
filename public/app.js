@@ -71,6 +71,7 @@ socket.on('phase', ({ phase }) => {
 
 socket.on('morning', ({ day, narration, groupFood, playerNames }) => {
   Object.keys(publicActions).forEach(k => delete publicActions[k]);
+  currentAssists = {};
   debug(`Day ${day} morning`, 'phase');
   setNarration(`
     <div class="group-food">Food: ${groupFood}</div>
@@ -81,21 +82,41 @@ socket.on('morning', ({ day, narration, groupFood, playerNames }) => {
   renderActionStatus(playerNames.map(n => ({ name: n, submitted: false })));
 });
 
-function renderActionStatus(statuses) {
+let currentAssists = {}; // assisterName -> assistedName
+
+function renderActionStatus(statuses, assists) {
   const el = document.getElementById('action-status');
   if (!el) return;
 
+  if (assists) currentAssists = assists;
+
   const allSubmitted = statuses.every(s => s.submitted);
+
+  // Build groups: primary players (not assisting anyone) with assisters below them
+  const assistedBy = {}; // assistedName -> [assisterName, ...]
+  const isAssister = new Set();
+  for (const [assister, assisted] of Object.entries(currentAssists)) {
+    if (!assistedBy[assisted]) assistedBy[assisted] = [];
+    assistedBy[assisted].push(assister);
+    isAssister.add(assister);
+  }
+
+  const groups = statuses
+    .filter(s => !isAssister.has(s.name))
+    .map(s => {
+      const pub = publicActions[s.name];
+      const label = s.submitted
+        ? (pub ? `<span class="status-name">${s.name}:</span> <span class="status-public-action">${pub}</span>` : `${s.name}: ready`)
+        : `${s.name}: choosing...`;
+      const assisters = (assistedBy[s.name] || []).map(a =>
+        `<div class="status-assist">with ${a}</div>`
+      ).join('');
+      return `<div class="status-group"><div class="status-item ${s.submitted ? 'submitted' : 'pending'}">${label}</div>${assisters}</div>`;
+    });
 
   el.innerHTML = `
     <div class="status-players">
-      ${statuses.map(s => {
-        const pub = publicActions[s.name];
-        const label = s.submitted
-          ? (pub ? `${s.name}: ${pub}` : `${s.name}: ready`)
-          : `${s.name}: choosing...`;
-        return `<div class="status-item ${s.submitted ? 'submitted' : 'pending'}">${label}</div>`;
-      }).join('')}
+      ${groups.join('')}
     </div>
     ${allSubmitted ? '<div class="status-action"><button id="btn-narrate">Narrate Day</button></div>' : ''}
   `;
@@ -109,28 +130,33 @@ function renderActionStatus(statuses) {
   }
 }
 
-socket.on('action-status', ({ submitted, pending }) => {
+socket.on('action-status', ({ submitted, pending, assists }) => {
   const statuses = [
     ...submitted.map(n => ({ name: n, submitted: true })),
     ...pending.map(n => ({ name: n, submitted: false })),
   ];
-  renderActionStatus(statuses);
+  renderActionStatus(statuses, assists || {});
   debug(`Actions: ${submitted.length} submitted, ${pending.length} pending`, 'action');
 });
 
 socket.on('action-public', ({ name, action }) => {
   publicActions[name] = action;
   debug(`${name} made action public: "${action}"`, 'action');
-  // Re-render status if visible
+  // Re-render status to reflect public action
   const el = document.getElementById('action-status');
   if (el) {
     const items = el.querySelectorAll('.status-item');
     items.forEach(item => {
       if (item.textContent.startsWith(name + ':')) {
-        item.textContent = `${name}: ${action}`;
+        item.innerHTML = `<span class="status-name">${name}:</span> <span class="status-public-action">${action}</span>`;
       }
     });
   }
+});
+
+socket.on('action-unpublic', ({ name }) => {
+  delete publicActions[name];
+  debug(`${name} cancelled public action`, 'action');
 });
 
 // --- Day narration ---
@@ -162,7 +188,7 @@ socket.on('campfire-start', ({ day, groupFood, playerCount }) => {
     <p id="hungry-warning" class="hungry-warning" style="display:${groupFood < playerCount ? 'block' : 'none'}">The group will go hungry tonight.</p>
     <div id="campfire-log" class="campfire-log"></div>
     <div class="campfire-actions">
-      <button id="btn-next">Next Day</button>
+      <button id="btn-next" disabled>Next Day</button>
     </div>
   `);
   window._campfirePlayerCount = playerCount;
@@ -178,7 +204,7 @@ function updateHungryWarning(groupFood) {
   if (warn) warn.style.display = groupFood < (window._campfirePlayerCount || 0) ? 'block' : 'none';
 }
 
-socket.on('campfire-update', ({ name, shared, groupFood, playerCount }) => {
+socket.on('campfire-update', ({ name, shared, groupFood, playerCount, allReady }) => {
   debug(`${name} shared ${shared} food (pool: ${groupFood})`, 'food');
   if (playerCount != null) window._campfirePlayerCount = playerCount;
 
@@ -195,6 +221,9 @@ socket.on('campfire-update', ({ name, shared, groupFood, playerCount }) => {
     entry.textContent = `${name} shared ${shared} food.`;
     log.appendChild(entry);
   }
+
+  const btnNext = document.getElementById('btn-next');
+  if (btnNext && allReady) btnNext.disabled = false;
 });
 
 socket.on('campfire-take', ({ name, groupFood, playerCount }) => {
