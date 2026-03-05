@@ -49,7 +49,7 @@ socket.on('player-joined', ({ players }) => {
     listEl.innerHTML = players.map(n => `<span>${n}</span>`).join('');
   }
   const waitMsg = document.getElementById('waiting-msg');
-  if (waitMsg && players.length >= 2) {
+  if (waitMsg && players.length >= 1) {
     waitMsg.innerHTML = `${players.length} players joined. <button id="btn-start">Start Game</button>`;
     document.getElementById('btn-start').addEventListener('click', function() {
       socket.emit('start-game');

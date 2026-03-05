@@ -151,7 +151,7 @@ io.on('connection', (socket) => {
   socket.on('start-game', async () => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
-    if (!room || room.players.size < 2) return;
+    if (!room || room.players.size < 1) return;
 
     room.phase = 'morning';
     room.day = 1;
@@ -599,7 +599,7 @@ async function callMorning(room, playerNames) {
   const morningPrompt = isDay1
     ? `${profilesBlock}
 <task>
-Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper MUST DIE at the end of the scene.
+Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene. This must be unambiguous.
 </task>`
     : `${profilesBlock}
 <context>
@@ -671,6 +671,12 @@ ${playerLines}
 <task>
 Write a narration weaving the player actions into one cohesive story. Build on previous events. The day ends at the campfire. You don't always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).
 
+LENGTH RULES — follow these strictly:
+- 1 player: one paragraph, 1-3 sentences.
+- 2 players: two paragraphs, 1-2 sentences each.
+- 3+ players: two paragraphs, 2-3 sentences each.
+Do NOT exceed these limits.
+
 If a player's action is "Assist [name]", they are helping that player with their action. Players working together should be more likely to succeed and achieve better outcomes than working alone. The effect stacks with additional players. The narration should reflect their teamwork.
 
 Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
@@ -687,7 +693,7 @@ Then, for each player, also return the structured food data: a unit count (0-6) 
       input_schema: {
         type: 'object',
         properties: {
-          narration: { type: 'string', description: 'A shared narration of the day. If 1 player, a 1-3 sentence paragraph. If 2 players, two 1-2 sentence paragraphs. If 3+ players, two 2-3 sentence paragraphs.' },
+          narration: { type: 'string', description: 'The day narration. Use \\n to separate paragraphs.' },
           food: { type: 'object', properties: foodProperties, required: playerNames },
         },
         required: ['narration', 'food'],
