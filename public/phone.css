@@ -67,6 +67,71 @@ html, body {
   border-color: #aaa;
 }
 
+/* Picker trigger buttons */
+#join-screen .picker-trigger {
+  width: 100%;
+  max-width: 280px;
+  background: #111;
+  border: 1px solid #555;
+  color: #888;
+  font-family: inherit;
+  font-size: 18px;
+  padding: 14px 16px;
+  text-align: center;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+#join-screen .picker-trigger.selected {
+  color: #fff;
+}
+
+/* Picker overlay */
+.picker-overlay {
+  position: fixed;
+  inset: 0;
+  background: #000;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+}
+
+.picker-overlay .picker-list {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 320px;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  border-top: 1px solid #333;
+}
+
+.picker-overlay .picker-option {
+  width: 100%;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #333;
+  color: #ddd;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 18px;
+  padding: 10px 16px;
+  text-align: center;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+  transition: color 0.15s;
+}
+
+.picker-overlay .picker-option:hover,
+.picker-overlay .picker-option:active {
+  color: #fff;
+}
+
 #join-screen button {
   width: 100%;
   max-width: 280px;
@@ -85,6 +150,33 @@ html, body {
 #join-screen button:active {
   border-color: #fff;
   color: #fff;
+}
+
+/* MBTI trigger (gold, below join) */
+#join-screen .mbti-trigger {
+  background: none;
+  border: none;
+  color: #b5a06a;
+  font-family: inherit;
+  font-size: 14px;
+  padding: 0;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+  width: auto;
+  max-width: none;
+}
+
+#join-screen .mbti-trigger:hover,
+#join-screen .mbti-trigger:active {
+  color: #d4c08a;
+  border-color: #d4c08a;
+}
+
+#join-screen .mbti-trigger.selected {
+  border: 1px solid #b5a06a;
+  padding: 10px 16px;
+  color: #b5a06a;
 }
 
 .error {

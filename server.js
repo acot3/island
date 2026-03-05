@@ -43,7 +43,7 @@ function createRoom() {
 }
 
 function newPlayerState() {
-  return { socketId: null, food: 0, pendingFood: 0, pendingDescription: '', hp: 6, chosenAction: null, suggestions: [], campfireReady: false, shareFood: 0 };
+  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 6, chosenAction: null, suggestions: [], campfireReady: false, shareFood: 0 };
 }
 
 // --- Model helper ---
@@ -54,7 +54,10 @@ Narration must be from the third-person perspective and in present tense. Vary s
 
 You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
-Make sure interesting, specific plotlines emerge and develop. Bring about the conclusion of the story by Day 10.`;
+Make sure interesting, specific plotlines emerge and develop. Bring about the conclusion of the story by Day 10.
+
+PERSONALITY INTEGRATION:
+If you receive a player's personality type (MBTI), use this to subtly shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER explicitly mention MBTI types, personality frameworks, or archetypes.`;
 
 async function callModel(params) {
   try {
@@ -117,9 +120,11 @@ io.on('connection', (socket) => {
   });
 
   // Player joins a room
-  socket.on('join-room', ({ code, name }) => {
+  socket.on('join-room', ({ code, name, pronouns, mbti }) => {
     code = (code || '').toUpperCase().trim();
     name = (name || '').trim();
+    pronouns = (pronouns || '').trim();
+    mbti = (mbti || '').trim();
     const room = rooms.get(code);
 
     if (!room) return socket.emit('join-error', { message: 'Room not found.' });
@@ -129,6 +134,8 @@ io.on('connection', (socket) => {
 
     const player = newPlayerState();
     player.socketId = socket.id;
+    player.pronouns = pronouns;
+    player.mbti = mbti;
     room.players.set(name, player);
     currentRoom = code;
     currentName = name;
@@ -466,6 +473,13 @@ io.on('connection', (socket) => {
 
 // --- API call helpers ---
 
+function buildPlayerProfiles(room, playerNames) {
+  return playerNames.map(name => {
+    const p = room.players.get(name);
+    return `- ${name} (${p.pronouns || 'they/them'}, MBTI: ${p.mbti || 'unknown'})`;
+  }).join('\n');
+}
+
 async function callMorning(room, playerNames) {
   const suggestionProperties = {};
   playerNames.forEach(name => {
@@ -483,11 +497,15 @@ async function callMorning(room, playerNames) {
     ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\n${h.narration}\nActions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')}\nFood: ${Object.entries(h.food).map(([n, f]) => `${n}: ${f.units}${f.description && f.description !== 'You found nothing.' ? ` (${f.description})` : ''}`).join(', ')}\nHP: ${Object.entries(h.hp).map(([n, hp]) => `${n}: ${hp}/6`).join(', ')}`).join('\n\n')}\n</history>`
     : '';
 
+  const profilesBlock = `\n<players>\n${buildPlayerProfiles(room, playerNames)}\n</players>`;
+
   const morningPrompt = isDay1
-    ? `<task>
+    ? `${profilesBlock}
+<task>
 Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies.
 </task>`
-    : `<context>
+    : `${profilesBlock}
+<context>
 It is Day ${room.day}. The players are: ${playerNames.join(', ')}.${historyBlock}
 </context>
 
@@ -542,7 +560,10 @@ async function callDay(room, playerNames, actions) {
 
   const morningBlock = room.morningNarration ? `\n<morning>\n${room.morningNarration}\n</morning>` : '';
 
-  const dayPrompt = `<context>
+  const profilesBlock = `\n<players>\n${buildPlayerProfiles(room, playerNames)}\n</players>`;
+
+  const dayPrompt = `${profilesBlock}
+<context>
 It is Day ${room.day}.${historyBlock}${morningBlock}
 </context>
 
