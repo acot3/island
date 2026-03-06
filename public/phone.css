@@ -535,3 +535,75 @@ html, body {
   color: #555;
   cursor: default;
 }
+
+/* RIP screen */
+.rip-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 60vh;
+  text-align: center;
+}
+
+.rip-cross {
+  font-size: 64px;
+  letter-spacing: 8px;
+  padding-left: 8px;
+  color: #666;
+  margin-bottom: 24px;
+}
+
+.rip-name {
+  font-size: 24px;
+  color: #ddd;
+  margin-bottom: 8px;
+}
+
+.rip-dates {
+  font-size: 16px;
+  color: #888;
+}
+
+.rip-screen h1 {
+  font-size: 28px;
+  font-weight: normal;
+  color: #c44;
+  margin-bottom: 24px;
+}
+
+/* Game end / Play Again */
+.game-end-screen {
+  min-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.game-end-screen p {
+  line-height: 1.6;
+  margin-bottom: 24px;
+}
+
+#btn-play-again {
+  width: 100%;
+  max-width: 280px;
+  background: none;
+  border: 1px solid #555;
+  color: #ddd;
+  font-family: inherit;
+  font-size: 16px;
+  padding: 14px 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
+  margin-top: 24px;
+}
+
+#btn-play-again:hover,
+#btn-play-again:active {
+  border-color: #fff;
+  color: #fff;
+}

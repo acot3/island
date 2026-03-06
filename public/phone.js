@@ -3,6 +3,7 @@ const socket = io();
 let myName = '';
 let myHp = 6;
 let myFood = 0;
+let isDead = false;
 
 const joinScreen = document.getElementById('join-screen');
 const gameScreen = document.getElementById('game-screen');
@@ -151,6 +152,7 @@ socket.on('join-ok', ({ name }) => {
 // --- Loading ---
 
 socket.on('phase', ({ phase }) => {
+  if (isDead) return;
   if (phase === 'loading') {
     contentEl.innerHTML = '<p class="status-msg">Loading...</p>';
   }
@@ -159,6 +161,7 @@ socket.on('phase', ({ phase }) => {
 // --- Your turn (action selection) ---
 
 socket.on('your-turn', ({ day, suggestions, hp, food }) => {
+  if (isDead) return;
   myHp = hp;
   myFood = food;
   renderHeader();
@@ -261,6 +264,7 @@ socket.on('assist-removed', ({ name }) => {
 // --- Day result (private food) ---
 
 socket.on('day-result', ({ hp, food, pendingFood, pendingDescription }) => {
+  if (isDead) return;
   myHp = hp;
   myFood = food;
   renderHeader();
@@ -298,6 +302,7 @@ function renderPostShare(groupFood) {
 }
 
 socket.on('campfire-turn', ({ hp, food }) => {
+  if (isDead) return;
   myHp = hp;
   myFood = food;
   renderHeader();
@@ -341,18 +346,21 @@ socket.on('campfire-turn', ({ hp, food }) => {
 });
 
 socket.on('campfire-confirmed', ({ food, groupFood, playerCount }) => {
+  if (isDead) return;
   myFood = food;
   campfirePlayerCount = playerCount;
   renderPostShare(groupFood);
 });
 
 socket.on('campfire-take-ok', ({ food, groupFood, playerCount }) => {
+  if (isDead) return;
   myFood = food;
   campfirePlayerCount = playerCount;
   renderPostShare(groupFood);
 });
 
 socket.on('campfire-pool', ({ groupFood, playerCount }) => {
+  if (isDead) return;
   if (playerCount != null) campfirePlayerCount = playerCount;
   const btnTake = document.getElementById('btn-take');
   const hasSurplus = groupFood > campfirePlayerCount;
@@ -367,7 +375,60 @@ socket.on('campfire-pool', ({ groupFood, playerCount }) => {
 // --- Stats update (from eating) ---
 
 socket.on('stats-update', ({ hp, food }) => {
+  if (isDead) return;
   myHp = hp;
   myFood = food;
   renderHeader();
+});
+
+// --- Death ---
+
+function renderRIP(name, deathDay) {
+  isDead = true;
+  headerEl.innerHTML = '';
+  contentEl.innerHTML = `
+    <div class="rip-screen">
+      <div class="rip-cross">RIP</div>
+      <div class="rip-name">${name}</div>
+      <div class="rip-dates">Day 1 &#8211; Day ${deathDay}</div>
+    </div>
+  `;
+}
+
+socket.on('you-died', ({ name, deathDay }) => {
+  renderRIP(name, deathDay);
+});
+
+// --- Game Over (all dead) ---
+
+socket.on('game-over', () => {
+  if (!isDead) {
+    // Edge case: simultaneous death + game-over
+    headerEl.innerHTML = '';
+  }
+  contentEl.innerHTML = `
+    <div class="rip-screen">
+      <h1>GAME OVER</h1>
+      <button id="btn-play-again">Play Again</button>
+    </div>
+  `;
+  document.getElementById('btn-play-again').addEventListener('click', () => {
+    window.location.href = '/play';
+  });
+});
+
+// --- Game End (Day 10 conclusion) ---
+
+socket.on('game-end', () => {
+  if (isDead) return; // Dead players already see RIP
+  headerEl.innerHTML = '';
+  contentEl.innerHTML = `
+    <div class="game-end-screen">
+      <p class="day-label">The End</p>
+      <button id="btn-play-again">Play Again</button>
+    </div>
+  `;
+  document.getElementById('btn-play-again').addEventListener('click', () => {
+    window.location.href = '/play';
+  });
 });

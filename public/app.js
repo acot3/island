@@ -243,6 +243,39 @@ socket.on('campfire-take', ({ name, groupFood, playerCount }) => {
   }
 });
 
+// --- Game Over (all players dead) ---
+
+socket.on('game-over', ({ narration }) => {
+  debug('Game over — all players dead', 'phase');
+  let html = '';
+  if (narration) {
+    html += `<p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>`;
+  }
+  html += `
+    <h1 class="game-over">GAME OVER</h1>
+    <p>All players have perished on the island.</p>
+    <button id="btn-play-again">Play Again</button>
+  `;
+  setNarration(html);
+  document.getElementById('btn-play-again').addEventListener('click', () => {
+    window.location.href = '/';
+  });
+});
+
+// --- Game End (Day 10 conclusion) ---
+
+socket.on('game-end', ({ day, narration }) => {
+  debug(`Game ended on Day ${day}`, 'phase');
+  setNarration(`
+    <p class="food-count">Day ${day}</p>
+    <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
+    <button id="btn-play-again">Play Again</button>
+  `);
+  document.getElementById('btn-play-again').addEventListener('click', () => {
+    window.location.href = '/';
+  });
+});
+
 // --- Errors ---
 
 socket.on('error', ({ message }) => {

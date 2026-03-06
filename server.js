@@ -43,7 +43,18 @@ function createRoom() {
 }
 
 function newPlayerState() {
-  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 6, chosenAction: null, isPublic: false, suggestions: [], campfireReady: false, shareFood: 0 };
+  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 3, chosenAction: null, isPublic: false, suggestions: [], campfireReady: false, shareFood: 0, dead: false, deathDay: null };
+}
+
+function alivePlayerNames(room) {
+  return Array.from(room.players.keys()).filter(n => !room.players.get(n).dead);
+}
+
+function emitGameOver(room) {
+  io.to(room.hostSocket).emit('game-over', {});
+  for (const [, p] of room.players) {
+    if (p.socketId) io.to(p.socketId).emit('game-over', {});
+  }
 }
 
 // --- Model helper ---
@@ -198,16 +209,17 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'action') return;
 
     const player = room.players.get(currentName);
-    if (!player || player.chosenAction !== null) return;
+    if (!player || player.dead || player.chosenAction !== null) return;
 
     player.chosenAction = action;
     socket.emit('action-confirmed', { action });
 
-    // Notify host
+    // Notify host (only alive players)
     const submitted = [];
     const pending = [];
     const assists = {};
     for (const [name, p] of room.players) {
+      if (p.dead) continue;
       if (p.chosenAction !== null) {
         submitted.push(name);
         const match = p.chosenAction.match(/^Assist (.+)$/);
@@ -285,11 +297,12 @@ io.on('connection', (socket) => {
       food: player.food,
     });
 
-    // Update host status
+    // Update host status (only alive players)
     const submitted = [];
     const pending = [];
     const assists = {};
     for (const [name, p] of room.players) {
+      if (p.dead) continue;
       if (p.chosenAction !== null) {
         submitted.push(name);
         const match = p.chosenAction.match(/^Assist (.+)$/);
@@ -326,23 +339,37 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'action') return;
 
-    // Check all actions submitted
-    const playerNames = Array.from(room.players.keys());
-    const allSubmitted = playerNames.every(n => room.players.get(n).chosenAction !== null);
+    // Check all alive players submitted
+    const alive = alivePlayerNames(room);
+    const allSubmitted = alive.every(n => room.players.get(n).chosenAction !== null);
     if (!allSubmitted) return;
 
     room.phase = 'narration';
     io.to(currentRoom).emit('phase', { phase: 'loading' });
 
     const actions = {};
-    playerNames.forEach(n => { actions[n] = room.players.get(n).chosenAction; });
+    alive.forEach(n => { actions[n] = room.players.get(n).chosenAction; });
 
     try {
-      const data = await callDay(room, playerNames, actions);
+      const data = await callDay(room, alive, actions);
 
-      // Update food
-      playerNames.forEach(name => {
+      // Process narrator-reported deaths
+      const narratorDeaths = (data.deaths || []).filter(name => {
         const p = room.players.get(name);
+        return p && !p.dead;
+      });
+      narratorDeaths.forEach(name => {
+        const p = room.players.get(name);
+        p.dead = true;
+        p.deathDay = room.day;
+        p.hp = 0;
+        if (p.socketId) io.to(p.socketId).emit('you-died', { name, deathDay: room.day });
+      });
+
+      // Update food (only for alive-after-narration players)
+      alive.forEach(name => {
+        const p = room.players.get(name);
+        if (p.dead) return; // killed by narrator this day
         const food = data.food[name] || { units: 0, description: 'You found nothing.' };
         p.pendingFood = food.units;
         p.pendingDescription = food.description;
@@ -355,9 +382,29 @@ io.on('connection', (socket) => {
         morning: room.morningNarration,
         narration: data.narration,
         actions,
-        food: Object.fromEntries(playerNames.map(n => [n, { units: data.food[n]?.units || 0, description: data.food[n]?.description || '' }])),
-        hp: Object.fromEntries(playerNames.map(n => [n, room.players.get(n).hp])),
+        food: Object.fromEntries(alive.map(n => [n, { units: data.food[n]?.units || 0, description: data.food[n]?.description || '' }])),
+        hp: Object.fromEntries(alive.map(n => [n, room.players.get(n).hp])),
       });
+
+      // Check if all players are dead after narrator deaths
+      if (alivePlayerNames(room).length === 0) {
+        // Show the narration first, then game over
+        io.to(room.hostSocket).emit('game-over', { narration: data.narration });
+        for (const [, p] of room.players) {
+          if (p.socketId) io.to(p.socketId).emit('game-over', {});
+        }
+        return;
+      }
+
+      // Day 10: game ends — show final narration + Play Again (no campfire)
+      if (room.day >= 10) {
+        room.phase = 'ended';
+        io.to(room.hostSocket).emit('game-end', { day: room.day, narration: data.narration });
+        for (const [, p] of room.players) {
+          if (p.socketId) io.to(p.socketId).emit('game-end', { narration: data.narration });
+        }
+        return;
+      }
 
       room.phase = 'narration';
 
@@ -368,9 +415,10 @@ io.on('connection', (socket) => {
         groupFood: room.groupFood,
       });
 
-      // Send private food results to each phone
-      playerNames.forEach(name => {
+      // Send private food results to each alive phone
+      alive.forEach(name => {
         const p = room.players.get(name);
+        if (p.dead) return;
         io.to(p.socketId).emit('day-result', {
           hp: p.hp,
           food: p.food,
@@ -388,25 +436,25 @@ io.on('connection', (socket) => {
   socket.on('start-campfire', () => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
-    if (!room) return;
+    if (!room || room.day >= 10) return; // No campfire on Day 10
 
     room.phase = 'campfire';
     room.sharedFood = 0;
-    const playerNames = Array.from(room.players.keys());
-    playerNames.forEach(name => {
+    const alive = alivePlayerNames(room);
+    alive.forEach(name => {
       const p = room.players.get(name);
       p.campfireReady = false;
       p.shareFood = 0;
     });
 
-    io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood, playerCount: playerNames.length });
+    io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood, playerCount: alive.length });
 
-    playerNames.forEach(name => {
+    alive.forEach(name => {
       const p = room.players.get(name);
       io.to(p.socketId).emit('campfire-turn', {
         hp: p.hp,
         food: p.food,
-        playerCount: playerNames.length,
+        playerCount: alive.length,
       });
     });
   });
@@ -418,7 +466,7 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'campfire') return;
 
     const player = room.players.get(currentName);
-    if (!player || player.campfireReady) return;
+    if (!player || player.dead || player.campfireReady) return;
 
     let val = parseInt(amount, 10);
     if (isNaN(val) || val < 0) val = 0;
@@ -430,7 +478,8 @@ io.on('connection', (socket) => {
     room.sharedFood += val;
     room.groupFood += val;
 
-    const playerCount = room.players.size;
+    const alive = alivePlayerNames(room);
+    const playerCount = alive.length;
 
     socket.emit('campfire-confirmed', { food: player.food, groupFood: room.groupFood, playerCount });
 
@@ -440,13 +489,14 @@ io.on('connection', (socket) => {
       shared: val,
       groupFood: room.groupFood,
       playerCount,
-      allReady: Array.from(room.players.values()).every(p => p.campfireReady),
+      allReady: alive.every(n => room.players.get(n).campfireReady),
     });
 
-    // Broadcast pool to all phones
-    for (const [, p] of room.players) {
+    // Broadcast pool to all alive phones
+    alive.forEach(n => {
+      const p = room.players.get(n);
       if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood, playerCount });
-    }
+    });
 
     console.log(`[Room ${currentRoom}] ${currentName} shared ${val} food`);
   });
@@ -458,8 +508,9 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'campfire') return;
 
     const player = room.players.get(currentName);
-    const playerCount = room.players.size;
-    if (!player || !player.campfireReady || room.groupFood <= playerCount) return;
+    const alive = alivePlayerNames(room);
+    const playerCount = alive.length;
+    if (!player || player.dead || !player.campfireReady || room.groupFood <= playerCount) return;
 
     room.groupFood--;
     player.food++;
@@ -469,10 +520,11 @@ io.on('connection', (socket) => {
     // Notify host
     io.to(room.hostSocket).emit('campfire-take', { name: currentName, groupFood: room.groupFood, playerCount });
 
-    // Broadcast pool to all phones
-    for (const [, p] of room.players) {
+    // Broadcast pool to all alive phones
+    alive.forEach(n => {
+      const p = room.players.get(n);
       if (p.socketId) io.to(p.socketId).emit('campfire-pool', { groupFood: room.groupFood, playerCount });
-    }
+    });
 
     console.log(`[Room ${currentRoom}] ${currentName} took an extra portion (pool: ${room.groupFood})`);
   });
@@ -483,23 +535,41 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room) return;
 
-    const playerNames = Array.from(room.players.keys());
+    const alive = alivePlayerNames(room);
 
-    // If the food pool is less than the number of players, everyone loses 1 HP (half a heart)
-    // Otherwise, reduce pool by number of players (feeding the group)
-    if (room.groupFood < playerNames.length) {
-      playerNames.forEach(name => {
+    // If the food pool is less than alive players, each alive player loses 1 HP (half a heart)
+    // Otherwise, reduce pool by alive player count (feeding the group)
+    const starvationDeaths = [];
+    if (room.groupFood < alive.length) {
+      alive.forEach(name => {
         const p = room.players.get(name);
         p.hp = Math.max(0, p.hp - 1);
+        if (p.hp <= 0) {
+          p.dead = true;
+          p.deathDay = room.day;
+          starvationDeaths.push(name);
+        }
       });
     } else {
-      room.groupFood -= playerNames.length;
+      room.groupFood -= alive.length;
+    }
+
+    // Notify phones of starvation deaths
+    starvationDeaths.forEach(name => {
+      const p = room.players.get(name);
+      if (p.socketId) io.to(p.socketId).emit('you-died', { name, deathDay: p.deathDay });
+    });
+
+    // Check if all players are dead
+    if (alivePlayerNames(room).length === 0) {
+      emitGameOver(room);
+      return;
     }
 
     room.day++;
     room.sharedFood = 0;
-    playerNames.forEach(name => {
-      const p = room.players.get(name);
+    // Reset per-day state for all players (alive ones get new turns, dead ones stay inert)
+    for (const [, p] of room.players) {
       p.suggestions = [];
       p.chosenAction = null;
       p.isPublic = false;
@@ -507,13 +577,15 @@ io.on('connection', (socket) => {
       p.pendingDescription = '';
       p.campfireReady = false;
       p.shareFood = 0;
-    });
+    }
+
+    const aliveNow = alivePlayerNames(room);
 
     room.phase = 'morning';
     io.to(currentRoom).emit('phase', { phase: 'loading' });
 
     try {
-      const data = await callMorning(room, playerNames);
+      const data = await callMorning(room, aliveNow, starvationDeaths);
       room.morningNarration = data.narration;
       room.phase = 'action';
 
@@ -521,11 +593,11 @@ io.on('connection', (socket) => {
         day: room.day,
         narration: data.narration,
         groupFood: room.groupFood,
-        playerNames,
+        playerNames: aliveNow,
       });
 
       const suggestions = data.suggestions || {};
-      playerNames.forEach(name => {
+      aliveNow.forEach(name => {
         const p = room.players.get(name);
         p.suggestions = suggestions[name] || [];
         p.chosenAction = null;
@@ -548,7 +620,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room) return;
     const p = room.players.get(currentName);
-    if (!p || p.food <= 0 || p.hp >= 6) return;
+    if (!p || p.dead || p.food <= 0 || p.hp >= 6) return;
     p.food--;
     p.hp = Math.min(6, p.hp + 1);
     socket.emit('stats-update', { hp: p.hp, food: p.food });
@@ -577,7 +649,7 @@ function buildPlayerProfiles(room, playerNames) {
   }).join('\n');
 }
 
-async function callMorning(room, playerNames) {
+async function callMorning(room, playerNames, recentDeaths = []) {
   const suggestionProperties = {};
   playerNames.forEach(name => {
     suggestionProperties[name] = {
@@ -594,6 +666,26 @@ async function callMorning(room, playerNames) {
     ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\n${h.narration}\nActions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')}\nFood: ${Object.entries(h.food).map(([n, f]) => `${n}: ${f.units}${f.description && f.description !== 'You found nothing.' ? ` (${f.description})` : ''}`).join(', ')}\nHP: ${Object.entries(h.hp).map(([n, hp]) => `${n}: ${hp}/6`).join(', ')}`).join('\n\n')}\n</history>`
     : '';
 
+  const deathBlock = recentDeaths.length > 0
+    ? `\n<deaths>\nThe following players died of starvation during the night: ${recentDeaths.join(', ')}. Narrate their death in this morning's narration. This is a notable event and should occupy most of the narration.\n</deaths>`
+    : '';
+
+  // End-game instructions for Days 8-10
+  let endgameBlock = '';
+  if (room.day === 8) {
+    endgameBlock = `\n<pacing>
+This is Day 8, and the game must end at the close of Day 10. Players will take their third-to-last action today. If there is not a dramatic plotline that can conclude the game in an exciting or interesting way, introduce that now prominently. If there is already a promising plotline, advance it significantly. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
+</pacing>`;
+  } else if (room.day === 9) {
+    endgameBlock = `\n<pacing>
+This is Day 9, and the game must end at the close of Day 10. Players will take their penultimate action today. Significantly advance an existing plotline toward a dramatic conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
+</pacing>`;
+  } else if (room.day >= 10) {
+    endgameBlock = `\n<pacing>
+This is Day 10, and the game must end at the close of this day. Players will take their final action today. Significantly advance the plot and force a conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
+</pacing>`;
+  }
+
   const profilesBlock = `\n<players>\n${buildPlayerProfiles(room, playerNames)}\n</players>`;
 
   const morningPrompt = isDay1
@@ -603,7 +695,7 @@ Write the opening scene of the game — how ${playerNames.join(' and ')} arrived
 </task>`
     : `${profilesBlock}
 <context>
-It is Day ${room.day}. The players are: ${playerNames.join(', ')}.${historyBlock}
+It is Day ${room.day}. The players are: ${playerNames.join(', ')}.${historyBlock}${deathBlock}${endgameBlock}
 </context>
 
 <task>
@@ -659,6 +751,12 @@ async function callDay(room, playerNames, actions) {
 
   const profilesBlock = `\n<players>\n${buildPlayerProfiles(room, playerNames)}\n</players>`;
 
+  // Day 10 final resolution has special instructions
+  const isFinalDay = room.day >= 10;
+  const campfireNote = isFinalDay
+    ? 'This is the final day. The players have proposed their final actions. Resolve the story, ending with "The End."'
+    : 'The day ends at the campfire. You don\'t always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).';
+
   const dayPrompt = `${profilesBlock}
 <context>
 It is Day ${room.day}.${historyBlock}${morningBlock}
@@ -669,17 +767,19 @@ ${playerLines}
 </actions>
 
 <task>
-Write a narration weaving the player actions into one cohesive story. Build on previous events. The day ends at the campfire. You don't always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).
+Write a narration weaving the player actions into one cohesive story. Build on previous events. ${campfireNote}
 
 LENGTH RULES — follow these strictly:
 - 1 player: one paragraph, 1-3 sentences.
 - 2 players: two paragraphs, 1-2 sentences each.
 - 3+ players: two paragraphs, 2-3 sentences each.
-Do NOT exceed these limits.
+Do NOT exceed these limits.${isFinalDay ? ' Exception: on the final day, you may write up to 4 paragraphs to properly conclude the story.' : ''}
 
 If a player's action is "Assist [name]", they are helping that player with their action. Players working together should be more likely to succeed and achieve better outcomes than working alone. The effect stacks with additional players. The narration should reflect their teamwork.
 
 Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
+
+You may kill players during the narration if the story demands it (e.g. a fatal encounter, sacrifice, or catastrophic failure). If a player dies, include their name in the deaths array. Only kill players when it is dramatically appropriate — not arbitrarily.
 </task>`;
 
   const { result, provider } = await callModel({
@@ -689,14 +789,15 @@ Then, for each player, also return the structured food data: a unit count (0-6) 
     messages: [{ role: 'user', content: dayPrompt }],
     tools: [{
       name: 'day_report',
-      description: 'Report the day narration and food findings for each player.',
+      description: 'Report the day narration, food findings, and any player deaths.',
       input_schema: {
         type: 'object',
         properties: {
           narration: { type: 'string', description: 'The day narration. Use \\n to separate paragraphs.' },
           food: { type: 'object', properties: foodProperties, required: playerNames },
+          deaths: { type: 'array', items: { type: 'string' }, description: 'Names of players who die during this day\'s events. Empty array if no one dies.' },
         },
-        required: ['narration', 'food'],
+        required: ['narration', 'food', 'deaths'],
       },
     }],
   });

@@ -250,3 +250,15 @@ button:disabled {
 .debug-action { color: #7c8a5c; }
 .debug-food { color: #b5a06a; }
 .debug-error { color: #b56a6a; }
+
+/* Game Over */
+#narration-content h1.game-over {
+  color: #c44;
+  margin-top: 32px;
+}
+
+#btn-play-again {
+  margin-top: 24px;
+  font-size: 16px;
+  padding: 12px 24px;
+}
