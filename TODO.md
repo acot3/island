@@ -1,10 +1,10 @@
 BIO PROTOTYPE
 
-1. Figure out an end-state. Instruct Rthe game to bring about a conclusion by a certain day.
+1. Figure out an end-state. Instruct the game to bring about a conclusion by a certain day.
 
     X 2. Separate private screens so people can access on their phones.
 
-3. Refine food system.
+    X 3. Refine food system.
 
 4. Add freshwater boolean (behind the scenes).
 
