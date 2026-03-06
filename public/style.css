@@ -26,12 +26,13 @@ html, body {
 }
 
 #narration {
-  flex: 5;
+  flex: 1;
   border-bottom: 1px solid #333;
+  min-height: 0;
 }
 
-#debug {
-  flex: 1;
+#debug-wrapper {
+  flex: 0 0 auto;
 }
 
 .panel {
@@ -142,6 +143,14 @@ html, body {
   margin-top: 24px;
 }
 
+/* Campfire image */
+.campfire-img {
+  display: block;
+  margin: 32px auto 0;
+  height: 180px;
+  width: auto;
+}
+
 /* Campfire food pool */
 .campfire-food {
   display: flex;
@@ -178,6 +187,24 @@ html, body {
   font-size: 14px;
   text-align: center;
   margin-top: 8px;
+}
+
+.water-status {
+  font-size: 14px;
+  text-align: center;
+  margin-top: 8px;
+}
+
+.water-ok {
+  color: #6a9fb5;
+}
+
+.food-ok {
+  color: #7c8a5c;
+}
+
+.water-warning {
+  color: #c44;
 }
 
 /* Campfire log */
@@ -232,8 +259,20 @@ button:disabled {
 }
 
 /* Debug console */
+#debug-toggle {
+  cursor: pointer;
+  position: static;
+  text-align: right;
+  padding: 4px 8px;
+}
+
+#debug-toggle:hover {
+  color: #888;
+}
+
 #debug {
-  padding-top: 20px;
+  padding-top: 8px;
+  max-height: 20vh;
 }
 
 .debug-line {

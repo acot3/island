@@ -3,11 +3,19 @@ const socket = io();
 // DOM refs
 const narrationContent = document.getElementById('narration-content');
 const debugPanel = document.getElementById('debug');
+const debugToggle = document.getElementById('debug-toggle');
 
 let roomCode = null;
 const publicActions = {}; // name -> action string
 
 // --- Debug console ---
+
+debugToggle.addEventListener('click', () => {
+  const visible = debugPanel.style.display !== 'none';
+  debugPanel.style.display = visible ? 'none' : 'block';
+  debugToggle.textContent = visible ? 'Show Debug Console' : 'Hide Debug Console';
+  if (!visible) debugPanel.scrollTop = debugPanel.scrollHeight;
+});
 
 function debug(msg, type = 'info') {
   const line = document.createElement('div');
@@ -30,9 +38,10 @@ document.getElementById('btn-create').addEventListener('click', () => {
   socket.emit('create-room');
 });
 
-socket.on('room-created', ({ code }) => {
+socket.on('room-created', ({ code, plotSeed }) => {
   roomCode = code;
   debug(`Room created: ${code}`, 'phase');
+  if (plotSeed) debug(`Plot: ${plotSeed.split('\n')[0]}`, 'phase');
   setNarration(`
     <h1>ISLAND</h1>
     <p class="room-info">Join at <strong>${location.host}/play</strong></p>
@@ -161,14 +170,15 @@ socket.on('action-unpublic', ({ name }) => {
 
 // --- Day narration ---
 
-socket.on('day-narration', ({ day, narration, groupFood }) => {
-  debug(`Day ${day} narration`, 'phase');
+socket.on('day-narration', ({ day, narration, groupFood, freshWater }) => {
+  debug(`Day ${day} narration | Water: ${freshWater ? 'yes' : 'no'}`, 'phase');
   setNarration(`
     <div class="group-food">Food: ${groupFood}</div>
     <p class="food-count">Day ${day}</p>
     <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
     <button id="btn-fire">Light the Fire</button>
   `);
+  window._freshWater = freshWater;
   document.getElementById('btn-fire').addEventListener('click', () => {
     socket.emit('start-campfire');
   });
@@ -176,16 +186,23 @@ socket.on('day-narration', ({ day, narration, groupFood }) => {
 
 // --- Campfire ---
 
-socket.on('campfire-start', ({ day, groupFood, playerCount }) => {
+socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater }) => {
   debug('Campfire phase', 'phase');
+  if (freshWater !== undefined) window._freshWater = freshWater;
+  const waterHtml = window._freshWater
+    ? '<p class="water-status water-ok">The group has access to fresh water.</p>'
+    : '<p class="water-status water-warning">The group lacks access to fresh water. −1 HP</p>';
   setNarration(`
     <p class="food-count">Day ${day} — Campfire</p>
     <p>The fire crackles. What will you share?</p>
+    <img src="/campfire.png" class="campfire-img" alt="">
     <div class="campfire-food">
       <div class="campfire-food-label">Food</div>
       <div class="campfire-food-number" id="campfire-pool-num">${groupFood}</div>
     </div>
-    <p id="hungry-warning" class="hungry-warning" style="display:${groupFood < playerCount ? 'block' : 'none'}">The group will go hungry tonight.</p>
+    <p id="hungry-warning" class="hungry-warning" style="display:${groupFood < playerCount ? 'block' : 'none'}">The group will go hungry tonight. −1 HP</p>
+    <p id="food-ok" class="water-status food-ok" style="display:${groupFood >= playerCount ? 'block' : 'none'}">The group has enough food for everyone.</p>
+    ${waterHtml}
     <div id="campfire-log" class="campfire-log"></div>
     <div class="campfire-actions">
       <button id="btn-next" disabled>Next Day</button>
@@ -200,8 +217,12 @@ socket.on('campfire-start', ({ day, groupFood, playerCount }) => {
 });
 
 function updateHungryWarning(groupFood) {
+  const playerCount = window._campfirePlayerCount || 0;
+  const hungry = groupFood < playerCount;
   const warn = document.getElementById('hungry-warning');
-  if (warn) warn.style.display = groupFood < (window._campfirePlayerCount || 0) ? 'block' : 'none';
+  if (warn) warn.style.display = hungry ? 'block' : 'none';
+  const ok = document.getElementById('food-ok');
+  if (ok) ok.style.display = hungry ? 'none' : 'block';
 }
 
 socket.on('campfire-update', ({ name, shared, groupFood, playerCount, allReady }) => {

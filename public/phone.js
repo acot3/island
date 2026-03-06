@@ -27,7 +27,7 @@ function renderHearts(hp) {
 
 function renderHeader() {
   const canEat = myFood > 0 && myHp < 6;
-  const eatBtn = canEat ? ' <button class="btn-eat" id="btn-eat">Eat</button>' : '';
+  const eatBtn = canEat ? ' <button class="btn-eat" id="btn-eat">Eat for +1 HP</button>' : '';
   headerEl.innerHTML = `
     <div class="stats">
       <span class="player-name">${myName}</span>
@@ -263,18 +263,25 @@ socket.on('assist-removed', ({ name }) => {
 
 // --- Day result (private food) ---
 
-socket.on('day-result', ({ hp, food, pendingFood, pendingDescription }) => {
+socket.on('day-result', ({ hp, food, pendingFood, pendingDescription, injury, injuryDescription }) => {
   if (isDead) return;
   myHp = hp;
   myFood = food;
   renderHeader();
 
-  let html = '<div class="food-result">';
-  html += `<p>${pendingDescription}</p>`;
+  let html = '';
   if (pendingFood > 0) {
+    html += '<div class="food-result">';
+    html += `<p>${pendingDescription}</p>`;
     html += `<p class="amount">+${pendingFood} food</p>`;
+    html += '</div>';
   }
-  html += '</div>';
+  if (injury > 0) {
+    html += '<div class="injury-result">';
+    html += `<p>${injuryDescription}</p>`;
+    html += `<p class="injury-amount">\u2212${injury} HP</p>`;
+    html += '</div>';
+  }
   html += '<p class="status-msg">Waiting for campfire...</p>';
   contentEl.innerHTML = html;
 });
@@ -301,11 +308,11 @@ function renderPostShare(groupFood) {
   }
 }
 
-socket.on('campfire-turn', ({ hp, food }) => {
-  if (isDead) return;
-  myHp = hp;
-  myFood = food;
-  renderHeader();
+let campfireShareVal = 0;
+
+function renderCampfireShareUI() {
+  const food = myFood;
+  campfireShareVal = Math.min(campfireShareVal, food);
 
   let html = '';
   if (food > 0) {
@@ -314,7 +321,7 @@ socket.on('campfire-turn', ({ hp, food }) => {
       <div class="campfire-share">
         <label>Share:</label>
         <button type="button" class="share-adjust" id="share-minus">−</button>
-        <span id="share-display">0 / ${food}</span>
+        <span id="share-display">${campfireShareVal} / ${food}</span>
         <button type="button" class="share-adjust" id="share-plus">+</button>
         <button id="btn-share">Share</button>
       </div>
@@ -326,23 +333,31 @@ socket.on('campfire-turn', ({ hp, food }) => {
   contentEl.innerHTML = html;
 
   if (food > 0) {
-    let shareVal = 0;
     const display = document.getElementById('share-display');
-    const update = () => { display.textContent = `${shareVal} / ${food}`; };
+    const update = () => { display.textContent = `${campfireShareVal} / ${food}`; };
     document.getElementById('share-minus').addEventListener('click', () => {
-      if (shareVal > 0) { shareVal--; update(); }
+      if (campfireShareVal > 0) { campfireShareVal--; update(); }
     });
     document.getElementById('share-plus').addEventListener('click', () => {
-      if (shareVal < food) { shareVal++; update(); }
+      if (campfireShareVal < food) { campfireShareVal++; update(); }
     });
     document.getElementById('btn-share').addEventListener('click', () => {
-      socket.emit('submit-campfire', { amount: shareVal });
+      socket.emit('submit-campfire', { amount: campfireShareVal });
     });
   } else {
     document.getElementById('btn-share').addEventListener('click', () => {
       socket.emit('submit-campfire', { amount: 0 });
     });
   }
+}
+
+socket.on('campfire-turn', ({ hp, food }) => {
+  if (isDead) return;
+  myHp = hp;
+  myFood = food;
+  campfireShareVal = 0;
+  renderHeader();
+  renderCampfireShareUI();
 });
 
 socket.on('campfire-confirmed', ({ food, groupFood, playerCount }) => {
@@ -379,6 +394,9 @@ socket.on('stats-update', ({ hp, food }) => {
   myHp = hp;
   myFood = food;
   renderHeader();
+  if (document.getElementById('share-display')) {
+    renderCampfireShareUI();
+  }
 });
 
 // --- Death ---

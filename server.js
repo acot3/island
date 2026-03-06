@@ -27,6 +27,23 @@ function generateRoomCode() {
   return code;
 }
 
+const PLOT_SEEDS = [
+  `PLOT SEED — THE CREATURE:
+A strange animal seems to be shadowing the party. Some evidence of it MUST be mentioned on Day 2. If the players pursue the creature, the first result is that they just glimpse it. If they pursue it further, they can interact with it (no earlier than Day 3). Once the players get a good look at the creature, the narration MUST hint that, if hunted, it would provide a lot of food. It MUST be ambiguous to the players whether the creature is friendly or a threat: they MUST make the first move. If the players are kind toward the creature, it leads them to the center of the island, where, in a cave, is a glowing red stone that can be used to make requests of the island. Whether and how the island grants these requests is up to you, though. Make it interesting. If the players try to kill the animal, they succeed. Give them each the maximum amount of food that turn but also bestow upon each of them a specific and solitary curse according to their personality (inferred from past actions if no MBTI is provided). The players CANNOT be freed from this curse.
+
+  If the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
+
+  `PLOT SEED — THE STRANGE FLOWER:
+A strange flower - large, white, and solitary - is found as soon as a player explores inland. Smelling one gives a player a single magical power. One (and only one) random player per day MUST be sugggested the action "Smell strange flower" once the flower has been EXPLICITLY mentioned in the narration and until someone smells one. A player who has already been granted a power can discern no smell from the flowers. They cannot gain additional powers from them. Here are the possible powers: hold breath infinitely, start fire with your hands, animals don't fear you, cause plants to grow by touching them, invisibility for thirty seconds per day, fly for four minutes at a time, triple physical strength. 
+
+  Besides the aforementioned rules about suggested actions, if the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
+
+  `PLOT SEED — THE OLD CAMP:
+There are remnants of a previous camp in the jungle not far from the game's starting point. One (and only one) random player per day MUST be suggested the action "Explore inland" until the camp is found. Once the camp is found, either through that action or a similar one, one (and only one) player per day MUST be given the suggested action "Investigate the camp" until it is investigated through that action or a similar one. When the camp is investigated, two things are found: a magical weapon and a map with directions to the island's center, where, deep in a cave, is a glowing red stone that can be used to make requests of the island. Whether and how the island grants these requests is up to you, though. Make it interesting. The weapon is not related to the stone. It should have an independently interesting power.
+
+  Besides the aforementioned rules about suggested actions, if the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
+];
+
 function createRoom() {
   const code = generateRoomCode();
   rooms.set(code, {
@@ -37,7 +54,9 @@ function createRoom() {
     morningNarration: '',
     groupFood: 0,
     sharedFood: 0,
+    freshWater: false,
     history: [],
+    plotSeed: PLOT_SEEDS[Math.floor(Math.random() * PLOT_SEEDS.length)],
   });
   return code;
 }
@@ -59,16 +78,26 @@ function emitGameOver(room) {
 
 // --- Model helper ---
 
-const NARRATOR_SYSTEM = `You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
+const NARRATOR_SYSTEM_BASE = `You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
 
 Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Aim for a cheeky tone.
 
 You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
-Make sure interesting, specific plotlines emerge and develop. Bring about the conclusion of the story by Day 10.
+Make sure interesting, specific plotlines emerge and develop. Bring about the conclusion of the story by Day 12.
+
+INJURIES:
+This is a dangerous island. Beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Not every action results in injury, but risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. Report injuries privately for each player. DO NOT INJURE PLAYERS ON DAYS 1 AND 2.
+
+FRESH WATER:
+The group needs fresh water to survive. Water sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water. Be realistic about this — water doesn't appear without effort.
 
 PERSONALITY INTEGRATION:
-If you receive a player's personality type (MBTI), use this to subtly shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER explicitly mention MBTI types, personality frameworks, or archetypes.`;
+If you receive a player's personality type (MBTI), use this to subtly shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. Though personality and self-discovery SHOULD be major components of the story, NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
+
+function narratorSystem(room) {
+  return `${NARRATOR_SYSTEM_BASE}\n\n${room.plotSeed}`;
+}
 
 async function callModel(params) {
   try {
@@ -126,8 +155,8 @@ io.on('connection', (socket) => {
     currentRoom = code;
     isHost = true;
     socket.join(code);
-    socket.emit('room-created', { code });
-    console.log(`[Room] Created: ${code} by ${socket.id}`);
+    socket.emit('room-created', { code, plotSeed: room.plotSeed });
+    console.log(`[Room] Created: ${code} by ${socket.id} | Plot: ${room.plotSeed.split('\n')[0]}`);
   });
 
   // Player joins a room
@@ -366,7 +395,10 @@ io.on('connection', (socket) => {
         if (p.socketId) io.to(p.socketId).emit('you-died', { name, deathDay: room.day });
       });
 
-      // Update food (only for alive-after-narration players)
+      // Update fresh water status
+      room.freshWater = !!data.freshWater;
+
+      // Update food and injuries (only for alive-after-narration players)
       alive.forEach(name => {
         const p = room.players.get(name);
         if (p.dead) return; // killed by narrator this day
@@ -374,6 +406,14 @@ io.on('connection', (socket) => {
         p.pendingFood = food.units;
         p.pendingDescription = food.description;
         p.food += food.units;
+
+        const injury = (data.injuries && data.injuries[name]) || { hp_loss: 0, description: 'No injury.' };
+        const hpLoss = Math.min(1, Math.max(0, injury.hp_loss || 0));
+        p.pendingInjury = hpLoss;
+        p.pendingInjuryDescription = injury.description || 'No injury.';
+        if (hpLoss > 0) {
+          p.hp = Math.max(0, p.hp - hpLoss);
+        }
       });
 
       // Save history
@@ -396,8 +436,8 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Day 10: game ends — show final narration + Play Again (no campfire)
-      if (room.day >= 10) {
+      // Day 12: game ends — show final narration + Play Again (no campfire)
+      if (room.day >= 12) {
         room.phase = 'ended';
         io.to(room.hostSocket).emit('game-end', { day: room.day, narration: data.narration });
         for (const [, p] of room.players) {
@@ -413,6 +453,7 @@ io.on('connection', (socket) => {
         day: room.day,
         narration: data.narration,
         groupFood: room.groupFood,
+        freshWater: room.freshWater,
       });
 
       // Send private food results to each alive phone
@@ -424,6 +465,8 @@ io.on('connection', (socket) => {
           food: p.food,
           pendingFood: p.pendingFood,
           pendingDescription: p.pendingDescription,
+          injury: p.pendingInjury || 0,
+          injuryDescription: p.pendingInjuryDescription || 'No injury.',
         });
       });
     } catch (err) {
@@ -436,7 +479,7 @@ io.on('connection', (socket) => {
   socket.on('start-campfire', () => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
-    if (!room || room.day >= 10) return; // No campfire on Day 10
+    if (!room || room.day >= 12) return; // No campfire on Day 12
 
     room.phase = 'campfire';
     room.sharedFood = 0;
@@ -447,7 +490,7 @@ io.on('connection', (socket) => {
       p.shareFood = 0;
     });
 
-    io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood, playerCount: alive.length });
+    io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood, playerCount: alive.length, freshWater: room.freshWater });
 
     alive.forEach(name => {
       const p = room.players.get(name);
@@ -537,22 +580,35 @@ io.on('connection', (socket) => {
 
     const alive = alivePlayerNames(room);
 
-    // If the food pool is less than alive players, each alive player loses 1 HP (half a heart)
+    // If the food pool is less than alive players, each alive player loses 1 HP
     // Otherwise, reduce pool by alive player count (feeding the group)
     const starvationDeaths = [];
     if (room.groupFood < alive.length) {
       alive.forEach(name => {
         const p = room.players.get(name);
         p.hp = Math.max(0, p.hp - 1);
-        if (p.hp <= 0) {
-          p.dead = true;
-          p.deathDay = room.day;
-          starvationDeaths.push(name);
-        }
       });
     } else {
       room.groupFood -= alive.length;
     }
+
+    // If the group lacks fresh water, each alive player loses 1 HP
+    if (!room.freshWater) {
+      alive.forEach(name => {
+        const p = room.players.get(name);
+        p.hp = Math.max(0, p.hp - 1);
+      });
+    }
+
+    // Check for deaths from starvation/dehydration
+    alive.forEach(name => {
+      const p = room.players.get(name);
+      if (p.hp <= 0) {
+        p.dead = true;
+        p.deathDay = room.day;
+        starvationDeaths.push(name);
+      }
+    });
 
     // Notify phones of starvation deaths
     starvationDeaths.forEach(name => {
@@ -667,22 +723,22 @@ async function callMorning(room, playerNames, recentDeaths = []) {
     : '';
 
   const deathBlock = recentDeaths.length > 0
-    ? `\n<deaths>\nThe following players died of starvation during the night: ${recentDeaths.join(', ')}. Narrate their death in this morning's narration. This is a notable event and should occupy most of the narration.\n</deaths>`
+    ? `\n<deaths>\nThe following players died of starvation during the night: ${recentDeaths.join(', ')}. State this explicitly. This is a notable event and should occupy most of the narration.\n</deaths>`
     : '';
 
-  // End-game instructions for Days 8-10
+  // End-game pacing instructions
   let endgameBlock = '';
-  if (room.day === 8) {
+  if (room.day === 9) {
     endgameBlock = `\n<pacing>
-This is Day 8, and the game must end at the close of Day 10. Players will take their third-to-last action today. If there is not a dramatic plotline that can conclude the game in an exciting or interesting way, introduce that now prominently. If there is already a promising plotline, advance it significantly. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
+This is Day 9, and the game must end at the close of Day 12. If there is not a dramatic plotline that can conclude the game in an exciting or interesting way, introduce that now prominently. If there is already a promising plotline, advance it significantly. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
 </pacing>`;
-  } else if (room.day === 9) {
+  } else if (room.day === 11) {
     endgameBlock = `\n<pacing>
-This is Day 9, and the game must end at the close of Day 10. Players will take their penultimate action today. Significantly advance an existing plotline toward a dramatic conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
+This is Day 11, and the game must end at the close of Day 12. Players will take their penultimate action today. Significantly advance an existing plotline toward a dramatic conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
 </pacing>`;
-  } else if (room.day >= 10) {
+  } else if (room.day >= 12) {
     endgameBlock = `\n<pacing>
-This is Day 10, and the game must end at the close of this day. Players will take their final action today. Significantly advance the plot and force a conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
+This is Day 12, and the game must end at the close of this day. Players will take their final action today. Significantly advance the plot and force a conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
 </pacing>`;
   }
 
@@ -705,7 +761,7 @@ Write a morning narration (1-3 sentences) — weather, atmosphere, and any promi
   const { result, provider } = await callModel({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 2048,
-    system: NARRATOR_SYSTEM,
+    system: narratorSystem(room),
     messages: [{ role: 'user', content: morningPrompt }],
     tools: [{
       name: 'morning_report',
@@ -731,6 +787,7 @@ async function callDay(room, playerNames, actions) {
     .join('\n');
 
   const foodProperties = {};
+  const injuryProperties = {};
   playerNames.forEach(name => {
     foodProperties[name] = {
       type: 'object',
@@ -739,6 +796,14 @@ async function callDay(room, playerNames, actions) {
         description: { type: 'string', description: `If units > 0: a short description of what ${name} found. If units is 0: exactly the string "You found nothing."` },
       },
       required: ['units', 'description'],
+    };
+    injuryProperties[name] = {
+      type: 'object',
+      properties: {
+        hp_loss: { type: 'integer', description: `HP lost by ${name} due to injury this turn. 0 if uninjured, 1 if injured.` },
+        description: { type: 'string', description: `If hp_loss > 0: a short description of the injury. If hp_loss is 0: exactly the string "No injury."` },
+      },
+      required: ['hp_loss', 'description'],
     };
   });
 
@@ -751,8 +816,8 @@ async function callDay(room, playerNames, actions) {
 
   const profilesBlock = `\n<players>\n${buildPlayerProfiles(room, playerNames)}\n</players>`;
 
-  // Day 10 final resolution has special instructions
-  const isFinalDay = room.day >= 10;
+  // Day 12 final resolution has special instructions
+  const isFinalDay = room.day >= 12;
   const campfireNote = isFinalDay
     ? 'This is the final day. The players have proposed their final actions. Resolve the story, ending with "The End."'
     : 'The day ends at the campfire. You don\'t always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).';
@@ -779,13 +844,17 @@ If a player's action is "Assist [name]", they are helping that player with their
 
 Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
 
+For each player, also return injury data: hp_loss (0 or 1) and a short private description. This is a dangerous island — injuries from cuts, falls, animal encounters, and mishaps are fairly common. Risky actions should frequently result in injury. Even safe-seeming actions can go wrong. If hp_loss is 0, the description must be exactly: "No injury."
+
 You may kill players during the narration if the story demands it (e.g. a fatal encounter, sacrifice, or catastrophic failure). If a player dies, include their name in the deaths array. Only kill players when it is dramatically appropriate — not arbitrarily.
+
+Also return whether the group has access to fresh water after this day's events. Water sources can be temporary (e.g. rain collection, a puddle) or permanent (e.g. a stream, a spring). The group ${room.freshWater ? 'currently HAS' : 'currently DOES NOT have'} access to fresh water.
 </task>`;
 
   const { result, provider } = await callModel({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 2048,
-    system: NARRATOR_SYSTEM,
+    system: narratorSystem(room),
     messages: [{ role: 'user', content: dayPrompt }],
     tools: [{
       name: 'day_report',
@@ -795,9 +864,11 @@ You may kill players during the narration if the story demands it (e.g. a fatal 
         properties: {
           narration: { type: 'string', description: 'The day narration. Use \\n to separate paragraphs.' },
           food: { type: 'object', properties: foodProperties, required: playerNames },
+          injuries: { type: 'object', properties: injuryProperties, required: playerNames, description: 'Injury data for each player. hp_loss is 0 (no injury) or 1 (injured).' },
           deaths: { type: 'array', items: { type: 'string' }, description: 'Names of players who die during this day\'s events. Empty array if no one dies.' },
+          freshWater: { type: 'boolean', description: 'Whether the group has access to fresh water after this day\'s events. True if they found, collected, or still have a water source. False if they have no water source.' },
         },
-        required: ['narration', 'food', 'deaths'],
+        required: ['narration', 'food', 'injuries', 'deaths', 'freshWater'],
       },
     }],
   });

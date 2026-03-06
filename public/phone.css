@@ -384,6 +384,16 @@ html, body {
   margin-top: 4px;
 }
 
+.injury-result {
+  margin-top: 12px;
+}
+
+.injury-result .injury-amount {
+  color: #c44;
+  font-size: 18px;
+  margin-top: 4px;
+}
+
 .day-label {
   color: #888;
   font-size: 12px;
