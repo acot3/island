@@ -10,7 +10,7 @@
 
     X 5. Add "assist" feature for actions. Doing something together makes success more likely and produces better results.
 
-6. Add possibility of losing hearts through actions.
+    X 6. Add possibility of losing hearts through actions.
 
     X 8. Add MBTI
 

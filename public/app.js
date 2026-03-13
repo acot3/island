@@ -7,6 +7,45 @@ const debugToggle = document.getElementById('debug-toggle');
 
 let roomCode = null;
 const publicActions = {}; // name -> action string
+let ttsEnabled = true;
+let ttsAudio = null;
+
+// --- TTS ---
+
+const ttsToggle = document.getElementById('tts-toggle');
+ttsToggle.addEventListener('click', () => {
+  ttsEnabled = !ttsEnabled;
+  ttsToggle.classList.toggle('on', ttsEnabled);
+  ttsToggle.classList.toggle('off', !ttsEnabled);
+  ttsToggle.textContent = ttsEnabled ? 'sound on' : 'sound off';
+  if (!ttsEnabled && ttsAudio) {
+    ttsAudio.pause();
+    ttsAudio = null;
+  }
+});
+
+function playTTS() {
+  if (!ttsEnabled || !roomCode) { debug('TTS skipped (disabled)', 'info'); return Promise.resolve(); }
+  debug('TTS fetching pregenerated audio...', 'api');
+  return fetch(`/tts/${roomCode}`)
+    .then(res => {
+      debug(`TTS response: ${res.status}`, 'api');
+      if (!res.ok) throw new Error(`TTS server returned ${res.status}`);
+      return res.blob();
+    })
+    .then(blob => {
+      debug(`TTS audio received (${(blob.size / 1024).toFixed(1)} KB)`, 'api');
+      if (!ttsEnabled) { debug('TTS cancelled (toggled off)', 'info'); return; }
+      const url = URL.createObjectURL(blob);
+      ttsAudio = new Audio(url);
+      ttsAudio.addEventListener('ended', () => { URL.revokeObjectURL(url); ttsAudio = null; debug('TTS ended', 'api'); });
+      ttsAudio.addEventListener('error', (e) => { debug(`TTS playback error: ${e.message || 'unknown'}`, 'error'); });
+      return ttsAudio.play()
+        .then(() => debug('TTS playing', 'api'))
+        .catch(err => debug(`TTS play blocked: ${err.message}`, 'error'));
+    })
+    .catch(err => debug(`TTS error: ${err.message}`, 'error'));
+}
 
 // --- Debug console ---
 
@@ -70,9 +109,15 @@ socket.on('player-joined', ({ players }) => {
 
 // --- Loading ---
 
-socket.on('phase', ({ phase }) => {
+socket.on('phase', ({ phase, day }) => {
   if (phase === 'loading') {
     debug('Loading...', 'api');
+    if (day) {
+      setNarration(`
+        <h1>Day ${day} on the Island</h1>
+        <p class="loading-text">Loading...</p>
+      `);
+    }
   }
 });
 
@@ -82,13 +127,22 @@ socket.on('morning', ({ day, narration, groupFood, playerNames }) => {
   Object.keys(publicActions).forEach(k => delete publicActions[k]);
   currentAssists = {};
   debug(`Day ${day} morning`, 'phase');
-  setNarration(`
-    <div class="group-food">Food: ${groupFood}</div>
-    <p class="food-count">Day ${day}</p>
-    <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
-    <div id="action-status" class="status-list"></div>
-  `);
-  renderActionStatus(playerNames.map(n => ({ name: n, submitted: false })));
+
+  function showMorning() {
+    setNarration(`
+      <div class="group-food">Food: ${groupFood}</div>
+      <p class="food-count">Day ${day}</p>
+      <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
+      <div id="action-status" class="status-list"></div>
+    `);
+    renderActionStatus(playerNames.map(n => ({ name: n, submitted: false })));
+  }
+
+  if (!ttsEnabled) {
+    showMorning();
+  } else {
+    playTTS().then(showMorning);
+  }
 });
 
 let currentAssists = {}; // assisterName -> assistedName
@@ -172,16 +226,25 @@ socket.on('action-unpublic', ({ name }) => {
 
 socket.on('day-narration', ({ day, narration, groupFood, freshWater }) => {
   debug(`Day ${day} narration | Water: ${freshWater ? 'yes' : 'no'}`, 'phase');
-  setNarration(`
-    <div class="group-food">Food: ${groupFood}</div>
-    <p class="food-count">Day ${day}</p>
-    <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
-    <button id="btn-fire">Light the Fire</button>
-  `);
   window._freshWater = freshWater;
-  document.getElementById('btn-fire').addEventListener('click', () => {
-    socket.emit('start-campfire');
-  });
+
+  function showDayNarration() {
+    setNarration(`
+      <div class="group-food">Food: ${groupFood}</div>
+      <p class="food-count">Day ${day}</p>
+      <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
+      <button id="btn-fire">Light the Fire</button>
+    `);
+    document.getElementById('btn-fire').addEventListener('click', () => {
+      socket.emit('start-campfire');
+    });
+  }
+
+  if (!ttsEnabled) {
+    showDayNarration();
+  } else {
+    playTTS().then(showDayNarration);
+  }
 });
 
 // --- Campfire ---
@@ -209,6 +272,7 @@ socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater }) => {
     </div>
   `);
   window._campfirePlayerCount = playerCount;
+  playTTS();
   document.getElementById('btn-next').addEventListener('click', function() {
     socket.emit('next-day');
     this.disabled = true;

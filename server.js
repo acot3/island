@@ -62,7 +62,7 @@ function createRoom() {
 }
 
 function newPlayerState() {
-  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 3, chosenAction: null, isPublic: false, suggestions: [], campfireReady: false, shareFood: 0, dead: false, deathDay: null };
+  return { socketId: null, pronouns: '', mbti: '', food: 0, pendingFood: 0, pendingDescription: '', hp: 5, chosenAction: null, isPublic: false, suggestions: [], campfireReady: false, shareFood: 0, dead: false, deathDay: null };
 }
 
 function alivePlayerNames(room) {
@@ -80,7 +80,7 @@ function emitGameOver(room) {
 
 const NARRATOR_SYSTEM_BASE = `You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
 
-Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Aim for a cheeky tone.
+Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. This is meant for a party game, so have some fun with it. The tone should be dry and sardonic — think wry observations about the players' questionable survival instincts, not forced jokes. Poke fun at the players regularly through understated commentary on their decisions. Do not use similes or metaphors. No pop culture references. Humor comes from the situation and the characters, not from the narrator being clever.
 
 You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
@@ -93,7 +93,7 @@ FRESH WATER:
 The group needs fresh water to survive. Water sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water. Be realistic about this — water doesn't appear without effort.
 
 PERSONALITY INTEGRATION:
-If you receive a player's personality type (MBTI), use this to subtly shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. Though personality and self-discovery SHOULD be major components of the story, NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
+If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. Though personality and self-discovery SHOULD be major components of the story, NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
 
 function narratorSystem(room) {
   return `${NARRATOR_SYSTEM_BASE}\n\n${room.plotSeed}`;
@@ -197,12 +197,13 @@ io.on('connection', (socket) => {
     room.day = 1;
     const playerNames = Array.from(room.players.keys());
 
-    io.to(currentRoom).emit('phase', { phase: 'loading' });
+    io.to(currentRoom).emit('phase', { phase: 'loading', day: room.day });
 
     try {
       const data = await callMorning(room, playerNames);
       room.morningNarration = data.narration;
       room.phase = 'action';
+      pregenTTS(currentRoom, data.narration);
 
       // Send narration to host
       io.to(room.hostSocket).emit('morning', {
@@ -447,6 +448,7 @@ io.on('connection', (socket) => {
       }
 
       room.phase = 'narration';
+      pregenTTS(currentRoom, data.narration);
 
       // Send narration to host
       io.to(room.hostSocket).emit('day-narration', {
@@ -490,6 +492,7 @@ io.on('connection', (socket) => {
       p.shareFood = 0;
     });
 
+    pregenCampfireTTS(currentRoom);
     io.to(room.hostSocket).emit('campfire-start', { day: room.day, groupFood: room.groupFood, playerCount: alive.length, freshWater: room.freshWater });
 
     alive.forEach(name => {
@@ -638,12 +641,13 @@ io.on('connection', (socket) => {
     const aliveNow = alivePlayerNames(room);
 
     room.phase = 'morning';
-    io.to(currentRoom).emit('phase', { phase: 'loading' });
+    io.to(currentRoom).emit('phase', { phase: 'loading', day: room.day });
 
     try {
       const data = await callMorning(room, aliveNow, starvationDeaths);
       room.morningNarration = data.narration;
       room.phase = 'action';
+      pregenTTS(currentRoom, data.narration);
 
       io.to(room.hostSocket).emit('morning', {
         day: room.day,
@@ -748,6 +752,8 @@ This is Day 12, and the game must end at the close of this day. Players will tak
     ? `${profilesBlock}
 <task>
 Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene. This must be unambiguous.
+
+  The tone should be wry and understated — dry humor, not forced jokes.
 </task>`
     : `${profilesBlock}
 <context>
@@ -817,10 +823,10 @@ async function callDay(room, playerNames, actions) {
   const profilesBlock = `\n<players>\n${buildPlayerProfiles(room, playerNames)}\n</players>`;
 
   // Day 12 final resolution has special instructions
-  const isFinalDay = room.day >= 12;
+  const isFinalDay = room.day === 12;
   const campfireNote = isFinalDay
     ? 'This is the final day. The players have proposed their final actions. Resolve the story, ending with "The End."'
-    : 'The day ends at the campfire. You don\'t always have to mention that, but make sure nothing you say is inconsistent with it (e.g. a player spends the night sleeping in the jungle away from the group).';
+    : 'The day should always end with the players returning to the camp.';
 
   const dayPrompt = `${profilesBlock}
 <context>
@@ -832,7 +838,7 @@ ${playerLines}
 </actions>
 
 <task>
-Write a narration weaving the player actions into one cohesive story. Build on previous events. ${campfireNote}
+Write a narration weaving the player actions into one cohesive story. Build on previous events. The tone should be dry and sardonic — wry observations, not forced jokes. Do not use similes or metaphors. No pop culture references. ${campfireNote}
 
 LENGTH RULES — follow these strictly:
 - 1 player: one paragraph, 1-3 sentences.
@@ -882,6 +888,99 @@ Also return whether the group has access to fresh water after this day's events.
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- TTS (ElevenLabs) ---
+
+const ELEVENLABS_VOICE_ID = 'wyWA56cQNU2KqUW4eCsI'; // "Clyde"
+const ttsCache = new Map(); // roomCode -> Promise<Buffer>
+
+let campfireTTSBuffer = null; // cached globally — same line every game
+
+function pregenCampfireTTS(roomCode) {
+  if (campfireTTSBuffer) {
+    console.log(`[TTS] Using cached campfire audio for room ${roomCode}`);
+    ttsCache.set(roomCode, Promise.resolve(campfireTTSBuffer));
+    return;
+  }
+  // First time: generate and cache globally
+  const text = 'The fire crackles. What will you share?';
+  const promise = fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': process.env.ELEVENLABS_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text,
+      model_id: 'eleven_turbo_v2_5',
+      voice_settings: { stability: 0.3, similarity_boost: 0.8, speed: 1.0 },
+    }),
+  })
+    .then(resp => {
+      if (!resp.ok) throw new Error(`ElevenLabs returned ${resp.status}`);
+      return resp.arrayBuffer();
+    })
+    .then(ab => {
+      const buf = Buffer.from(ab);
+      campfireTTSBuffer = buf;
+      console.log(`[TTS] Campfire audio cached globally (${(buf.length / 1024).toFixed(1)} KB)`);
+      return buf;
+    })
+    .catch(err => {
+      console.error(`[TTS] Campfire TTS failed:`, err.message);
+      ttsCache.delete(roomCode);
+      return null;
+    });
+  ttsCache.set(roomCode, promise);
+}
+
+function pregenTTS(roomCode, text) {
+  const truncated = text.replace(/\\n/g, ' ').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+  console.log(`[TTS] Pregenerating for room ${roomCode} (${truncated.length} chars)`);
+  const promise = fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`, {
+    method: 'POST',
+    headers: {
+      'xi-api-key': process.env.ELEVENLABS_API_KEY,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      text: truncated,
+      model_id: 'eleven_turbo_v2_5',
+      voice_settings: {
+        stability: 0.3,
+        similarity_boost: 0.8,
+        speed: 1.0,
+      },
+    }),
+  })
+    .then(resp => {
+      if (!resp.ok) throw new Error(`ElevenLabs returned ${resp.status}`);
+      return resp.arrayBuffer();
+    })
+    .then(ab => {
+      const buf = Buffer.from(ab);
+      console.log(`[TTS] Ready for room ${roomCode} (${(buf.length / 1024).toFixed(1)} KB)`);
+      return buf;
+    })
+    .catch(err => {
+      console.error(`[TTS] Failed for room ${roomCode}:`, err.message);
+      ttsCache.delete(roomCode);
+      return null;
+    });
+  ttsCache.set(roomCode, promise);
+}
+
+app.get('/tts/:code', async (req, res) => {
+  const promise = ttsCache.get(req.params.code);
+  if (!promise) return res.status(404).json({ error: 'No TTS available' });
+
+  const buf = await promise;
+  if (!buf) return res.status(500).json({ error: 'TTS failed' });
+
+  ttsCache.delete(req.params.code);
+  res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': buf.length });
+  res.send(buf);
+});
 
 app.get('/play', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'phone.html'));
