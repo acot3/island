@@ -57,6 +57,7 @@ function createRoom() {
     freshWater: false,
     history: [],
     plotSeed: PLOT_SEEDS[Math.floor(Math.random() * PLOT_SEEDS.length)],
+    loading: false,
   });
   return code;
 }
@@ -187,6 +188,170 @@ io.on('connection', (socket) => {
     console.log(`[Room ${code}] ${name} joined`);
   });
 
+  // Host reconnects
+  socket.on('rejoin-host', ({ code }) => {
+    code = (code || '').toUpperCase().trim();
+    const room = rooms.get(code);
+    if (!room) return;
+
+    room.hostSocket = socket.id;
+    currentRoom = code;
+    isHost = true;
+    socket.join(code);
+    console.log(`[Room ${code}] Host reconnected`);
+
+    const alive = alivePlayerNames(room);
+    const allPlayers = Array.from(room.players.keys());
+
+    // If an API call is in progress, just show loading — the result will
+    // emit to the updated hostSocket when it completes
+    if (room.loading) {
+      socket.emit('phase', { phase: 'loading', day: room.day });
+      return;
+    }
+
+    switch (room.phase) {
+      case 'lobby':
+        socket.emit('room-created', { code, plotSeed: room.plotSeed });
+        if (allPlayers.length > 0) {
+          socket.emit('player-joined', { players: allPlayers });
+        }
+        break;
+
+      case 'action': {
+        socket.emit('morning', {
+          day: room.day, narration: room.morningNarration,
+          groupFood: room.groupFood, playerNames: alive, rejoin: true,
+        });
+        const submitted = [], pending = [], assists = {};
+        for (const [name, p] of room.players) {
+          if (p.dead) continue;
+          if (p.chosenAction !== null) {
+            submitted.push(name);
+            const match = p.chosenAction.match(/^Assist (.+)$/);
+            if (match) assists[name] = match[1];
+          } else {
+            pending.push(name);
+          }
+        }
+        socket.emit('action-status', { submitted, pending, assists });
+        for (const [name, p] of room.players) {
+          if (p.isPublic && p.chosenAction) {
+            socket.emit('action-public', { name, action: p.chosenAction });
+          }
+        }
+        break;
+      }
+
+      case 'narration': {
+        const lastHistory = room.history[room.history.length - 1];
+        socket.emit('day-narration', {
+          day: room.day, narration: lastHistory ? lastHistory.narration : '',
+          groupFood: room.groupFood, freshWater: room.freshWater, rejoin: true,
+        });
+        break;
+      }
+
+      case 'campfire':
+        socket.emit('campfire-start', {
+          day: room.day, groupFood: room.groupFood,
+          playerCount: alive.length, freshWater: room.freshWater, rejoin: true,
+        });
+        for (const [name, p] of room.players) {
+          if (p.dead || !p.campfireReady) continue;
+          socket.emit('campfire-update', {
+            name, shared: p.shareFood, groupFood: room.groupFood,
+            playerCount: alive.length,
+            allReady: alive.every(n => room.players.get(n).campfireReady),
+          });
+        }
+        break;
+
+      case 'ended': {
+        const lastH = room.history[room.history.length - 1];
+        socket.emit('game-end', { day: room.day, narration: lastH ? lastH.narration : '' });
+        break;
+      }
+
+      case 'game-over':
+        socket.emit('game-over', {});
+        break;
+    }
+  });
+
+  // Player reconnects
+  socket.on('rejoin-room', ({ code, name }) => {
+    code = (code || '').toUpperCase().trim();
+    name = (name || '').trim();
+    const room = rooms.get(code);
+    if (!room) return;
+    const player = room.players.get(name);
+    if (!player) return;
+
+    player.socketId = socket.id;
+    currentRoom = code;
+    currentName = name;
+    socket.join(code);
+    console.log(`[Room ${code}] ${name} reconnected`);
+
+    const state = {
+      phase: room.phase,
+      day: room.day,
+      name,
+      hp: player.hp,
+      food: player.food,
+    };
+
+    if (player.dead) {
+      state.dead = true;
+      state.deathDay = player.deathDay;
+      socket.emit('rejoin-state', state);
+      return;
+    }
+
+    if (room.loading) {
+      state.loading = true;
+      socket.emit('rejoin-state', state);
+      return;
+    }
+
+    switch (room.phase) {
+      case 'lobby':
+        break;
+
+      case 'action':
+        state.suggestions = player.suggestions;
+        state.chosenAction = player.chosenAction;
+        state.isPublic = player.isPublic;
+        state.assistOptions = [];
+        for (const [otherName, p] of room.players) {
+          if (otherName !== name && p.isPublic && p.chosenAction) {
+            state.assistOptions.push({ name: otherName, action: p.chosenAction });
+          }
+        }
+        break;
+
+      case 'narration':
+        state.pendingFood = player.pendingFood;
+        state.pendingDescription = player.pendingDescription;
+        state.pendingInjury = player.pendingInjury || 0;
+        state.pendingInjuryDescription = player.pendingInjuryDescription || 'No injury.';
+        break;
+
+      case 'campfire':
+        state.campfireReady = player.campfireReady;
+        state.groupFood = room.groupFood;
+        state.playerCount = alivePlayerNames(room).length;
+        break;
+
+      case 'ended':
+      case 'game-over':
+        break;
+    }
+
+    socket.emit('rejoin-state', state);
+  });
+
   // Host starts the game
   socket.on('start-game', async () => {
     if (!isHost || !currentRoom) return;
@@ -197,10 +362,12 @@ io.on('connection', (socket) => {
     room.day = 1;
     const playerNames = Array.from(room.players.keys());
 
+    room.loading = true;
     io.to(currentRoom).emit('phase', { phase: 'loading', day: room.day });
 
     try {
       const data = await callMorning(room, playerNames);
+      room.loading = false;
       room.morningNarration = data.narration;
       room.phase = 'action';
       pregenTTS(currentRoom, data.narration);
@@ -227,6 +394,7 @@ io.on('connection', (socket) => {
         });
       });
     } catch (err) {
+      room.loading = false;
       console.error('Morning error:', err);
       io.to(room.hostSocket).emit('error', { message: err.message });
     }
@@ -375,6 +543,7 @@ io.on('connection', (socket) => {
     if (!allSubmitted) return;
 
     room.phase = 'narration';
+    room.loading = true;
     io.to(currentRoom).emit('phase', { phase: 'loading' });
 
     const actions = {};
@@ -382,6 +551,7 @@ io.on('connection', (socket) => {
 
     try {
       const data = await callDay(room, alive, actions);
+      room.loading = false;
 
       // Process narrator-reported deaths
       const narratorDeaths = (data.deaths || []).filter(name => {
@@ -429,6 +599,7 @@ io.on('connection', (socket) => {
 
       // Check if all players are dead after narrator deaths
       if (alivePlayerNames(room).length === 0) {
+        room.phase = 'game-over';
         // Show the narration first, then game over
         io.to(room.hostSocket).emit('game-over', { narration: data.narration });
         for (const [, p] of room.players) {
@@ -456,6 +627,7 @@ io.on('connection', (socket) => {
         narration: data.narration,
         groupFood: room.groupFood,
         freshWater: room.freshWater,
+        playerCount: alive.length,
       });
 
       // Send private food results to each alive phone
@@ -472,6 +644,7 @@ io.on('connection', (socket) => {
         });
       });
     } catch (err) {
+      room.loading = false;
       console.error('Day error:', err);
       io.to(room.hostSocket).emit('error', { message: err.message });
     }
@@ -621,6 +794,7 @@ io.on('connection', (socket) => {
 
     // Check if all players are dead
     if (alivePlayerNames(room).length === 0) {
+      room.phase = 'game-over';
       emitGameOver(room);
       return;
     }
@@ -641,10 +815,12 @@ io.on('connection', (socket) => {
     const aliveNow = alivePlayerNames(room);
 
     room.phase = 'morning';
+    room.loading = true;
     io.to(currentRoom).emit('phase', { phase: 'loading', day: room.day });
 
     try {
       const data = await callMorning(room, aliveNow, starvationDeaths);
+      room.loading = false;
       room.morningNarration = data.narration;
       room.phase = 'action';
       pregenTTS(currentRoom, data.narration);
@@ -669,6 +845,7 @@ io.on('connection', (socket) => {
         });
       });
     } catch (err) {
+      room.loading = false;
       console.error('Morning error:', err);
       io.to(room.hostSocket).emit('error', { message: err.message });
     }

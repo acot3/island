@@ -14,7 +14,7 @@
 
     X 8. Add MBTI
 
-9. Add TTS.
+    X 9. Add TTS.
 
 
 ## BACKLOG

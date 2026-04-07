@@ -1,6 +1,7 @@
 const socket = io();
 
 let myName = '';
+let myRoom = '';
 let myHp = 6;
 let myFood = 0;
 let isDead = false;
@@ -10,6 +11,14 @@ const gameScreen = document.getElementById('game-screen');
 const headerEl = document.getElementById('player-header');
 const contentEl = document.getElementById('player-content');
 const joinError = document.getElementById('join-error');
+
+// --- Reconnection ---
+
+socket.on('connect', () => {
+  if (myRoom && myName) {
+    socket.emit('rejoin-room', { code: myRoom, name: myName });
+  }
+});
 
 // --- Hearts ---
 
@@ -141,8 +150,9 @@ socket.on('join-error', ({ message }) => {
   joinError.textContent = message;
 });
 
-socket.on('join-ok', ({ name }) => {
+socket.on('join-ok', ({ name, code }) => {
   myName = name;
+  myRoom = code;
   joinScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
   renderHeader();
@@ -160,12 +170,7 @@ socket.on('phase', ({ phase }) => {
 
 // --- Your turn (action selection) ---
 
-socket.on('your-turn', ({ day, suggestions, hp, food }) => {
-  if (isDead) return;
-  myHp = hp;
-  myFood = food;
-  renderHeader();
-
+function renderYourTurn(day, suggestions) {
   let html = `<p class="day-label">Day ${day}</p>`;
   html += '<div class="suggestions">';
   suggestions.forEach((s, i) => {
@@ -180,12 +185,9 @@ socket.on('your-turn', ({ day, suggestions, hp, food }) => {
   `;
   contentEl.innerHTML = html;
 
-  // Bind suggestion buttons
   contentEl.querySelectorAll('.suggestion-btn').forEach(btn => {
     btn.addEventListener('click', () => submitAction(btn.textContent));
   });
-
-  // Bind custom action
   document.getElementById('custom-submit').addEventListener('click', () => {
     const val = document.getElementById('custom-input').value.trim();
     if (val) submitAction(val);
@@ -196,20 +198,30 @@ socket.on('your-turn', ({ day, suggestions, hp, food }) => {
       if (val) submitAction(val);
     }
   });
+}
+
+socket.on('your-turn', ({ day, suggestions, hp, food }) => {
+  if (isDead) return;
+  myHp = hp;
+  myFood = food;
+  renderHeader();
+  renderYourTurn(day, suggestions);
 });
 
 function submitAction(action) {
   socket.emit('submit-action', { action });
 }
 
-socket.on('action-confirmed', ({ action }) => {
+function renderActionConfirmed(action, day, isPublic) {
   const isAssist = action.startsWith('Assist ');
-  const dayLabel = contentEl.querySelector('.day-label');
-  const dayHtml = dayLabel ? `<p class="day-label">${dayLabel.textContent}</p>` : '';
+  const existingLabel = contentEl.querySelector('.day-label');
+  const dayHtml = existingLabel
+    ? `<p class="day-label">${existingLabel.textContent}</p>`
+    : (day ? `<p class="day-label">Day ${day}</p>` : '');
   contentEl.innerHTML = `
     ${dayHtml}
-    <div class="chosen-action${isAssist ? ' assist' : ''}">${action}</div>
-    ${!isAssist ? '<button id="btn-make-public" class="btn-make-public">Make public</button>' : ''}
+    <div class="chosen-action${isAssist ? ' assist' : ''}${isPublic ? ' public' : ''}">${action}</div>
+    ${!isAssist && !isPublic ? '<button id="btn-make-public" class="btn-make-public">Make public</button>' : ''}
     <button id="btn-cancel-action" class="btn-cancel-action">Cancel</button>
   `;
   const makePublicBtn = document.getElementById('btn-make-public');
@@ -224,6 +236,10 @@ socket.on('action-confirmed', ({ action }) => {
   document.getElementById('btn-cancel-action').addEventListener('click', function() {
     socket.emit('cancel-action');
   });
+}
+
+socket.on('action-confirmed', ({ action }) => {
+  renderActionConfirmed(action);
 });
 
 // --- Assist option from another player ---
@@ -263,12 +279,7 @@ socket.on('assist-removed', ({ name }) => {
 
 // --- Day result (private food) ---
 
-socket.on('day-result', ({ hp, food, pendingFood, pendingDescription, injury, injuryDescription }) => {
-  if (isDead) return;
-  myHp = hp;
-  myFood = food;
-  renderHeader();
-
+function renderDayResult({ pendingFood, pendingDescription, injury, injuryDescription }) {
   let html = '';
   if (pendingFood > 0) {
     html += '<div class="food-result">';
@@ -284,6 +295,14 @@ socket.on('day-result', ({ hp, food, pendingFood, pendingDescription, injury, in
   }
   html += '<p class="status-msg">Waiting for campfire...</p>';
   contentEl.innerHTML = html;
+}
+
+socket.on('day-result', ({ hp, food, pendingFood, pendingDescription, injury, injuryDescription }) => {
+  if (isDead) return;
+  myHp = hp;
+  myFood = food;
+  renderHeader();
+  renderDayResult({ pendingFood, pendingDescription, injury, injuryDescription });
 });
 
 // --- Campfire ---
@@ -396,6 +415,103 @@ socket.on('stats-update', ({ hp, food }) => {
   renderHeader();
   if (document.getElementById('share-display')) {
     renderCampfireShareUI();
+  }
+});
+
+// --- Rejoin (reconnection) ---
+
+socket.on('rejoin-state', (state) => {
+  joinScreen.classList.add('hidden');
+  gameScreen.classList.remove('hidden');
+  myName = state.name;
+  myHp = state.hp;
+  myFood = state.food;
+
+  if (state.dead) {
+    renderRIP(state.name, state.deathDay);
+    return;
+  }
+
+  renderHeader();
+
+  if (state.loading) {
+    contentEl.innerHTML = '<p class="status-msg">Loading...</p>';
+    return;
+  }
+
+  switch (state.phase) {
+    case 'lobby':
+      contentEl.innerHTML = '<p class="status-msg">Waiting for game to start...</p>';
+      break;
+
+    case 'action':
+      if (state.chosenAction) {
+        renderActionConfirmed(state.chosenAction, state.day, state.isPublic);
+      } else {
+        renderYourTurn(state.day, state.suggestions || []);
+        (state.assistOptions || []).forEach(({ name, action }) => {
+          const suggestions = contentEl.querySelector('.suggestions');
+          if (!suggestions) return;
+          const wrapper = document.createElement('div');
+          wrapper.className = 'assist-wrapper';
+          const btn = document.createElement('button');
+          btn.className = 'suggestion-btn assist-btn';
+          btn.textContent = action;
+          btn.addEventListener('click', () => submitAction(`Assist ${name}`));
+          const label = document.createElement('div');
+          label.className = 'assist-label';
+          label.textContent = `Assist ${name}`;
+          wrapper.appendChild(btn);
+          wrapper.appendChild(label);
+          suggestions.appendChild(wrapper);
+        });
+      }
+      break;
+
+    case 'narration':
+      renderDayResult({
+        pendingFood: state.pendingFood,
+        pendingDescription: state.pendingDescription,
+        injury: state.pendingInjury,
+        injuryDescription: state.pendingInjuryDescription,
+      });
+      break;
+
+    case 'campfire':
+      campfirePlayerCount = state.playerCount;
+      if (!state.campfireReady) {
+        campfireShareVal = 0;
+        renderCampfireShareUI();
+      } else {
+        renderPostShare(state.groupFood);
+      }
+      break;
+
+    case 'ended':
+      headerEl.innerHTML = '';
+      contentEl.innerHTML = `
+        <div class="game-end-screen">
+          <p class="day-label">The End</p>
+          <button id="btn-play-again">Play Again</button>
+        </div>
+      `;
+      document.getElementById('btn-play-again').addEventListener('click', () => {
+        window.location.href = '/play';
+      });
+      break;
+
+    case 'game-over':
+      headerEl.innerHTML = '';
+      contentEl.innerHTML = `
+        <div class="rip-screen">
+          <h1>GAME OVER</h1>
+          <button id="btn-play-again">Play Again</button>
+        </div>
+      `;
+      document.getElementById('btn-play-again').addEventListener('click', () => {
+        window.location.href = '/play';
+      });
+      break;
   }
 });
 

@@ -10,6 +10,15 @@ const publicActions = {}; // name -> action string
 let ttsEnabled = true;
 let ttsAudio = null;
 
+// --- Reconnection ---
+
+socket.on('connect', () => {
+  if (roomCode) {
+    debug('Reconnected — rejoining room', 'phase');
+    socket.emit('rejoin-host', { code: roomCode });
+  }
+});
+
 // --- TTS ---
 
 const ttsToggle = document.getElementById('tts-toggle');
@@ -123,14 +132,15 @@ socket.on('phase', ({ phase, day }) => {
 
 // --- Morning ---
 
-socket.on('morning', ({ day, narration, groupFood, playerNames }) => {
+socket.on('morning', ({ day, narration, groupFood, playerNames, rejoin }) => {
   Object.keys(publicActions).forEach(k => delete publicActions[k]);
   currentAssists = {};
   debug(`Day ${day} morning`, 'phase');
+  window._campfirePlayerCount = playerNames.length;
 
   function showMorning() {
     setNarration(`
-      <div class="group-food">Food: ${groupFood}</div>
+      <div class="group-food">Food: ${groupFood}/${playerNames.length}</div>
       <p class="food-count">Day ${day}</p>
       <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
       <div id="action-status" class="status-list"></div>
@@ -138,7 +148,7 @@ socket.on('morning', ({ day, narration, groupFood, playerNames }) => {
     renderActionStatus(playerNames.map(n => ({ name: n, submitted: false })));
   }
 
-  if (!ttsEnabled) {
+  if (!ttsEnabled || rejoin) {
     showMorning();
   } else {
     playTTS().then(showMorning);
@@ -224,7 +234,7 @@ socket.on('action-unpublic', ({ name }) => {
 
 // --- Day narration ---
 
-socket.on('day-narration', ({ day, narration, groupFood, freshWater }) => {
+socket.on('day-narration', ({ day, narration, groupFood, freshWater, rejoin }) => {
   debug(`Day ${day} narration | Water: ${freshWater ? 'yes' : 'no'}`, 'phase');
   window._freshWater = freshWater;
 
@@ -240,7 +250,7 @@ socket.on('day-narration', ({ day, narration, groupFood, freshWater }) => {
     });
   }
 
-  if (!ttsEnabled) {
+  if (!ttsEnabled || rejoin) {
     showDayNarration();
   } else {
     playTTS().then(showDayNarration);
@@ -249,7 +259,7 @@ socket.on('day-narration', ({ day, narration, groupFood, freshWater }) => {
 
 // --- Campfire ---
 
-socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater }) => {
+socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater, rejoin }) => {
   debug('Campfire phase', 'phase');
   if (freshWater !== undefined) window._freshWater = freshWater;
   const waterHtml = window._freshWater
@@ -261,7 +271,7 @@ socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater }) => {
     <img src="/campfire.png" class="campfire-img" alt="">
     <div class="campfire-food">
       <div class="campfire-food-label">Food</div>
-      <div class="campfire-food-number" id="campfire-pool-num">${groupFood}</div>
+      <div class="campfire-food-number"><span id="campfire-pool-num">${groupFood}</span> of ${playerCount} needed</div>
     </div>
     <p id="hungry-warning" class="hungry-warning" style="display:${groupFood < playerCount ? 'block' : 'none'}">The group will go hungry tonight. −1 HP</p>
     <p id="food-ok" class="water-status food-ok" style="display:${groupFood >= playerCount ? 'block' : 'none'}">The group has enough food for everyone.</p>
@@ -272,7 +282,7 @@ socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater }) => {
     </div>
   `);
   window._campfirePlayerCount = playerCount;
-  playTTS();
+  if (!rejoin) playTTS();
   document.getElementById('btn-next').addEventListener('click', function() {
     socket.emit('next-day');
     this.disabled = true;
