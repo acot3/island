@@ -175,11 +175,13 @@ function renderYourTurn(day, suggestions) {
   html += '<p class="action-prompt">Forge your own destiny</p>';
   html += `
     <div class="custom-action">
-      <input type="text" id="custom-input" placeholder="Type your own">
+      <input type="text" id="custom-input">
       <button id="custom-submit">Go</button>
     </div>
   `;
-  html += '<p class="action-prompt">Let the island guide you</p>';
+  html += '<p class="action-prompt">Or, assist someone</p>';
+  html += '<div class="assists"><p class="no-assists">No opportunities available</p></div>';
+  html += '<p class="action-prompt">Or, let the island guide you</p>';
   html += '<div class="suggestions">';
   suggestions.forEach((s, i) => {
     html += `<button class="suggestion-btn" data-index="${i}">${s}</button>`;
@@ -246,10 +248,11 @@ socket.on('action-confirmed', ({ action }) => {
 
 // --- Assist option from another player ---
 
-socket.on('assist-option', ({ name, action }) => {
-  // Only add if we're still choosing (suggestions visible)
-  const suggestions = contentEl.querySelector('.suggestions');
-  if (!suggestions) return;
+function addAssistOption(name, action) {
+  const assists = contentEl.querySelector('.assists');
+  if (!assists) return;
+  const placeholder = assists.querySelector('.no-assists');
+  if (placeholder) placeholder.remove();
 
   const wrapper = document.createElement('div');
   wrapper.className = 'assist-wrapper';
@@ -262,21 +265,31 @@ socket.on('assist-option', ({ name, action }) => {
   label.textContent = `Assist ${name}`;
   wrapper.appendChild(btn);
   wrapper.appendChild(label);
-  suggestions.appendChild(wrapper);
+  assists.appendChild(wrapper);
+}
+
+socket.on('assist-option', ({ name, action }) => {
+  addAssistOption(name, action);
 });
 
 socket.on('assist-removed', ({ name }) => {
-  // Remove the assist option for this player if still choosing
-  const wrappers = contentEl.querySelectorAll('.assist-wrapper');
-  wrappers.forEach(w => {
+  const assists = contentEl.querySelector('.assists');
+  if (!assists) return;
+
+  assists.querySelectorAll('.assist-wrapper').forEach(w => {
     const label = w.querySelector('.assist-label');
     if (label && label.textContent === `Assist ${name}`) w.remove();
   });
-  // Also remove standalone assist buttons (no wrapper)
-  const btns = contentEl.querySelectorAll('.assist-btn');
-  btns.forEach(btn => {
-    if (btn.textContent === `Assist ${name}`) btn.remove();
+  assists.querySelectorAll('.assist-btn').forEach(btn => {
+    if (btn.textContent === `Assist ${name}` && !btn.closest('.assist-wrapper')) btn.remove();
   });
+
+  if (!assists.querySelector('.assist-wrapper, .assist-btn')) {
+    const placeholder = document.createElement('p');
+    placeholder.className = 'no-assists';
+    placeholder.textContent = 'No opportunities available';
+    assists.appendChild(placeholder);
+  }
 });
 
 // --- Day result (private food) ---
@@ -452,20 +465,7 @@ socket.on('rejoin-state', (state) => {
       } else {
         renderYourTurn(state.day, state.suggestions || []);
         (state.assistOptions || []).forEach(({ name, action }) => {
-          const suggestions = contentEl.querySelector('.suggestions');
-          if (!suggestions) return;
-          const wrapper = document.createElement('div');
-          wrapper.className = 'assist-wrapper';
-          const btn = document.createElement('button');
-          btn.className = 'suggestion-btn assist-btn';
-          btn.textContent = action;
-          btn.addEventListener('click', () => submitAction(`Assist ${name}`));
-          const label = document.createElement('div');
-          label.className = 'assist-label';
-          label.textContent = `Assist ${name}`;
-          wrapper.appendChild(btn);
-          wrapper.appendChild(label);
-          suggestions.appendChild(wrapper);
+          addAssistOption(name, action);
         });
       }
       break;

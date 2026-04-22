@@ -241,10 +241,18 @@ html, body {
 }
 
 /* Action buttons */
-.suggestions {
+.suggestions,
+.assists {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.no-assists {
+  font-size: 14px;
+  color: #666;
+  font-style: italic;
+  margin: 4px 0;
 }
 
 .action-prompt {
