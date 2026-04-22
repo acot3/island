@@ -191,7 +191,7 @@ function renderActionStatus(statuses, assists) {
     <div class="status-players">
       ${groups.join('')}
     </div>
-    ${allSubmitted ? '<div class="status-action"><button id="btn-narrate">Narrate Day</button></div>' : ''}
+    ${allSubmitted ? '<div class="status-action"><button id="btn-narrate">Proceed</button></div>' : ''}
   `;
 
   if (allSubmitted) {

@@ -245,7 +245,14 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-bottom: 16px;
+}
+
+.action-prompt {
+  font-size: 13px;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  margin: 16px 0 8px;
 }
 
 .suggestion-btn {
@@ -285,6 +292,7 @@ html, body {
 .custom-action {
   display: flex;
   gap: 8px;
+  margin-bottom: 16px;
 }
 
 .custom-action input {
