@@ -199,7 +199,7 @@ function renderActionStatus(statuses, assists) {
     document.getElementById('btn-narrate').addEventListener('click', function() {
       socket.emit('narrate-day');
       this.disabled = true;
-      this.textContent = 'Narrating...';
+      this.textContent = 'Loading...';
     });
   }
 }
