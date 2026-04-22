@@ -143,6 +143,7 @@ socket.on('morning', ({ day, narration, groupFood, playerNames, rejoin }) => {
       <div class="group-food">Food: ${groupFood}/${playerNames.length}</div>
       <p class="food-count">Day ${day}</p>
       <p>${narration.replace(/(\\n|\n)+/g, '<br><br>')}</p>
+      <p class="action-prompt-host">What will you do?</p>
       <div id="action-status" class="status-list"></div>
     `);
     renderActionStatus(playerNames.map(n => ({ name: n, submitted: false })));

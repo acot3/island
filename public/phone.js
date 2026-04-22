@@ -172,13 +172,14 @@ socket.on('phase', ({ phase }) => {
 
 function renderYourTurn(day, suggestions) {
   let html = `<p class="day-label">Day ${day}</p>`;
-  html += '<p class="action-prompt">What will you do?</p>';
+  html += '<p class="action-prompt">Forge your own destiny</p>';
   html += `
     <div class="custom-action">
       <input type="text" id="custom-input" placeholder="Type your own">
       <button id="custom-submit">Go</button>
     </div>
   `;
+  html += '<p class="action-prompt">Let the island guide you</p>';
   html += '<div class="suggestions">';
   suggestions.forEach((s, i) => {
     html += `<button class="suggestion-btn" data-index="${i}">${s}</button>`;

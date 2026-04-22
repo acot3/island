@@ -370,7 +370,7 @@ io.on('connection', (socket) => {
       room.loading = false;
       room.morningNarration = data.narration;
       room.phase = 'action';
-      pregenTTS(currentRoom, data.narration);
+      pregenTTS(currentRoom, data.narration + '\n\nWhat will you do?');
 
       // Send narration to host
       io.to(room.hostSocket).emit('morning', {
@@ -823,7 +823,7 @@ io.on('connection', (socket) => {
       room.loading = false;
       room.morningNarration = data.narration;
       room.phase = 'action';
-      pregenTTS(currentRoom, data.narration);
+      pregenTTS(currentRoom, data.narration + '\n\nWhat will you do?');
 
       io.to(room.hostSocket).emit('morning', {
         day: room.day,

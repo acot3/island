@@ -113,6 +113,14 @@ html, body {
 }
 
 /* Action status */
+.action-prompt-host {
+  text-align: center;
+  font-size: 20px;
+  color: #bbb;
+  letter-spacing: 2px;
+  margin: 32px 0 16px;
+}
+
 .status-list {
   margin: 24px 0;
 }
