@@ -34,7 +34,7 @@ A strange animal seems to be shadowing the party. Some evidence of it MUST be me
   If the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
 
   `PLOT SEED — THE STRANGE FLOWER:
-A strange flower - large, white, and solitary - is found as soon as a player explores inland. Smelling one gives a player a single magical power. One (and only one) random player per day MUST be sugggested the action "Smell strange flower" once the flower has been EXPLICITLY mentioned in the narration and until someone smells one. A player who has already been granted a power can discern no smell from the flowers. They cannot gain additional powers from them. Here are the possible powers: hold breath infinitely, start fire with your hands, animals don't fear you, cause plants to grow by touching them, invisibility for thirty seconds per day, fly for four minutes at a time, triple physical strength. 
+A strange flower - large, white, and solitary - is found as soon as a player explores inland. Smelling one gives a player a single magical power. One (and only one) random player per day MUST be suggested the action "Smell strange flower" once the flower has been EXPLICITLY mentioned in the narration and until someone smells one. A player who has already been granted a power can discern no smell from the flowers. They cannot gain additional powers from them. Here are the possible powers: hold breath infinitely, start fire with your hands, animals don't fear you, cause plants to grow by touching them, invisibility for thirty seconds per day, fly for four minutes at a time, triple physical strength. 
 
   Besides the aforementioned rules about suggested actions, if the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
 
@@ -81,20 +81,20 @@ function emitGameOver(room) {
 
 const NARRATOR_SYSTEM_BASE = `You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
 
-Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. This is meant for a party game, so have some fun with it. The tone should be dry and sardonic — think wry observations about the players' questionable survival instincts, not forced jokes. Poke fun at the players regularly through understated commentary on their decisions. Do not use similes or metaphors. No pop culture references. Humor comes from the situation and the characters, not from the narrator being clever.
+Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Poke fun at the players regularly through understated commentary on their decisions.
 
 You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
-Make sure interesting, specific plotlines emerge and develop. Bring about the conclusion of the story by Day 12.
+Bring about the conclusion of the story by Day 12.
 
 INJURIES:
 This is a dangerous island. Beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Not every action results in injury, but risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. Report injuries privately for each player. DO NOT INJURE PLAYERS ON DAYS 1 AND 2.
 
 FRESH WATER:
-The group needs fresh water to survive. Water sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water. Be realistic about this — water doesn't appear without effort.
+The group needs fresh water to survive. Water sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water.
 
 PERSONALITY INTEGRATION:
-If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. Though personality and self-discovery SHOULD be major components of the story, NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
+If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
 
 function narratorSystem(room) {
   return `${NARRATOR_SYSTEM_BASE}\n\n${room.plotSeed}`;
@@ -928,9 +928,7 @@ This is Day 12, and the game must end at the close of this day. Players will tak
   const morningPrompt = isDay1
     ? `${profilesBlock}
 <task>
-Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene. This must be unambiguous.
-
-  The tone should be wry and understated — dry humor, not forced jokes.
+Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
 </task>`
     : `${profilesBlock}
 <context>
@@ -942,7 +940,7 @@ Write a morning narration (1-3 sentences) — weather, atmosphere, and any promi
 </task>`;
 
   const { result, provider } = await callModel({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: narratorSystem(room),
     messages: [{ role: 'user', content: morningPrompt }],
@@ -1015,7 +1013,7 @@ ${playerLines}
 </actions>
 
 <task>
-Write a narration weaving the player actions into one cohesive story. Build on previous events. The tone should be dry and sardonic — wry observations, not forced jokes. Do not use similes or metaphors. No pop culture references. ${campfireNote}
+Write a narration weaving the player actions into one cohesive story. Build on previous events. ${campfireNote}
 
 LENGTH RULES — follow these strictly:
 - 1 player: one paragraph, 1-3 sentences.
@@ -1035,7 +1033,7 @@ Also return whether the group has access to fresh water after this day's events.
 </task>`;
 
   const { result, provider } = await callModel({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 2048,
     system: narratorSystem(room),
     messages: [{ role: 'user', content: dayPrompt }],
