@@ -27,25 +27,32 @@ function generateRoomCode() {
   return code;
 }
 
-const PLOT_SEEDS = [
-  `PLOT SEED — THE CREATURE:
+const PLOT_SEEDS = {
+  creature: `PLOT SEED — THE CREATURE:
 A strange animal seems to be shadowing the party. Some evidence of it MUST be mentioned on Day 2. If the players pursue the creature, the first result is that they just glimpse it. If they pursue it further, they can interact with it (no earlier than Day 3). Once the players get a good look at the creature, the narration MUST hint that, if hunted, it would provide a lot of food. It MUST be ambiguous to the players whether the creature is friendly or a threat: they MUST make the first move. If the players are kind toward the creature, it leads them to the center of the island, where, in a cave, is a glowing red stone that can be used to make requests of the island. Whether and how the island grants these requests is up to you, though. Make it interesting. If the players try to kill the animal, they succeed. Give them each the maximum amount of food that turn but also bestow upon each of them a specific and solitary curse according to their personality (inferred from past actions if no MBTI is provided). The players CANNOT be freed from this curse.
 
   If the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
 
-  `PLOT SEED — THE STRANGE FLOWER:
-A strange flower - large, white, and solitary - is found as soon as a player explores inland. Smelling one gives a player a single magical power. One (and only one) random player per day MUST be suggested the action "Smell strange flower" once the flower has been EXPLICITLY mentioned in the narration and until someone smells one. A player who has already been granted a power can discern no smell from the flowers. They cannot gain additional powers from them. Here are the possible powers: hold breath infinitely, start fire with your hands, animals don't fear you, cause plants to grow by touching them, invisibility for thirty seconds per day, fly for four minutes at a time, triple physical strength. 
+  flower: `PLOT SEED — THE STRANGE FLOWER:
+A strange flower - large, white, and solitary - is found as soon as a player explores inland. Smelling one gives a player a single magical power. One (and only one) random player per day MUST be suggested the action "Smell strange flower" once the flower has been EXPLICITLY mentioned in the narration and until someone smells one. A player who has already been granted a power can discern no smell from the flowers. They cannot gain additional powers from them. Here are the possible powers: hold breath infinitely, start fire with your hands, animals don't fear you, cause plants to grow by touching them, invisibility for thirty seconds per day, fly for four minutes at a time, triple physical strength.
 
   Besides the aforementioned rules about suggested actions, if the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
 
-  `PLOT SEED — THE OLD CAMP:
+  camp: `PLOT SEED — THE OLD CAMP:
 There are remnants of a previous camp in the jungle not far from the game's starting point. One (and only one) random player per day MUST be suggested the action "Explore inland" until the camp is found. Once the camp is found, either through that action or a similar one, one (and only one) player per day MUST be given the suggested action "Investigate the camp" until it is investigated through that action or a similar one. When the camp is investigated, two things are found: a magical weapon and a map with directions to the island's center, where, deep in a cave, is a glowing red stone that can be used to make requests of the island. Whether and how the island grants these requests is up to you, though. Make it interesting. The weapon is not related to the stone. It should have an independently interesting power.
 
   Besides the aforementioned rules about suggested actions, if the players do not seem interested in this plot seed, let it go. Do not force the narration to revolve around it.`,
-];
+};
 
-function createRoom() {
+const PLOT_SEED_KEYS = Object.keys(PLOT_SEEDS);
+
+function randomPlotSeedKey() {
+  return PLOT_SEED_KEYS[Math.floor(Math.random() * PLOT_SEED_KEYS.length)];
+}
+
+function createRoom(seedKey) {
   const code = generateRoomCode();
+  const plotSeedKey = PLOT_SEEDS[seedKey] ? seedKey : randomPlotSeedKey();
   rooms.set(code, {
     hostSocket: null,
     players: new Map(), // name -> { socketId, food, pendingFood, pendingDescription, hp, chosenAction, suggestions, campfireReady, shareFood }
@@ -56,7 +63,7 @@ function createRoom() {
     sharedFood: 0,
     freshWater: false,
     history: [],
-    plotSeed: PLOT_SEEDS[Math.floor(Math.random() * PLOT_SEEDS.length)],
+    plotSeedKey,
     loading: false,
   });
   return code;
@@ -109,7 +116,7 @@ PERSONALITY INTEGRATION:
 If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
 
 function narratorSystem(room) {
-  return `${NARRATOR_SYSTEM_BASE}\n\n${room.plotSeed}`;
+  return `${NARRATOR_SYSTEM_BASE}\n\n${PLOT_SEEDS[room.plotSeedKey]}`;
 }
 
 async function callModel(params) {
@@ -162,15 +169,28 @@ io.on('connection', (socket) => {
   let isHost = false;
 
   // Host creates a room
-  socket.on('create-room', () => {
-    const code = createRoom();
+  socket.on('create-room', (payload) => {
+    const seedKey = payload && payload.seedKey;
+    const code = createRoom(seedKey);
     const room = rooms.get(code);
     room.hostSocket = socket.id;
     currentRoom = code;
     isHost = true;
     socket.join(code);
-    socket.emit('room-created', { code, plotSeed: room.plotSeed });
-    console.log(`[Room] Created: ${code} by ${socket.id} | Plot: ${room.plotSeed.split('\n')[0]}`);
+    socket.emit('room-created', { code, plotSeedKey: room.plotSeedKey });
+    console.log(`[Room] Created: ${code} by ${socket.id} | Plot: ${room.plotSeedKey}`);
+  });
+
+  // Host changes plot seed (lobby only). key === 'random' re-rolls.
+  socket.on('set-plot-seed', ({ key } = {}) => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'lobby') return;
+    const newKey = key === 'random' ? randomPlotSeedKey() : (PLOT_SEEDS[key] ? key : null);
+    if (!newKey) return;
+    room.plotSeedKey = newKey;
+    socket.emit('plot-seed-set', { plotSeedKey: newKey });
+    console.log(`[Room ${currentRoom}] Plot seed set: ${newKey}`);
   });
 
   // Player joins a room
@@ -225,7 +245,7 @@ io.on('connection', (socket) => {
 
     switch (room.phase) {
       case 'lobby':
-        socket.emit('room-created', { code, plotSeed: room.plotSeed });
+        socket.emit('room-created', { code, plotSeedKey: room.plotSeedKey });
         if (allPlayers.length > 0) {
           socket.emit('player-joined', { players: allPlayers });
         }

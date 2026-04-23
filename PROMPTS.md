@@ -8,12 +8,34 @@ When this says "interpolated", the bracketed placeholder is replaced at runtime 
 
 ## 1. System prompt
 
-Sent as `system` on every morning and day call. See `NARRATOR_SYSTEM_BASE` at [server.js:82](server.js#L82). The chosen plot seed is appended (see §2).
+Sent as `system` on every morning and day call. See `NARRATOR_SYSTEM_BASE` at [server.js:89](server.js#L89). The chosen plot seed is appended (see §2) by `narratorSystem()` at [server.js:118](server.js#L118).
 
 ```
-You are the game master of an island survival game. Players are stranded on a deserted tropical island. You are building an unfolding story involving survival pressure, island magic, and personal discovery. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
+You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
 
 Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Poke fun at the players regularly through understated commentary on their decisions. Avoid similes (no phrases that use "like" or "as if").
+
+The narration is read aloud to the players by a text-to-speech engine. Favor prose that sounds natural when spoken: full words over symbols, clear sentence boundaries, minimal parenthetical asides. Avoid ellipses and em-dashes since they don't vocalize cleanly.
+
+The following passages demonstrate the narration voice. Match this register; do not reuse their specific situations, characters, or details.
+
+<examples>
+<example>
+Dawn arrives, and it is quiet. The fire has burned down to a single glowing coal. Someone has rifled through the supplies in the night, leaving them scattered and strewn about, though no one admits to it.
+</example>
+
+<example>
+Maya stalks a crab across the tide pools for the better part of an hour. She returns to camp with a small cut on her thumb and the crab, which she has named.
+</example>
+
+<example>
+The wind shifts before anyone notices. By the time Jonas looks up, the sky over the ridge has darkened to slate. The first raindrop strikes his forearm with a heavy splat.
+</example>
+</examples>
+
+You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
+
+Bring about the conclusion of the story by Day 12.
 
 PERSONALITY INTEGRATION:
 If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).
@@ -23,7 +45,7 @@ If you receive a player's personality type (MBTI), use this to shape how you por
 
 ## 2. Plot seeds
 
-One is chosen at random when the room is created ([server.js:59](server.js#L59)) and appended to the system prompt via `narratorSystem()` ([server.js:99](server.js#L99)).
+Stored as a keyed object `PLOT_SEEDS` at [server.js:30](server.js#L30). One is selected when a room is created ([server.js:53](server.js#L53)) — the host can choose a specific seed or fall through to a random pick via `randomPlotSeedKey()` ([server.js:49](server.js#L49)). The selected seed is appended to the system prompt by `narratorSystem()` ([server.js:118](server.js#L118)).
 
 ### 2a. The Creature ([server.js:31](server.js#L31))
 
@@ -58,7 +80,7 @@ There are remnants of a previous camp in the jungle not far from the game's star
 
 Sent as the `user` message on the morning LLM call. Two variants.
 
-### 3a. Day 1 — opening scene ([server.js:928](server.js#L928))
+### 3a. Day 1 — opening scene ([server.js:958](server.js#L958))
 
 ```
 <players>
@@ -67,11 +89,11 @@ Sent as the `user` message on the morning LLM call. Two variants.
 ...
 </players>
 <task>
-Write the opening scene of the game — how [player1] and [player2] and ... arrived on this island. Max 150 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
+Write the opening scene of the game — how [player1] and [player2] and ... arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
 </task>
 ```
 
-### 3b. Subsequent mornings (Day 2+) ([server.js:935](server.js#L935))
+### 3b. Subsequent mornings (Day 2+) ([server.js:963](server.js#L963))
 
 ```
 <players>
@@ -87,7 +109,7 @@ Write a morning narration (1-3 sentences) — weather, atmosphere, and any promi
 </task>
 ```
 
-### 3c. History block (conditional) ([server.js:903](server.js#L903))
+### 3c. History block (conditional) ([server.js:932](server.js#L932))
 
 Included on Days 2+ when there's history. One entry per prior day:
 
@@ -102,7 +124,7 @@ Day [N+1]:
 </history>
 ```
 
-### 3d. Death block (conditional) ([server.js:906](server.js#L906))
+### 3d. Death block (conditional) ([server.js:936](server.js#L936))
 
 Included only when players died of starvation overnight:
 
@@ -116,48 +138,48 @@ The following players died of starvation during the night: [name], [name]. State
 
 Injected on specific days to push the story toward a conclusion.
 
-**Day 9** ([server.js:913](server.js#L913)):
+**Day 9** ([server.js:943](server.js#L943)):
 ```
 <pacing>
 This is Day 9, and the game must end at the close of Day 12. If there is not a dramatic plotline that can conclude the game in an exciting or interesting way, introduce that now prominently. If there is already a promising plotline, advance it significantly. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
 </pacing>
 ```
 
-**Day 11** ([server.js:917](server.js#L917)):
+**Day 11** ([server.js:947](server.js#L947)):
 ```
 <pacing>
 This is Day 11, and the game must end at the close of Day 12. Players will take their penultimate action today. Significantly advance an existing plotline toward a dramatic conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
 </pacing>
 ```
 
-**Day 12+** ([server.js:921](server.js#L921)):
+**Day 12+** ([server.js:951](server.js#L951)):
 ```
 <pacing>
 This is Day 12, and the game must end at the close of this day. Players will take their final action today. Significantly advance the plot and force a conclusion. Possible endings of the game are (1) all players die or (2) at least one player escapes the island, either by natural or magical means. Both of these should be possible at this point, depending on player choices.
 </pacing>
 ```
 
-### 3f. Tool schema descriptions (morning) ([server.js:895](server.js#L895), [:955](server.js#L955))
+### 3f. Tool schema descriptions (morning)
 
 These are the `description` fields on the tool schema the model sees.
 
-- Per-player suggestions field:
+- Per-player suggestions field ([server.js:925](server.js#L925)):
   > `Three suggested actions for [name]. Short phrases (2-5 words). Do not introduce things or locations not already mentioned in the narration.`
 
-- Narration field (Day 1):
+- Narration field, Day 1 ([server.js:983](server.js#L983)):
   > `The opening arrival scene written. Separate paragraphs and dialogue should be separated by \n.`
 
-- Narration field (Day 2+):
+- Narration field, Day 2+ ([server.js:983](server.js#L983)):
   > `A 1 or 2 sentence morning narration about weather, atmosphere, and maybe recent events.`
 
-- Tool description:
+- Tool description ([server.js:979](server.js#L979)):
   > `Report the morning narration and action suggestions for each player.`
 
 ---
 
 ## 4. Day prompt
 
-Sent as `user` on the evening LLM call. This is the big one — runs every day. ([server.js:1008](server.js#L1008))
+Sent as `user` on the evening LLM call. This is the big one — runs every day. ([server.js:1036](server.js#L1036))
 
 ```
 <players>
@@ -195,7 +217,7 @@ Also return whether the group has access to fresh water after this day's events.
 </task>
 ```
 
-### 4a. Morning block (inside day context) ([server.js:998](server.js#L998))
+### 4a. Morning block (inside day context) ([server.js:1026](server.js#L1026))
 
 Included if a morning narration exists:
 
@@ -207,47 +229,47 @@ Included if a morning narration exists:
 
 ### 4b. Campfire note (the `[campfire note]` above)
 
-Picks one based on day number ([server.js:1004](server.js#L1004)):
+Picks one based on day number ([server.js:1032](server.js#L1032)):
 
 - **Normal day:** `The day should always end with the players returning to the camp.`
 - **Day 12 (final):** `This is the final day. The players have proposed their final actions. Resolve the story, ending with "The End."`
 
 ### 4c. Tool schema descriptions (day)
 
-- Tool description ([server.js:1044](server.js#L1044)):
+- Tool description ([server.js:1072](server.js#L1072)):
   > `Report the day narration, food findings, and any player deaths.`
 
-- Narration field ([server.js:1048](server.js#L1048)):
+- Narration field ([server.js:1076](server.js#L1076)):
   > `The day narration. Use \n to separate paragraphs.`
 
-- Per-player food object ([server.js:978](server.js#L978)):
+- Per-player food object ([server.js:1006](server.js#L1006)):
   - `units`: `Food units found by [name] (0-5).`
   - `description`: `If units > 0: a short description of what [name] found. If units is 0: exactly the string "You found nothing."`
 
-- Per-player injuries object ([server.js:986](server.js#L986)):
+- Per-player injuries object ([server.js:1014](server.js#L1014)):
   - `hp_loss`: `HP lost by [name] due to injury this turn. 0 if uninjured, 1 if injured.`
   - `description`: `If hp_loss > 0: a short description of the injury. If hp_loss is 0: exactly the string "No injury."`
 
-- Injuries object overall ([server.js:1050](server.js#L1050)):
+- Injuries object overall ([server.js:1078](server.js#L1078)):
   > `Injury data for each player. hp_loss is 0 (no injury) or 1 (injured).`
 
-- Deaths ([server.js:1051](server.js#L1051)):
+- Deaths ([server.js:1079](server.js#L1079)):
   > `Names of players who die during this day's events. Empty array if no one dies.`
 
-- Fresh water ([server.js:1052](server.js#L1052)):
+- Fresh water ([server.js:1080](server.js#L1080)):
   > `Whether the group has access to fresh water after this day's events. True if they found, collected, or still have a water source. False if they have no water source.`
 
 ---
 
 ## Model used
 
-Both calls use `claude-sonnet-4-6` with `max_tokens: 2048`.
+Both calls use `claude-sonnet-4-6` with `max_tokens: 2048`, `thinking: { type: 'adaptive' }`, and `output_config: { effort: 'low' }`. See `callModel()` at [server.js:122](server.js#L122). An automatic fallback to OpenAI `gpt-4o` kicks in if Anthropic returns a 529 (overload).
 
 ---
 
 ## Quick structural map
 
-- **System** = persona + PERSONALITY section + plot seed
+- **System** = persona + voice rules + TTS note + tone examples + PERSONALITY section + plot seed
 - **Every morning prompt** = `<players>` + (Day 1 opening task) OR (`<context>` with optional history/death/endgame blocks + short task)
 - **Every day prompt** = `<players>` + `<context>` (history + morning) + `<actions>` + `<task>` (tone + length + assist + food + injury + death + water)
 

@@ -82,14 +82,26 @@ function setNarration(html) {
 
 // --- Lobby ---
 
-document.getElementById('btn-create').addEventListener('click', () => {
-  socket.emit('create-room');
+const seedSelect = document.getElementById('seed-select');
+
+seedSelect.addEventListener('change', () => {
+  if (!roomCode) return;
+  const key = seedSelect.value || 'random';
+  socket.emit('set-plot-seed', { key });
 });
 
-socket.on('room-created', ({ code, plotSeed }) => {
+document.getElementById('btn-create').addEventListener('click', () => {
+  const seedKey = seedSelect.value || undefined;
+  socket.emit('create-room', seedKey ? { seedKey } : {});
+});
+
+socket.on('room-created', ({ code, plotSeedKey }) => {
   roomCode = code;
   debug(`Room created: ${code}`, 'phase');
-  if (plotSeed) debug(`Plot: ${plotSeed.split('\n')[0]}`, 'phase');
+  if (plotSeedKey) {
+    debug(`Plot: ${plotSeedKey}`, 'phase');
+    seedSelect.value = plotSeedKey;
+  }
   setNarration(`
     <h1>ISLAND</h1>
     <p class="room-info">Join at <strong>${location.host}/play</strong></p>
@@ -97,6 +109,13 @@ socket.on('room-created', ({ code, plotSeed }) => {
     <div id="player-list" class="player-list"></div>
     <p class="room-info" id="waiting-msg">Waiting for players...</p>
   `);
+});
+
+socket.on('plot-seed-set', ({ plotSeedKey }) => {
+  if (plotSeedKey) {
+    seedSelect.value = plotSeedKey;
+    debug(`Plot changed: ${plotSeedKey}`, 'phase');
+  }
 });
 
 socket.on('player-joined', ({ players }) => {
@@ -112,6 +131,7 @@ socket.on('player-joined', ({ players }) => {
       socket.emit('start-game');
       this.disabled = true;
       this.textContent = 'Loading...';
+      seedSelect.disabled = true;
     });
   }
 });
@@ -119,6 +139,7 @@ socket.on('player-joined', ({ players }) => {
 // --- Loading ---
 
 socket.on('phase', ({ phase, day }) => {
+  seedSelect.disabled = true;
   if (phase === 'loading') {
     debug('Loading...', 'api');
     if (day) {
@@ -133,6 +154,7 @@ socket.on('phase', ({ phase, day }) => {
 // --- Morning ---
 
 socket.on('morning', ({ day, narration, groupFood, playerNames, rejoin }) => {
+  seedSelect.disabled = true;
   Object.keys(publicActions).forEach(k => delete publicActions[k]);
   currentAssists = {};
   debug(`Day ${day} morning`, 'phase');
@@ -236,6 +258,7 @@ socket.on('action-unpublic', ({ name }) => {
 // --- Day narration ---
 
 socket.on('day-narration', ({ day, narration, groupFood, freshWater, rejoin }) => {
+  seedSelect.disabled = true;
   debug(`Day ${day} narration | Water: ${freshWater ? 'yes' : 'no'}`, 'phase');
   window._freshWater = freshWater;
 
@@ -261,6 +284,7 @@ socket.on('day-narration', ({ day, narration, groupFood, freshWater, rejoin }) =
 // --- Campfire ---
 
 socket.on('campfire-start', ({ day, groupFood, playerCount, freshWater, rejoin }) => {
+  seedSelect.disabled = true;
   debug('Campfire phase', 'phase');
   if (freshWater !== undefined) window._freshWater = freshWater;
   const waterHtml = window._freshWater
@@ -342,6 +366,7 @@ socket.on('campfire-take', ({ name, groupFood, playerCount }) => {
 // --- Game Over (all players dead) ---
 
 socket.on('game-over', ({ narration }) => {
+  seedSelect.disabled = true;
   debug('Game over — all players dead', 'phase');
   let html = '';
   if (narration) {
@@ -361,6 +386,7 @@ socket.on('game-over', ({ narration }) => {
 // --- Game End (Day 10 conclusion) ---
 
 socket.on('game-end', ({ day, narration }) => {
+  seedSelect.disabled = true;
   debug(`Game ended on Day ${day}`, 'phase');
   setNarration(`
     <p class="food-count">Day ${day}</p>

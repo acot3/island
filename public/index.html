@@ -14,7 +14,15 @@
     <div id="main">
       <div id="narration" class="panel">
         <div class="panel-label">NARRATION</div>
-        <div id="tts-toggle" class="tts-toggle on">sound on</div>
+        <div class="panel-controls">
+          <select id="seed-select">
+            <option value="">plot: random</option>
+            <option value="creature">plot: the creature</option>
+            <option value="flower">plot: the strange flower</option>
+            <option value="camp">plot: the old camp</option>
+          </select>
+          <div id="tts-toggle" class="tts-toggle on">sound on</div>
+        </div>
         <div id="narration-content">
           <h1>ISLAND</h1>
           <p>A survival story.</p>
