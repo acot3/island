@@ -11,19 +11,9 @@ When this says "interpolated", the bracketed placeholder is replaced at runtime 
 Sent as `system` on every morning and day call. See `NARRATOR_SYSTEM_BASE` at [server.js:82](server.js#L82). The chosen plot seed is appended (see §2).
 
 ```
-You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
+You are the game master of an island survival game. Players are stranded on a deserted tropical island. You are building an unfolding story involving survival pressure, island magic, and personal discovery. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
 Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Poke fun at the players regularly through understated commentary on their decisions. Avoid similes (no phrases that use "like" or "as if").
-
-You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
-
-Bring about the conclusion of the story by Day 12.
-
-INJURIES:
-This is a dangerous island. Beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Not every action results in injury, but risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. Report injuries privately for each player. DO NOT INJURE PLAYERS ON DAYS 1 AND 2.
-
-FRESH WATER:
-The group needs fresh water to survive. Water sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water.
 
 PERSONALITY INTEGRATION:
 If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).
@@ -77,7 +67,7 @@ Sent as the `user` message on the morning LLM call. Two variants.
 ...
 </players>
 <task>
-Write the opening scene of the game — how [player1] and [player2] and ... arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
+Write the opening scene of the game — how [player1] and [player2] and ... arrived on this island. Max 150 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
 </task>
 ```
 
@@ -105,10 +95,7 @@ Included on Days 2+ when there's history. One entry per prior day:
 <history>
 Day [N]:
 Morning: [morning narration text]
-[day narration text]
-Actions: [name]: [action], [name]: [action], ...
-Food: [name]: [units]([description]), ...
-HP: [name]: [hp]/6, ...
+Rest of day: [day narration text]
 
 Day [N+1]:
 ...
@@ -200,11 +187,11 @@ If a player's action is "Assist [name]", they are helping that player with their
 
 Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
 
-For each player, also return injury data: hp_loss (0 or 1) and a short private description. This is a dangerous island — injuries from cuts, falls, animal encounters, and mishaps are fairly common. Risky actions should frequently result in injury. Even safe-seeming actions can go wrong. If hp_loss is 0, the description must be exactly: "No injury."
+For each player, also return injury data: hp_loss (0 or 1) and a short private description. This is a dangerous island — beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. DO NOT INJURE PLAYERS ON DAYS 1 AND 2. If hp_loss is 0, the description must be exactly: "No injury."
 
 You may kill players during the narration if the story demands it (e.g. a fatal encounter, sacrifice, or catastrophic failure). If a player dies, include their name in the deaths array. Only kill players when it is dramatically appropriate — not arbitrarily.
 
-Also return whether the group has access to fresh water after this day's events. Water sources can be temporary (e.g. rain collection, a puddle) or permanent (e.g. a stream, a spring). The group [currently HAS / currently DOES NOT have] access to fresh water.
+Also return whether the group has access to fresh water after this day's events. The group needs fresh water to survive. Sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water. The group [currently HAS / currently DOES NOT have] access to fresh water.
 </task>
 ```
 
@@ -260,7 +247,7 @@ Both calls use `claude-sonnet-4-6` with `max_tokens: 2048`.
 
 ## Quick structural map
 
-- **System** = persona + 3 sections (INJURIES, FRESH WATER, PERSONALITY) + plot seed
+- **System** = persona + PERSONALITY section + plot seed
 - **Every morning prompt** = `<players>` + (Day 1 opening task) OR (`<context>` with optional history/death/endgame blocks + short task)
 - **Every day prompt** = `<players>` + `<context>` (history + morning) + `<actions>` + `<task>` (tone + length + assist + food + injury + death + water)
 

@@ -83,15 +83,27 @@ const NARRATOR_SYSTEM_BASE = `You are the narrator of an island survival game. P
 
 Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Poke fun at the players regularly through understated commentary on their decisions. Avoid similes (no phrases that use "like" or "as if").
 
+The narration is read aloud to the players by a text-to-speech engine. Favor prose that sounds natural when spoken: full words over symbols, clear sentence boundaries, minimal parenthetical asides. Avoid ellipses and em-dashes since they don't vocalize cleanly.
+
+The following passages demonstrate the narration voice. Match this register; do not reuse their specific situations, characters, or details.
+
+<examples>
+<example>
+Dawn arrives, and it is quiet. The fire has burned down to a single glowing coal. Someone has rifled through the supplies in the night, leaving them scattered and strewn about, though no one admits to it.
+</example>
+
+<example>
+Maya stalks a crab across the tide pools for the better part of an hour. She returns to camp with a small cut on her thumb and the crab, which she has named.
+</example>
+
+<example>
+The wind shifts before anyone notices. By the time Jonas looks up, the sky over the ridge has darkened to slate. The first raindrop strikes his forearm with a heavy splat.
+</example>
+</examples>
+
 You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
 Bring about the conclusion of the story by Day 12.
-
-INJURIES:
-This is a dangerous island. Beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Not every action results in injury, but risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. Report injuries privately for each player. DO NOT INJURE PLAYERS ON DAYS 1 AND 2.
-
-FRESH WATER:
-The group needs fresh water to survive. Water sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water.
 
 PERSONALITY INTEGRATION:
 If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
@@ -105,7 +117,8 @@ async function callModel(params) {
     // Add thinking and switch to auto tool choice for compatibility
     const apiParams = {
       ...params,
-      thinking: { type: 'enabled', budget_tokens: 1024 },
+      thinking: { type: 'adaptive' },
+      output_config: { effort: 'low' },
       tool_choice: { type: 'auto' },
     };
     const message = await anthropic.messages.create(apiParams);
@@ -592,9 +605,6 @@ io.on('connection', (socket) => {
         day: room.day,
         morning: room.morningNarration,
         narration: data.narration,
-        actions,
-        food: Object.fromEntries(alive.map(n => [n, { units: data.food[n]?.units || 0, description: data.food[n]?.description || '' }])),
-        hp: Object.fromEntries(alive.map(n => [n, room.players.get(n).hp])),
       });
 
       // Check if all players are dead after narrator deaths
@@ -900,7 +910,7 @@ async function callMorning(room, playerNames, recentDeaths = []) {
   const history = room.history;
 
   const historyBlock = history.length > 0
-    ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\n${h.narration}\nActions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')}\nFood: ${Object.entries(h.food).map(([n, f]) => `${n}: ${f.units}${f.description && f.description !== 'You found nothing.' ? ` (${f.description})` : ''}`).join(', ')}\nHP: ${Object.entries(h.hp).map(([n, hp]) => `${n}: ${hp}/6`).join(', ')}`).join('\n\n')}\n</history>`
+    ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\nRest of day: ${h.narration}`).join('\n\n')}\n</history>`
     : '';
 
   const deathBlock = recentDeaths.length > 0
@@ -990,7 +1000,7 @@ async function callDay(room, playerNames, actions) {
 
   const history = room.history;
   const historyBlock = history.length > 0
-    ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\n${h.narration}\nActions: ${Object.entries(h.actions).map(([n, a]) => `${n}: ${a}`).join(', ')}\nFood: ${Object.entries(h.food).map(([n, f]) => `${n}: ${f.units}${f.description && f.description !== 'You found nothing.' ? ` (${f.description})` : ''}`).join(', ')}\nHP: ${Object.entries(h.hp).map(([n, hp]) => `${n}: ${hp}/6`).join(', ')}`).join('\n\n')}\n</history>`
+    ? `\n<history>\n${history.map(h => `Day ${h.day}:\nMorning: ${h.morning}\nRest of day: ${h.narration}`).join('\n\n')}\n</history>`
     : '';
 
   const morningBlock = room.morningNarration ? `\n<morning>\n${room.morningNarration}\n</morning>` : '';
@@ -1025,11 +1035,11 @@ If a player's action is "Assist [name]", they are helping that player with their
 
 Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
 
-For each player, also return injury data: hp_loss (0 or 1) and a short private description. This is a dangerous island — injuries from cuts, falls, animal encounters, and mishaps are fairly common. Risky actions should frequently result in injury. Even safe-seeming actions can go wrong. If hp_loss is 0, the description must be exactly: "No injury."
+For each player, also return injury data: hp_loss (0 or 1) and a short private description. This is a dangerous island — beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. DO NOT INJURE PLAYERS ON DAYS 1 AND 2. If hp_loss is 0, the description must be exactly: "No injury."
 
 You may kill players during the narration if the story demands it (e.g. a fatal encounter, sacrifice, or catastrophic failure). If a player dies, include their name in the deaths array. Only kill players when it is dramatically appropriate — not arbitrarily.
 
-Also return whether the group has access to fresh water after this day's events. Water sources can be temporary (e.g. rain collection, a puddle) or permanent (e.g. a stream, a spring). The group ${room.freshWater ? 'currently HAS' : 'currently DOES NOT have'} access to fresh water.
+Also return whether the group has access to fresh water after this day's events. The group needs fresh water to survive. Sources can be temporary (rain collection, a puddle that dries up) or permanent (a stream, a spring). If no player action results in finding or maintaining water access, the group does not have water. The group ${room.freshWater ? 'currently HAS' : 'currently DOES NOT have'} access to fresh water.
 </task>`;
 
   const { result, provider } = await callModel({
