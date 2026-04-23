@@ -86,31 +86,13 @@ function emitGameOver(room) {
 
 // --- Model helper ---
 
-const NARRATOR_SYSTEM_BASE = `You are the narrator of an island survival game. Players are stranded on a deserted tropical island.
+const NARRATOR_SYSTEM_BASE = `You are the game master of an island survival game. Players are stranded on a deserted tropical island. You are building an unfolding story involving survival pressure, island magic, and personal discovery.
+
+You control the geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
 
 Narration must be from the third-person perspective and in present tense. Vary sentence structure and length. Poke fun at the players regularly through understated commentary on their decisions. Avoid similes (no phrases that use "like" or "as if").
 
-The narration is read aloud to the players by a text-to-speech engine. Favor prose that sounds natural when spoken: full words over symbols, clear sentence boundaries, minimal parenthetical asides. Avoid ellipses and em-dashes since they don't vocalize cleanly.
-
-The following passages demonstrate the narration voice. Match this register; do not reuse their specific situations, characters, or details.
-
-<examples>
-<example>
-Dawn arrives, and it is quiet. The fire has burned down to a single glowing coal. Someone has rifled through the supplies in the night, leaving them scattered and strewn about, though no one admits to it.
-</example>
-
-<example>
-Maya stalks a crab across the tide pools for the better part of an hour. She returns to camp with a small cut on her thumb and the crab, which she has named.
-</example>
-
-<example>
-The wind shifts before anyone notices. By the time Jonas looks up, the sky over the ridge has darkened to slate. The first raindrop strikes his forearm with a heavy splat.
-</example>
-</examples>
-
-You are building an unfolding story involving survival pressure, island magic, and personal discovery. You are the game master of this world. You control its geography, history, and contents. Players declare intentions — you decide what happens. If a player attempts to visit or use something you have not established, do not validate it. Redirect the action: they wander, they search, they find what the island actually contains. Perhaps make fun of the players in such situations.
-
-Bring about the conclusion of the story by Day 12.
+The narration is read aloud to the players by a text-to-speech engine. Favor prose that sounds natural when spoken.
 
 PERSONALITY INTEGRATION:
 If you receive a player's personality type (MBTI), use this to shape how you portray them in the narration — their decision-making style, reactions, interpersonal dynamics, and emotional responses. NEVER INCLUDE THE 4-LETTER MBTI TYPE (E.G. INTJ) OR ARCHETYPE (E.G. THE ARCHITECT) IN THE NARRATION. Also, NEVER invent or reference personal histories (e.g. education, employment, personal relationships).`;
@@ -922,7 +904,7 @@ async function callMorning(room, playerNames, recentDeaths = []) {
     suggestionProperties[name] = {
       type: 'array',
       items: { type: 'string' },
-      description: `Three suggested actions for ${name}. Short phrases (2-5 words). Do not introduce things or locations not already mentioned in the narration.`,
+      description: `Three suggested actions for ${name}. Short phrases (2-5 words).`,
     };
   });
 
@@ -958,7 +940,7 @@ This is Day 12, and the game must end at the close of this day. Players will tak
   const morningPrompt = isDay1
     ? `${profilesBlock}
 <task>
-Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 100 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
+Write the opening scene of the game — how ${playerNames.join(' and ')} arrived on this island. Max 150 words. Include a vivid description of a wild storm and the shipwreck of Skipper's small boat. The players must find Skipper, who mentions that he has been to the island before and remarks ominously that "the island... she remembers." Skipper then dies toward the end of the scene.
 </task>`
     : `${profilesBlock}
 <context>
@@ -966,7 +948,7 @@ It is Day ${room.day}. The players are: ${playerNames.join(', ')}.${historyBlock
 </context>
 
 <task>
-Write a morning narration (1-3 sentences) — weather, atmosphere, and any promising threads from recent events. Then suggest three varied survival actions for each player, informed by the story so far.
+Write a morning narration (1-3 sentences) that advances the story. Then suggest three varied survival actions for each player, informed by the story so far.
 </task>`;
 
   const { result, provider } = await callModel({
@@ -980,7 +962,7 @@ Write a morning narration (1-3 sentences) — weather, atmosphere, and any promi
       input_schema: {
         type: 'object',
         properties: {
-          narration: { type: 'string', description: isDay1 ? 'The opening arrival scene written. Separate paragraphs and dialogue should be separated by \\n.' : 'A 1 or 2 sentence morning narration about weather, atmosphere, and maybe recent events.' },
+          narration: { type: 'string', description: isDay1 ? 'The opening arrival scene written. Separate paragraphs and dialogue should be separated by \\n.' : 'A 1-3 sentence morning narration.' },
           suggestions: { type: 'object', properties: suggestionProperties, required: playerNames },
         },
         required: ['narration', 'suggestions'],
@@ -1047,13 +1029,13 @@ Write a narration weaving the player actions into one cohesive story. Build on p
 
 LENGTH RULES — follow these strictly:
 - 1 player: one paragraph, 1-3 sentences.
-- 2 players: two paragraphs, 1-2 sentences each.
-- 3+ players: two paragraphs, 2-3 sentences each.
+- 2 players: two paragraphs, 1-3 sentences each.
+- 3+ players: two paragraphs, 3-4 sentences each.
 Do NOT exceed these limits.${isFinalDay ? ' Exception: on the final day, you may write up to 4 paragraphs to properly conclude the story.' : ''}
 
 If a player's action is "Assist [name]", they are helping that player with their action. Players working together should be more likely to succeed and achieve better outcomes than working alone. The effect stacks with additional players. The narration should reflect their teamwork.
 
-Then, for each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
+For each player, also return the structured food data: a unit count (0-6) and a short private description shown only to that player. Food should be rare unless the action was explicitly about foraging or hunting. The description should be consistent with the main narration. If units is 0, the description must be exactly: "You found nothing."
 
 For each player, also return injury data: hp_loss (0 or 1) and a short private description. This is a dangerous island — beginning on Day 3, players can lose up to 1 HP per turn from injuries sustained during their actions. Risky or careless actions should have a real chance of harm. Even routine actions can go wrong sometimes, though this should only happen rarely. DO NOT INJURE PLAYERS ON DAYS 1 AND 2. If hp_loss is 0, the description must be exactly: "No injury."
 
