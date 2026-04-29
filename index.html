@@ -65,33 +65,14 @@
     font-size: 16px;
     line-height: 1.65;
     margin-bottom: 10px;
-    padding: 6px 10px;
-    border-left: 3px solid transparent;
-    transition: background 0.15s, border-color 0.15s;
+    padding: 2px 0;
+    color: #e6edf3;
+    transition: background 0.15s;
     white-space: pre-wrap;
   }
   .segment:last-child { margin-bottom: 0; }
-  .segment.voice-narrator {
-    color: #e6edf3;
-    border-left-color: #30363d;
-  }
-  .segment.voice-krab {
-    color: #ffb380;
-    font-style: italic;
-    border-left-color: #ff9a4a;
-  }
   .segment.speaking {
     background: rgba(88, 166, 255, 0.08);
-    border-left-color: #58a6ff;
-  }
-  .voice-tag {
-    display: inline-block;
-    font-size: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #6e7681;
-    margin-right: 8px;
-    vertical-align: middle;
   }
 
   .phone .player-name {
@@ -232,7 +213,7 @@
   </section>
   <section class="pane phone">
     <h2>Player's Phone</h2>
-    <div class="player-name">Playing as: <strong id="player-name">Jack</strong></div>
+    <div class="player-name">Playing as: <strong id="player-name">Phyllis</strong></div>
     <div id="phone-content"></div>
   </section>
 </div>
@@ -242,8 +223,8 @@
 // Player (hardcoded)
 // ============================================================
 const PLAYER = {
-  name: 'Jack',
-  inventory: ['coconut', 'shiny_rock', 'feather'],
+  name: 'Phyllis',
+  inventory: ['coconut', 'shiny rock', 'feather'],
   dominantAttribute: null, // none → dice roll on the return-item path
 };
 
@@ -264,18 +245,16 @@ NARRATOR voice:
 
 KRAB voice:
 - King Krab himself, speaking aloud to the players.
-- He believes the island chose him as king of the crabs and exercises a divine right to rule. He demands deference. His manner is over-blown, bombastic, theatrical.
+- He believes the island herself chose him as king of the crabs and that he thereby exercises a divine right to rule. He demands deference. His manner is over-blown, bombastic, theatrical.
 - Output only what he says aloud. No stage directions, asterisks, or roleplay action descriptions.
 
 CONTINUITY: Prior beats in this conversation are visible as your past tool calls. The audience has already heard them. Never re-establish or repeat what has been said. Pick up where the previous beat left off.
 
 CONSTRAINTS: Do not invent player actions, decisions, dialogue, items, or outcomes. The player's turn belongs to the player. Stop at the player's next choice (or at scene close for terminal beats).
 
-SEGMENT SHAPE: Use as many segments as fit naturally — sometimes just narrator, sometimes narrator → krab → narrator, sometimes a single krab segment. Don't force structure.
+BREVITY: Each beat is limited to 80 words total across all segments — punchy and evocative, not expansive. Every word is read aloud; keep the audience moving.`;
 
-BREVITY: Each beat should be roughly 100 words total across all segments — punchy and evocative, not expansive. Every word is read aloud; keep the audience moving.`;
-
-const KRAB_JUDGMENT_SYSTEM = `You are King Krab. You believe the island chose you as king of the crabs and you exercise a divine right to rule. You expect great deference. You judge whether offerings presented to you are worthy of a king's acceptance — based purely on your own taste and royal vibes.`;
+const KRAB_JUDGMENT_SYSTEM = `You are King Krab. You believe the island herself chose you as king of the crabs and you thereby exercise a divine right to rule. You expect great deference. You judge whether offerings presented to you are worthy of a king's acceptance — based purely on your own taste and high standards. Reject commonplace or unextraordinary items.`;
 
 const EMIT_BEAT_TOOL = {
   name: 'emit_beat',
@@ -546,13 +525,14 @@ function renderBeat(segments) {
   for (const seg of segments) {
     const segDiv = document.createElement('div');
     segDiv.className = `segment voice-${seg.voice}`;
-    const tag = document.createElement('span');
-    tag.className = 'voice-tag';
-    tag.textContent = seg.voice;
-    const txt = document.createElement('span');
-    txt.textContent = seg.text;
-    segDiv.appendChild(tag);
-    segDiv.appendChild(txt);
+    let display = seg.text;
+    if (seg.voice === 'krab') {
+      // Strip any pre-existing leading/trailing quotes the model may have added,
+      // then wrap in curly quotes for display. TTS still receives raw seg.text.
+      const stripped = seg.text.replace(/^["“”'']+|["“”'']+$/g, '').trim();
+      display = `“${stripped}”`;
+    }
+    segDiv.textContent = display;
     beatDiv.appendChild(segDiv);
     segmentEls.push({ el: segDiv, voice: seg.voice, text: seg.text });
   }
