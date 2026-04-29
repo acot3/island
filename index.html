@@ -271,7 +271,9 @@ CONTINUITY: Prior beats in this conversation are visible as your past tool calls
 
 CONSTRAINTS: Do not invent player actions, decisions, dialogue, items, or outcomes. The player's turn belongs to the player. Stop at the player's next choice (or at scene close for terminal beats).
 
-SEGMENT SHAPE: Use as many segments as fit naturally — sometimes just narrator, sometimes narrator → krab → narrator, sometimes a single krab segment. Don't force structure.`;
+SEGMENT SHAPE: Use as many segments as fit naturally — sometimes just narrator, sometimes narrator → krab → narrator, sometimes a single krab segment. Don't force structure.
+
+BREVITY: Each beat should be roughly 100 words total across all segments — punchy and evocative, not expansive. Every word is read aloud; keep the audience moving.`;
 
 const KRAB_JUDGMENT_SYSTEM = `You are King Krab. You believe the island chose you as king of the crabs and you exercise a divine right to rule. You expect great deference. You judge whether offerings presented to you are worthy of a king's acceptance — based purely on your own taste and royal vibes.`;
 
@@ -460,15 +462,15 @@ function populateVoiceDropdowns(all) {
 }
 
 const EL_VOICE_IDS = {
-  narrator: 'Ifk8AQTxj0gHQePJQaNb',
-  krab:     'wHqm7vkgdXGGDW1uxWrJ',
+  narrator: 'flHkNRp1BlvT73UL6gyz',
+  krab:     'YKrm0N1EAM9Bw27j8kuD',
 };
 
 // Per-voice playback gain (0–1). Tune by ear — different voices have different
 // inherent loudness. Applied in both browser TTS and ElevenLabs paths.
 const VOICE_VOLUME = {
   narrator: 1.0,
-  krab:     0.7,
+  krab:     1.0,
 };
 
 const elAudioCache = new Map(); // `${voiceId}::${text}` -> blob URL
