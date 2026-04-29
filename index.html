@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>King Krab Event — Prototype</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    margin: 0;
+    background: #0e1116;
+    color: #e6edf3;
+    min-height: 100vh;
+  }
+  .container {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 16px;
+    padding: 16px;
+    min-height: 100vh;
+  }
+  @media (max-width: 900px) {
+    .container { grid-template-columns: 1fr; }
+  }
+  .pane {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 10px;
+    padding: 18px;
+    overflow: hidden;
+  }
+  .pane h2 {
+    margin: 0 0 14px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #8b949e;
+    font-weight: 600;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .tts-controls { display: flex; gap: 8px; align-items: center; font-size: 11px; }
+  .tts-controls label { color: #8b949e; cursor: pointer; }
+  .tts-controls input[type=checkbox] { vertical-align: middle; }
+  .tts-controls select {
+    background: #0d1117;
+    border: 1px solid #30363d;
+    color: #e6edf3;
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-size: 11px;
+    max-width: 140px;
+  }
+
+  .beat {
+    margin-bottom: 18px;
+    padding-bottom: 18px;
+    border-bottom: 1px solid #21262d;
+  }
+  .beat:last-of-type { border-bottom: none; }
+
+  .segment {
+    font-size: 16px;
+    line-height: 1.65;
+    margin-bottom: 10px;
+    padding: 6px 10px;
+    border-left: 3px solid transparent;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: pre-wrap;
+  }
+  .segment:last-child { margin-bottom: 0; }
+  .segment.voice-narrator {
+    color: #e6edf3;
+    border-left-color: #30363d;
+  }
+  .segment.voice-krab {
+    color: #ffb380;
+    font-style: italic;
+    border-left-color: #ff9a4a;
+  }
+  .segment.speaking {
+    background: rgba(88, 166, 255, 0.08);
+    border-left-color: #58a6ff;
+  }
+  .voice-tag {
+    display: inline-block;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #6e7681;
+    margin-right: 8px;
+    vertical-align: middle;
+  }
+
+  .phone .player-name {
+    color: #8b949e;
+    margin-bottom: 14px;
+    font-size: 13px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #21262d;
+  }
+  .phone .player-name strong { color: #e6edf3; }
+  .phone .prompt {
+    margin-bottom: 12px;
+    color: #c9d1d9;
+    font-size: 14px;
+  }
+  .phone input[type=text] {
+    width: 100%;
+    padding: 11px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    color: #e6edf3;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .phone input[type=text]:focus { outline: none; border-color: #58a6ff; }
+  .phone .inventory {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .phone .item {
+    padding: 11px 13px;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #0d1117;
+    font-size: 14px;
+    transition: border-color 0.1s, background 0.1s;
+  }
+  .phone .item:hover { border-color: #58a6ff; }
+  .phone .item.selected {
+    border-color: #58a6ff;
+    background: #1f3553;
+  }
+  .phone .actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .phone button {
+    padding: 11px;
+    background: #238636;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+  }
+  .phone button:hover:not(:disabled) { background: #2ea043; }
+  .phone button.secondary { background: #30363d; }
+  .phone button.secondary:hover:not(:disabled) { background: #424a53; }
+  .phone button:disabled { opacity: 0.45; cursor: not-allowed; }
+  .loading {
+    color: #8b949e;
+    font-style: italic;
+    padding: 8px 0;
+  }
+  .error {
+    color: #f85149;
+    padding: 10px;
+    border: 1px solid #f85149;
+    border-radius: 6px;
+    background: rgba(248, 81, 73, 0.08);
+  }
+  .outcome {
+    padding: 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    margin-bottom: 12px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .outcome.outcome-1 { border-color: #2ea043; }
+  .outcome.outcome-2 { border-color: #da3633; }
+  .outcome.outcome-3 { border-color: #8b949e; }
+  details.debug-wrap {
+    margin-top: 24px;
+    border-top: 1px solid #21262d;
+    padding-top: 14px;
+  }
+  details.debug-wrap summary {
+    cursor: pointer;
+    color: #8b949e;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .debug {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 12px;
+    color: #8b949e;
+    margin-top: 12px;
+    padding: 12px;
+    background: #0d1117;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    white-space: pre-wrap;
+    max-height: 320px;
+    overflow: auto;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <section class="pane host">
+    <h2>
+      <span>Host Screen</span>
+      <span class="tts-controls">
+        <select id="tts-mode" title="Audio mode">
+          <option value="off">Audio: Off</option>
+          <option value="browser" selected>Audio: Browser</option>
+          <option value="elevenlabs">Audio: ElevenLabs ($)</option>
+        </select>
+        <select id="voice-narrator" title="Narrator voice"></select>
+        <select id="voice-krab" title="Krab voice"></select>
+      </span>
+    </h2>
+    <div id="beats"></div>
+    <details class="debug-wrap">
+      <summary>Storyteller messages (debug)</summary>
+      <div id="debug" class="debug">(empty)</div>
+    </details>
+  </section>
+  <section class="pane phone">
+    <h2>Player's Phone</h2>
+    <div class="player-name">Playing as: <strong id="player-name">Jack</strong></div>
+    <div id="phone-content"></div>
+  </section>
+</div>
+
+<script>
+// ============================================================
+// Player (hardcoded)
+// ============================================================
+const PLAYER = {
+  name: 'Jack',
+  inventory: ['coconut', 'shiny_rock', 'feather'],
+  dominantAttribute: null, // none → dice roll on the return-item path
+};
+
+// ============================================================
+// Prompts
+// ============================================================
+const STORYTELLER_SYSTEM = `You are the storyteller for an island survival choose-your-own-adventure game. Players are stranded on a deserted tropical island. You are building an unfolding story involving survival pressure, island magic, and personal discovery.
+
+Each call, you emit one beat of the host-screen script via the \`emit_beat\` tool. A beat is the unit of action between player choices. It ends at the moment the player must make their next choice, or at scene close for terminal beats. The audience hears your output via text-to-speech.
+
+A beat is an ordered array of voice segments. Two voices are available:
+
+NARRATOR voice:
+- Third-person, present tense.
+- Vary sentence structure and length.
+- Read aloud by TTS — favor prose that sounds natural when spoken.
+- Write only flowing prose. Never use asterisks or stage directions. Any character actions must be described in prose, not bracketed off.
+
+KRAB voice:
+- King Krab himself, speaking aloud to the players.
+- He believes the island chose him as king of the crabs and exercises a divine right to rule. He demands deference. His manner is over-blown, bombastic, theatrical.
+- Output only what he says aloud. No stage directions, asterisks, or roleplay action descriptions.
+
+CONTINUITY: Prior beats in this conversation are visible as your past tool calls. The audience has already heard them. Never re-establish or repeat what has been said. Pick up where the previous beat left off.
+
+CONSTRAINTS: Do not invent player actions, decisions, dialogue, items, or outcomes. The player's turn belongs to the player. Stop at the player's next choice (or at scene close for terminal beats).
+
+SEGMENT SHAPE: Use as many segments as fit naturally — sometimes just narrator, sometimes narrator → krab → narrator, sometimes a single krab segment. Don't force structure.`;
+
+const KRAB_JUDGMENT_SYSTEM = `You are King Krab. You believe the island chose you as king of the crabs and you exercise a divine right to rule. You expect great deference. You judge whether offerings presented to you are worthy of a king's acceptance — based purely on your own taste and royal vibes.`;
+
+const EMIT_BEAT_TOOL = {
+  name: 'emit_beat',
+  description: 'Emit the next beat of the host-screen script as an ordered list of voice segments.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      segments: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            voice: { type: 'string', enum: ['narrator', 'krab'] },
+            text:  { type: 'string' },
+          },
+          required: ['voice', 'text'],
+        },
+      },
+    },
+    required: ['segments'],
+  },
+};
+
+const JUDGE_OFFERING_TOOL = {
+  name: 'judge_offering',
+  description: 'Decide whether the offering is worthy of King Krab.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      verdict: { type: 'string', enum: ['worthy', 'unworthy'] },
+    },
+    required: ['verdict'],
+  },
+};
+
+// dice-roll return items (1-3) when no dominant attribute
+const RETURN_ITEMS = [
+  "seaweed jester's cap",  // 1 (S)
+  "crab-claw axe",          // 2 (P)
+  "magical pearl",          // 3 (M)
+];
+
+// ============================================================
+// State
+// ============================================================
+const state = {
+  beat: 'idle',
+  storytellerMessages: [],   // running messages array for storyteller
+  lastToolUseId: null,
+  selectedItem: null,
+  outcome: null,
+  returnItem: null,
+  destroyedItem: null,
+};
+
+// ============================================================
+// API
+// ============================================================
+async function callClaude(body) {
+  const r = await fetch('/api/claude', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    throw new Error(err.error || `HTTP ${r.status}`);
+  }
+  return r.json();
+}
+
+async function callStoryteller(beatInstruction) {
+  // Append the new user message. If a prior tool_use exists, ack it via tool_result.
+  if (state.lastToolUseId) {
+    state.storytellerMessages.push({
+      role: 'user',
+      content: [
+        { type: 'tool_result', tool_use_id: state.lastToolUseId, content: 'ok' },
+        { type: 'text', text: beatInstruction },
+      ],
+    });
+  } else {
+    state.storytellerMessages.push({ role: 'user', content: beatInstruction });
+  }
+
+  const result = await callClaude({
+    system: STORYTELLER_SYSTEM,
+    messages: state.storytellerMessages,
+    max_tokens: 2000,
+    tools: [EMIT_BEAT_TOOL],
+    tool_choice: { type: 'tool', name: 'emit_beat' },
+  });
+
+  const toolUse = result.content.find(b => b.type === 'tool_use');
+  if (!toolUse) throw new Error('Storyteller did not emit a beat');
+
+  state.storytellerMessages.push({ role: 'assistant', content: result.content });
+  state.lastToolUseId = toolUse.id;
+
+  renderDebug();
+  return toolUse.input.segments;
+}
+
+async function judgeOffering(item) {
+  const result = await callClaude({
+    system: KRAB_JUDGMENT_SYSTEM,
+    messages: [{
+      role: 'user',
+      content: `${PLAYER.name} has offered you "${item}" as a tribute. Judge whether this is a worthy offering.`,
+    }],
+    max_tokens: 200,
+    tools: [JUDGE_OFFERING_TOOL],
+    tool_choice: { type: 'tool', name: 'judge_offering' },
+  });
+  const toolUse = result.content.find(b => b.type === 'tool_use');
+  if (!toolUse) throw new Error('Judge did not return a verdict');
+  return toolUse.input.verdict; // "worthy" | "unworthy"
+}
+
+// ============================================================
+// TTS — browser speechSynthesis
+// ============================================================
+const synth = window.speechSynthesis;
+const VOICE_MAP = { narrator: null, krab: null };
+let voicesReady = false;
+
+function loadVoices() {
+  return new Promise(resolve => {
+    const v = synth.getVoices();
+    if (v.length > 0) {
+      voicesReady = true;
+      pickVoices(v);
+      populateVoiceDropdowns(v);
+      resolve();
+    } else {
+      synth.addEventListener('voiceschanged', () => {
+        const vv = synth.getVoices();
+        voicesReady = true;
+        pickVoices(vv);
+        populateVoiceDropdowns(vv);
+        resolve();
+      }, { once: true });
+    }
+  });
+}
+
+function pickVoices(all) {
+  const en = all.filter(v => v.lang.startsWith('en'));
+  const findByName = (names) => {
+    for (const n of names) {
+      const v = en.find(v => v.name.toLowerCase().includes(n.toLowerCase()));
+      if (v) return v;
+    }
+    return null;
+  };
+  const narratorPrefs = ['Samantha', 'Karen', 'Moira', 'Tessa', 'Serena', 'Google UK English Female', 'Google US English'];
+  const krabPrefs = ['Fred', 'Daniel', 'Albert', 'Ralph', 'Reed', 'Rocko', 'Google UK English Male'];
+
+  VOICE_MAP.narrator = findByName(narratorPrefs) || en.find(v => v.default) || en[0] || all[0];
+  let krab = findByName(krabPrefs);
+  if (!krab || krab === VOICE_MAP.narrator) {
+    krab = en.find(v => v !== VOICE_MAP.narrator) || all.find(v => v !== VOICE_MAP.narrator) || all[0];
+  }
+  VOICE_MAP.krab = krab;
+}
+
+function populateVoiceDropdowns(all) {
+  const en = all.filter(v => v.lang.startsWith('en'));
+  const list = en.length > 0 ? en : all;
+  for (const which of ['narrator', 'krab']) {
+    const sel = document.getElementById('voice-' + which);
+    sel.innerHTML = '';
+    for (const v of list) {
+      const opt = document.createElement('option');
+      opt.value = v.name;
+      opt.textContent = `${v.name} (${v.lang})`;
+      if (v === VOICE_MAP[which]) opt.selected = true;
+      sel.appendChild(opt);
+    }
+    sel.onchange = () => {
+      VOICE_MAP[which] = list.find(v => v.name === sel.value);
+    };
+  }
+}
+
+const EL_VOICE_IDS = {
+  narrator: 'Ifk8AQTxj0gHQePJQaNb',
+  krab:     'wHqm7vkgdXGGDW1uxWrJ',
+};
+
+// Per-voice playback gain (0–1). Tune by ear — different voices have different
+// inherent loudness. Applied in both browser TTS and ElevenLabs paths.
+const VOICE_VOLUME = {
+  narrator: 1.0,
+  krab:     0.7,
+};
+
+const elAudioCache = new Map(); // `${voiceId}::${text}` -> blob URL
+
+function speakBrowser(text, voiceKey) {
+  return new Promise(resolve => {
+    const utter = new SpeechSynthesisUtterance(text);
+    if (VOICE_MAP[voiceKey]) utter.voice = VOICE_MAP[voiceKey];
+    if (voiceKey === 'krab') {
+      utter.pitch = 0.7;
+      utter.rate = 0.95;
+    } else {
+      utter.pitch = 1.0;
+      utter.rate = 1.0;
+    }
+    utter.volume = VOICE_VOLUME[voiceKey] ?? 1.0;
+    utter.onend = () => resolve();
+    utter.onerror = () => resolve();
+    synth.speak(utter);
+  });
+}
+
+async function speakElevenLabs(text, voiceKey) {
+  const voiceId = EL_VOICE_IDS[voiceKey];
+  if (!voiceId) return;
+  const cacheKey = `${voiceId}::${text}`;
+  let blobUrl = elAudioCache.get(cacheKey);
+  if (!blobUrl) {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice_id: voiceId, text }),
+    });
+    if (!resp.ok) {
+      console.error(`[ElevenLabs] HTTP ${resp.status}`);
+      return;
+    }
+    const blob = await resp.blob();
+    blobUrl = URL.createObjectURL(blob);
+    elAudioCache.set(cacheKey, blobUrl);
+  }
+  return new Promise(resolve => {
+    const audio = new Audio(blobUrl);
+    audio.volume = VOICE_VOLUME[voiceKey] ?? 1.0;
+    audio.onended = () => resolve();
+    audio.onerror = () => resolve();
+    audio.play().catch(() => resolve());
+  });
+}
+
+function speak(text, voiceKey) {
+  const mode = document.getElementById('tts-mode').value;
+  if (mode === 'off') return Promise.resolve();
+  if (mode === 'elevenlabs') return speakElevenLabs(text, voiceKey);
+  return speakBrowser(text, voiceKey);
+}
+
+async function playSegments(segmentEls) {
+  for (const { el, voice, text } of segmentEls) {
+    el.classList.add('speaking');
+    await speak(text, voice);
+    el.classList.remove('speaking');
+  }
+}
+
+// ============================================================
+// Render
+// ============================================================
+function renderBeat(segments) {
+  const beatDiv = document.createElement('div');
+  beatDiv.className = 'beat';
+  const segmentEls = [];
+  for (const seg of segments) {
+    const segDiv = document.createElement('div');
+    segDiv.className = `segment voice-${seg.voice}`;
+    const tag = document.createElement('span');
+    tag.className = 'voice-tag';
+    tag.textContent = seg.voice;
+    const txt = document.createElement('span');
+    txt.textContent = seg.text;
+    segDiv.appendChild(tag);
+    segDiv.appendChild(txt);
+    beatDiv.appendChild(segDiv);
+    segmentEls.push({ el: segDiv, voice: seg.voice, text: seg.text });
+  }
+  document.getElementById('beats').appendChild(beatDiv);
+  beatDiv.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  return segmentEls;
+}
+
+function renderDebug() {
+  const el = document.getElementById('debug');
+  el.textContent = JSON.stringify(state.storytellerMessages, null, 2) || '(empty)';
+}
+
+function setPhone(html) {
+  document.getElementById('phone-content').innerHTML = html;
+}
+
+function setPhoneLoading(text) {
+  setPhone(`<div class="loading">${text}</div>`);
+}
+
+function setPhoneError(msg) {
+  setPhone(`<div class="error">${msg}</div><div class="actions"><button id="restart">Reset</button></div>`);
+  document.getElementById('restart').onclick = () => location.reload();
+}
+
+// ============================================================
+// Beats
+// ============================================================
+async function startEvent() {
+  state.beat = 'greeting';
+  setPhoneLoading('King Krab approaches…');
+  try {
+    const instruction =
+      `Generate the OPENING beat of the King Krab encounter. The player ${PLAYER.name} has just rounded a bend on the beach and come upon King Krab for the first time. ` +
+      `The narrator may refer to ${PLAYER.name} by name (the narrator is omniscient). King Krab himself does not yet know ${PLAYER.name}'s name — he should greet ${PLAYER.name} as a stranger and demand to know who has approached. ` +
+      `End the beat at the moment ${PLAYER.name} must respond.`;
+    const segments = await callStoryteller(instruction);
+    const els = renderBeat(segments);
+    showNameInputUI();
+    playSegments(els); // non-blocking
+  } catch (e) {
+    setPhoneError(`Error: ${e.message}`);
+  }
+}
+
+function showNameInputUI() {
+  state.beat = 'name-input';
+  setPhone(`
+    <div class="prompt">Reply to King Krab:</div>
+    <input type="text" id="name-input" placeholder="(your name, or anything you'd like to say)" autocomplete="off">
+    <div class="actions">
+      <button id="submit-name">Send</button>
+    </div>
+  `);
+  const input = document.getElementById('name-input');
+  input.focus();
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') onSubmitName(); });
+  document.getElementById('submit-name').onclick = onSubmitName;
+}
+
+async function onSubmitName() {
+  const input = document.getElementById('name-input');
+  const text = input.value.trim();
+  if (!text) return;
+  state.beat = 'asking-offering';
+  setPhoneLoading('King Krab considers you…');
+  try {
+    const instruction =
+      `${PLAYER.name} just replied: "${text}". ` +
+      `Generate the next beat: King Krab now knows ${PLAYER.name}'s name (or interprets whatever was said). King Krab demands an offering — a tribute befitting a king. ` +
+      `End at the moment ${PLAYER.name} must choose what to offer.`;
+    const segments = await callStoryteller(instruction);
+    const els = renderBeat(segments);
+    showOfferingUI();
+    playSegments(els);
+  } catch (e) {
+    setPhoneError(`Error: ${e.message}`);
+  }
+}
+
+function showOfferingUI() {
+  state.beat = 'offering-choice';
+  state.selectedItem = null;
+  const items = PLAYER.inventory
+    .map(i => `<div class="item" data-item="${i}">${i}</div>`)
+    .join('');
+  setPhone(`
+    <div class="prompt">Choose an offering, or politely decline:</div>
+    <div class="inventory">${items || '<div class="loading">(no items)</div>'}</div>
+    <div class="actions">
+      <button id="confirm-offer" disabled>Offer selected item</button>
+      <button id="decline" class="secondary">Politely decline and back away slowly</button>
+    </div>
+  `);
+  document.querySelectorAll('.item').forEach(el => {
+    el.onclick = () => {
+      document.querySelectorAll('.item').forEach(e => e.classList.remove('selected'));
+      el.classList.add('selected');
+      state.selectedItem = el.dataset.item;
+      document.getElementById('confirm-offer').disabled = false;
+    };
+  });
+  document.getElementById('confirm-offer').onclick = onOfferItem;
+  document.getElementById('decline').onclick = onDecline;
+}
+
+async function onOfferItem() {
+  const item = state.selectedItem;
+  if (!item) return;
+  state.beat = 'judging';
+  setPhoneLoading('King Krab examines your offering…');
+  try {
+    const verdict = await judgeOffering(item);
+
+    if (verdict === 'worthy') {
+      const giftItem = RETURN_ITEMS[Math.floor(Math.random() * RETURN_ITEMS.length)];
+      state.returnItem = giftItem;
+      PLAYER.inventory = PLAYER.inventory.map(i => (i === item ? giftItem : i));
+
+      const instruction =
+        `${PLAYER.name} just offered "${item}" as tribute. King Krab considers it a WORTHY offering. ` +
+        `Generate the outcome beat: King Krab accepts the offering, presents "${giftItem}" in return, and explains its usefulness. The encounter concludes here — close the scene cleanly.`;
+      const segments = await callStoryteller(instruction);
+      const els = renderBeat(segments);
+      state.outcome = 1;
+      endEvent();
+      await playSegments(els);
+    } else {
+      state.destroyedItem = item;
+      PLAYER.inventory = PLAYER.inventory.filter(i => i !== item);
+
+      const instruction =
+        `${PLAYER.name} just offered "${item}" as tribute. King Krab considers it an UNWORTHY offering. ` +
+        `Generate the outcome beat: King Krab becomes angry, insults ${PLAYER.name}, and declares that he is destroying the offered item. The encounter concludes here — close the scene cleanly.`;
+      const segments = await callStoryteller(instruction);
+      const els = renderBeat(segments);
+      state.outcome = 2;
+      endEvent();
+      await playSegments(els);
+    }
+  } catch (e) {
+    setPhoneError(`Error: ${e.message}`);
+  }
+}
+
+async function onDecline() {
+  state.beat = 'declining';
+  setPhoneLoading('You back away slowly…');
+  try {
+    const instruction =
+      `${PLAYER.name} has politely declined to offer anything and is backing away. ` +
+      `Generate the closing beat — narrator only. King Krab does NOT speak in this beat. The narrator describes ${PLAYER.name} retreating from the king's presence and returning the way he came. The encounter ends here.`;
+    const segments = await callStoryteller(instruction);
+    const els = renderBeat(segments);
+    state.outcome = 3;
+    endEvent();
+    await playSegments(els);
+  } catch (e) {
+    setPhoneError(`Error: ${e.message}`);
+  }
+}
+
+function endEvent() {
+  state.beat = 'ended';
+  let summary = '';
+  if (state.outcome === 1) {
+    summary = `<strong>Outcome 1 — Worthy offering.</strong><br>Received: <em>${state.returnItem}</em><br>Inventory: ${PLAYER.inventory.join(', ') || '(empty)'}`;
+  } else if (state.outcome === 2) {
+    summary = `<strong>Outcome 2 — Unworthy offering.</strong><br><em>${state.destroyedItem}</em> destroyed.<br>Inventory: ${PLAYER.inventory.join(', ') || '(empty)'}`;
+  } else if (state.outcome === 3) {
+    summary = `<strong>Outcome 3 — Politely declined.</strong><br>Inventory unchanged: ${PLAYER.inventory.join(', ')}`;
+  }
+  setPhone(`
+    <div class="outcome outcome-${state.outcome}">${summary}</div>
+    <div class="actions"><button id="restart">Run again</button></div>
+  `);
+  document.getElementById('restart').onclick = () => location.reload();
+}
+
+// ============================================================
+// Boot
+// ============================================================
+loadVoices();
+
+const ttsModeEl = document.getElementById('tts-mode');
+function syncVoiceDropdownVisibility() {
+  const showBrowserVoices = ttsModeEl.value === 'browser';
+  document.getElementById('voice-narrator').style.display = showBrowserVoices ? '' : 'none';
+  document.getElementById('voice-krab').style.display = showBrowserVoices ? '' : 'none';
+}
+ttsModeEl.addEventListener('change', syncVoiceDropdownVisibility);
+syncVoiceDropdownVisibility();
+
+setPhone(`<div class="prompt">Ready when you are.</div><div class="actions"><button id="begin">Begin event</button></div>`);
+document.getElementById('begin').onclick = startEvent;
+</script>
+</body>
+</html>
