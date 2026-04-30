@@ -11,7 +11,14 @@
   <link rel="stylesheet" href="minimap.css">
 </head>
 <body>
-  <div id="minimap" class="hidden"></div>
+  <div id="map-overlay" class="hidden">
+    <div id="minimap"></div>
+    <div id="map-legend">
+      <div class="legend-item"><span class="legend-swatch biome-beach"></span><span>Beach</span></div>
+      <div class="legend-item"><span class="legend-swatch biome-jungle"></span><span>Jungle</span></div>
+      <div class="legend-item"><span class="legend-swatch biome-cave"></span><span>Cave</span></div>
+    </div>
+  </div>
   <div id="layout">
     <div id="main">
       <div id="narration" class="panel">

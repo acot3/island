@@ -1,23 +1,60 @@
-#minimap {
+:root {
+  --biome-beach:  #e8d36a;
+  --biome-jungle: #84a26d;
+  --biome-cave:   #d68b85;
+}
+
+#map-overlay {
   position: fixed;
   top: 16px;
   right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  z-index: 50;
+}
+
+#map-overlay.hidden {
+  display: none;
+}
+
+#minimap {
   width: 440px;
   height: 440px;
   background: rgba(0, 0, 0, 0.7);
   border: 1px solid #333;
   padding: 10px;
-  z-index: 50;
-}
-
-#minimap.hidden {
-  display: none;
 }
 
 #minimap svg {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+#map-legend {
+  background: rgba(0, 0, 0, 0.7);
+  border: 1px solid #333;
+  padding: 10px 14px;
+  font-family: 'IBM Plex Mono', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+  color: #ddd;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+}
+
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 1px solid #111;
+  flex-shrink: 0;
 }
 
 .map-edge {
@@ -32,6 +69,10 @@
   stroke-width: 0.04;
 }
 
-.map-node.biome-beach  { fill: #e8d36a; }
-.map-node.biome-jungle { fill: #84a26d; }
-.map-node.biome-cave   { fill: #d68b85; }
+.map-node.biome-beach   { fill: var(--biome-beach); }
+.map-node.biome-jungle  { fill: var(--biome-jungle); }
+.map-node.biome-cave    { fill: var(--biome-cave); }
+
+.legend-swatch.biome-beach   { background: var(--biome-beach); }
+.legend-swatch.biome-jungle  { background: var(--biome-jungle); }
+.legend-swatch.biome-cave    { background: var(--biome-cave); }

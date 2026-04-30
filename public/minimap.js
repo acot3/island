@@ -47,7 +47,8 @@
   function initMinimap(socket, mountEl) {
     socket.on('map-state', (state) => {
       render(state, mountEl);
-      mountEl.classList.remove('hidden');
+      const overlay = mountEl.closest('#map-overlay') || mountEl;
+      overlay.classList.remove('hidden');
     });
   }
 
