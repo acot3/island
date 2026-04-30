@@ -14,9 +14,12 @@
   <div id="map-overlay" class="hidden">
     <div id="minimap"></div>
     <div id="map-legend">
-      <div class="legend-item"><span class="legend-swatch biome-beach"></span><span>Beach</span></div>
-      <div class="legend-item"><span class="legend-swatch biome-jungle"></span><span>Jungle</span></div>
-      <div class="legend-item"><span class="legend-swatch biome-cave"></span><span>Cave</span></div>
+      <div id="legend-biomes">
+        <div class="legend-item"><span class="legend-swatch biome-beach"></span><span>Beach</span></div>
+        <div class="legend-item"><span class="legend-swatch biome-jungle"></span><span>Jungle</span></div>
+        <div class="legend-item"><span class="legend-swatch biome-cave"></span><span>Cave</span></div>
+      </div>
+      <div id="legend-players"></div>
     </div>
   </div>
   <div id="layout">
@@ -35,6 +38,7 @@
       </div>
     </div>
   </div>
+  <button id="btn-reset" class="reset-btn">Reset</button>
   <script src="/socket.io/socket.io.js"></script>
   <script src="minimap.js"></script>
   <script src="app.js"></script>

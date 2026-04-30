@@ -122,3 +122,12 @@ socket.on('game-started', ({ day }) => {
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
+
+// --- Reset ---
+
+document.getElementById('btn-reset').addEventListener('click', () => {
+  if (!confirm('Reset the game and disconnect all players?')) return;
+  if (roomCode) socket.emit('reset-room');
+  sessionStorage.removeItem('island-host-code');
+  location.reload();
+});

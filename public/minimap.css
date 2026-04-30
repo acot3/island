@@ -57,6 +57,22 @@
   flex-shrink: 0;
 }
 
+.legend-ring {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+#legend-players:not(:empty) {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #333;
+}
+
 .map-edge {
   stroke: #666;
   stroke-width: 0.05;

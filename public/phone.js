@@ -32,6 +32,11 @@ socket.on('rejoin-fail', () => {
   myName = '';
 });
 
+socket.on('room-closed', () => {
+  sessionStorage.removeItem('island-phone');
+  location.reload();
+});
+
 // --- Header ---
 
 function renderHeader() {

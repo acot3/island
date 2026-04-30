@@ -3,7 +3,11 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const { getFullMap } = require('./lib/map');
+const { getFullMap, pickStartingCorner } = require('./lib/map');
+
+const PLAYER_COLORS = [
+  '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
+];
 
 const app = express();
 const server = http.createServer(app);
@@ -39,8 +43,15 @@ function createRoom() {
 
 function playerSummary(room) {
   return Array.from(room.players.entries()).map(([name, p]) => ({
-    name, pronouns: p.pronouns, mbti: p.mbti,
+    name, pronouns: p.pronouns, mbti: p.mbti, color: p.color,
   }));
+}
+
+function buildMapPayload(room) {
+  const players = Array.from(room.players.entries())
+    .filter(([, p]) => p.nodeId)
+    .map(([name, p]) => ({ name, color: p.color, nodeId: p.nodeId }));
+  return { ...getFullMap(), players };
 }
 
 // --- Sockets ---
@@ -73,7 +84,7 @@ io.on('connection', (socket) => {
       code, phase: room.phase, day: room.day, players: playerSummary(room),
     });
     if (room.phase === 'started') {
-      socket.emit('map-state', getFullMap());
+      socket.emit('map-state', buildMapPayload(room));
     }
     console.log(`[Room ${code}] host reconnected`);
   });
@@ -90,7 +101,8 @@ io.on('connection', (socket) => {
     if (!name) return socket.emit('join-error', { message: 'Name is required.' });
     if (room.players.has(name)) return socket.emit('join-error', { message: 'Name already taken.' });
 
-    room.players.set(name, { socketId: socket.id, pronouns, mbti });
+    const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
+    room.players.set(name, { socketId: socket.id, pronouns, mbti, color });
     currentRoom = code;
     currentName = name;
     socket.join(code);
@@ -126,11 +138,24 @@ io.on('connection', (socket) => {
 
     room.phase = 'started';
     room.day = 1;
+    room.startNodeId = pickStartingCorner();
+    for (const [, p] of room.players) p.nodeId = room.startNodeId;
     io.to(currentRoom).emit('game-started', { day: room.day });
     if (room.hostSocket) {
-      io.to(room.hostSocket).emit('map-state', getFullMap());
+      io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
     }
-    console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s)`);
+    console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s) at ${room.startNodeId}`);
+  });
+
+  socket.on('reset-room', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room) return;
+    for (const [, p] of room.players) {
+      if (p.socketId) io.to(p.socketId).emit('room-closed');
+    }
+    rooms.delete(currentRoom);
+    console.log(`[Room ${currentRoom}] reset by host`);
   });
 
   socket.on('disconnect', () => {

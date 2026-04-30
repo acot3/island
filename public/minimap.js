@@ -40,14 +40,61 @@
       svg.appendChild(c);
     }
 
+    // Player rings — one ring per node, divided into equal arcs (donut style).
+    // Trick: each segment is a full circle with a stroke-dasharray that exposes
+    // only its slice, offset to start where the previous segment ends.
+    const playersByNode = {};
+    for (const p of state.players || []) {
+      if (!p.nodeId) continue;
+      (playersByNode[p.nodeId] = playersByNode[p.nodeId] || []).push(p);
+    }
+    for (const [nodeId, players] of Object.entries(playersByNode)) {
+      const n = nodeById[nodeId];
+      if (!n) continue;
+      const r = 0.4;
+      const C = 2 * Math.PI * r;
+      const segLen = C / players.length;
+      players.forEach((p, i) => {
+        const ring = document.createElementNS(SVG_NS, 'circle');
+        ring.setAttribute('cx', n.x);
+        ring.setAttribute('cy', n.y);
+        ring.setAttribute('r', String(r));
+        ring.setAttribute('fill', 'none');
+        ring.setAttribute('stroke', p.color);
+        ring.setAttribute('stroke-width', '0.08');
+        ring.setAttribute('stroke-dasharray', `${segLen} ${C - segLen}`);
+        ring.setAttribute('stroke-dashoffset', String(-i * segLen));
+        // Rotate so segment 0 starts at 12 o'clock and the donut grows clockwise.
+        ring.setAttribute('transform', `rotate(-90 ${n.x} ${n.y})`);
+        ring.setAttribute('class', 'map-player-ring');
+        svg.appendChild(ring);
+      });
+    }
+
     mountEl.innerHTML = '';
     mountEl.appendChild(svg);
+  }
+
+  function renderPlayerLegend(state, el) {
+    const players = state.players || [];
+    el.innerHTML = players.map(p => `
+      <div class="legend-item">
+        <span class="legend-ring" style="color: ${p.color}"></span>
+        <span>${escapeHtml(p.name)}</span>
+      </div>
+    `).join('');
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
 
   function initMinimap(socket, mountEl) {
     socket.on('map-state', (state) => {
       render(state, mountEl);
       const overlay = mountEl.closest('#map-overlay') || mountEl;
+      const legendPlayersEl = overlay.querySelector('#legend-players');
+      if (legendPlayersEl) renderPlayerLegend(state, legendPlayersEl);
       overlay.classList.remove('hidden');
     });
   }
