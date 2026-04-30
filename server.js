@@ -1,64 +1,144 @@
 require('dotenv').config();
 const express = require('express');
+const http = require('http');
 const path = require('path');
-const Anthropic = require('@anthropic-ai/sdk');
+const { Server } = require('socket.io');
 
 const app = express();
-const anthropic = new Anthropic();
+const server = http.createServer(app);
+const io = new Server(server);
 
-app.use(express.json({ limit: '1mb' }));
-app.use(express.static(__dirname));
+app.use(express.static(path.join(__dirname, 'public')));
+app.get('/play', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'phone.html')));
 
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'index.html')));
+// --- Rooms ---
 
-app.post('/api/tts', async (req, res) => {
-  try {
-    const { voice_id, text } = req.body;
-    if (!voice_id || !text) return res.status(400).json({ error: 'voice_id and text required' });
-    const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice_id}`, {
-      method: 'POST',
-      headers: {
-        'xi-api-key': process.env.ELEVENLABS_API_KEY,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        text,
-        model_id: 'eleven_turbo_v2_5',
-        voice_settings: { stability: 0.3, similarity_boost: 0.8, speed: 1.0 },
-      }),
+const rooms = new Map();
+
+function generateRoomCode() {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+  let code;
+  do {
+    code = '';
+    for (let i = 0; i < 4; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  } while (rooms.has(code));
+  return code;
+}
+
+function createRoom() {
+  const code = generateRoomCode();
+  rooms.set(code, {
+    hostSocket: null,
+    players: new Map(), // name -> { socketId, pronouns, mbti }
+    phase: 'lobby',     // 'lobby' | 'started'
+    day: 1,
+  });
+  return code;
+}
+
+function playerSummary(room) {
+  return Array.from(room.players.entries()).map(([name, p]) => ({
+    name, pronouns: p.pronouns, mbti: p.mbti,
+  }));
+}
+
+// --- Sockets ---
+
+io.on('connection', (socket) => {
+  let currentRoom = null;
+  let currentName = null;
+  let isHost = false;
+
+  socket.on('create-room', () => {
+    const code = createRoom();
+    const room = rooms.get(code);
+    room.hostSocket = socket.id;
+    currentRoom = code;
+    isHost = true;
+    socket.join(code);
+    socket.emit('room-created', { code });
+    console.log(`[Room ${code}] created by host ${socket.id}`);
+  });
+
+  socket.on('rejoin-host', ({ code }) => {
+    code = (code || '').toUpperCase().trim();
+    const room = rooms.get(code);
+    if (!room) return;
+    room.hostSocket = socket.id;
+    currentRoom = code;
+    isHost = true;
+    socket.join(code);
+    socket.emit('host-state', {
+      code, phase: room.phase, day: room.day, players: playerSummary(room),
     });
-    if (!resp.ok) {
-      const errText = await resp.text();
-      console.error('[/api/tts] ElevenLabs error', resp.status, errText);
-      return res.status(resp.status).send(errText);
-    }
-    const ab = await resp.arrayBuffer();
-    res.set({ 'Content-Type': 'audio/mpeg', 'Content-Length': ab.byteLength });
-    res.send(Buffer.from(ab));
-  } catch (err) {
-    console.error('[/api/tts]', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
+    console.log(`[Room ${code}] host reconnected`);
+  });
 
-app.post('/api/claude', async (req, res) => {
-  try {
-    const { system, messages, max_tokens, tools, tool_choice } = req.body;
-    const params = {
-      model: 'claude-sonnet-4-6',
-      max_tokens: max_tokens || 1500,
-      messages,
-    };
-    if (system) params.system = system;
-    if (tools) params.tools = tools;
-    if (tool_choice) params.tool_choice = tool_choice;
-    const message = await anthropic.messages.create(params);
-    res.json({ content: message.content, stop_reason: message.stop_reason });
-  } catch (err) {
-    console.error('[/api/claude]', err.message);
-    res.status(500).json({ error: err.message });
-  }
+  socket.on('join-room', ({ code, name, pronouns, mbti }) => {
+    code = (code || '').toUpperCase().trim();
+    name = (name || '').trim();
+    pronouns = (pronouns || '').trim();
+    mbti = (mbti || '').trim().toUpperCase();
+    const room = rooms.get(code);
+
+    if (!room) return socket.emit('join-error', { message: 'Room not found.' });
+    if (room.phase !== 'lobby') return socket.emit('join-error', { message: 'Game already in progress.' });
+    if (!name) return socket.emit('join-error', { message: 'Name is required.' });
+    if (room.players.has(name)) return socket.emit('join-error', { message: 'Name already taken.' });
+
+    room.players.set(name, { socketId: socket.id, pronouns, mbti });
+    currentRoom = code;
+    currentName = name;
+    socket.join(code);
+
+    socket.emit('join-ok', { code, name });
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('players-update', { players: playerSummary(room) });
+    }
+    console.log(`[Room ${code}] ${name} joined (${pronouns || '—'}, ${mbti || '—'})`);
+  });
+
+  socket.on('rejoin-room', ({ code, name }) => {
+    code = (code || '').toUpperCase().trim();
+    name = (name || '').trim();
+    const room = rooms.get(code);
+    if (!room) return socket.emit('rejoin-fail', {});
+    const player = room.players.get(name);
+    if (!player) return socket.emit('rejoin-fail', {});
+
+    player.socketId = socket.id;
+    currentRoom = code;
+    currentName = name;
+    socket.join(code);
+    socket.emit('rejoin-state', { code, name, phase: room.phase, day: room.day });
+    console.log(`[Room ${code}] ${name} reconnected`);
+  });
+
+  socket.on('start-game', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'lobby') return;
+    if (room.players.size < 1) return;
+
+    room.phase = 'started';
+    room.day = 1;
+    io.to(currentRoom).emit('game-started', { day: room.day });
+    console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s)`);
+  });
+
+  socket.on('disconnect', () => {
+    if (currentRoom && currentName) {
+      const room = rooms.get(currentRoom);
+      if (room) {
+        const p = room.players.get(currentName);
+        if (p) p.socketId = null;
+      }
+    }
+  });
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`King Krab prototype on http://localhost:${PORT}`));
+server.listen(PORT, () => {
+  console.log(`Island v0.5 on http://localhost:${PORT}`);
+  console.log(`Phones join at http://localhost:${PORT}/play`);
+});
