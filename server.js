@@ -3,7 +3,10 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
-const { getFullMap, pickStartingCorner } = require('./lib/map');
+const {
+  getFullMap, pickStartingCorner,
+  NODES, neighborsOf, neighborsWithMeta,
+} = require('./lib/map');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -52,6 +55,18 @@ function buildMapPayload(room) {
     .filter(([, p]) => p.nodeId)
     .map(([name, p]) => ({ name, color: p.color, nodeId: p.nodeId }));
   return { ...getFullMap(), players };
+}
+
+function buildLocationPayload(room, name) {
+  const player = room.players.get(name);
+  if (!player || !player.nodeId) return null;
+  const node = NODES[player.nodeId];
+  return {
+    nodeId: player.nodeId,
+    biome: node.biome,
+    color: player.color,
+    neighbors: neighborsWithMeta(player.nodeId),
+  };
 }
 
 // --- Sockets ---
@@ -127,6 +142,9 @@ io.on('connection', (socket) => {
     currentName = name;
     socket.join(code);
     socket.emit('rejoin-state', { code, name, phase: room.phase, day: room.day });
+    if (room.phase === 'started' && player.nodeId) {
+      socket.emit('your-location', buildLocationPayload(room, name));
+    }
     console.log(`[Room ${code}] ${name} reconnected`);
   });
 
@@ -144,7 +162,28 @@ io.on('connection', (socket) => {
     if (room.hostSocket) {
       io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
     }
+    for (const [name, p] of room.players) {
+      if (p.socketId) {
+        io.to(p.socketId).emit('your-location', buildLocationPayload(room, name));
+      }
+    }
     console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s) at ${room.startNodeId}`);
+  });
+
+  socket.on('submit-move', ({ targetNodeId } = {}) => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    const player = room.players.get(currentName);
+    if (!player || !player.nodeId) return;
+    if (!neighborsOf(player.nodeId).includes(targetNodeId)) return;
+
+    player.nodeId = targetNodeId;
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
+    }
+    socket.emit('your-location', buildLocationPayload(room, currentName));
+    console.log(`[Room ${currentRoom}] ${currentName} moved to ${targetNodeId}`);
   });
 
   socket.on('reset-room', () => {

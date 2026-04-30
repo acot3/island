@@ -1,0 +1,23 @@
+/* Shared map rendering — used by host minimap AND phone molecule. */
+
+:root {
+  --biome-beach:  #e8d36a;
+  --biome-jungle: #84a26d;
+  --biome-cave:   #d68b85;
+}
+
+.map-edge {
+  stroke: #666;
+  stroke-width: 0.05;
+  fill: none;
+  stroke-linecap: round;
+}
+
+.map-node {
+  stroke: #111;
+  stroke-width: 0.04;
+}
+
+.map-node.biome-beach   { fill: var(--biome-beach); }
+.map-node.biome-jungle  { fill: var(--biome-jungle); }
+.map-node.biome-cave    { fill: var(--biome-cave); }

@@ -1,8 +1,5 @@
-:root {
-  --biome-beach:  #e8d36a;
-  --biome-jungle: #84a26d;
-  --biome-cave:   #d68b85;
-}
+/* Host-only — overlay layout + legend.
+   Shared map node/edge rules live in map-styles.css. */
 
 #map-overlay {
   position: fixed;
@@ -72,22 +69,6 @@
   padding-top: 8px;
   border-top: 1px solid #333;
 }
-
-.map-edge {
-  stroke: #666;
-  stroke-width: 0.05;
-  fill: none;
-  stroke-linecap: round;
-}
-
-.map-node {
-  stroke: #111;
-  stroke-width: 0.04;
-}
-
-.map-node.biome-beach   { fill: var(--biome-beach); }
-.map-node.biome-jungle  { fill: var(--biome-jungle); }
-.map-node.biome-cave    { fill: var(--biome-cave); }
 
 .legend-swatch.biome-beach   { background: var(--biome-beach); }
 .legend-swatch.biome-jungle  { background: var(--biome-jungle); }
