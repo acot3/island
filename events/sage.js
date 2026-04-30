@@ -60,7 +60,7 @@ export default {
     browserPrefs: ['Daniel', 'Oliver', 'Google UK English Male'],
     pitch: 1.0,
     rate: 1.0,
-    elevenLabsId: 'uDsPstFWFBUXjIBimV7s',
+    elevenLabsId: 'A9evEp8yGjv4c3WsIKuY',
     volume: 1.0,
   }],
 
