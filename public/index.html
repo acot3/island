@@ -8,8 +8,10 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="minimap.css">
 </head>
 <body>
+  <div id="minimap" class="hidden"></div>
   <div id="layout">
     <div id="main">
       <div id="narration" class="panel">
@@ -27,6 +29,7 @@
     </div>
   </div>
   <script src="/socket.io/socket.io.js"></script>
+  <script src="minimap.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

@@ -3,6 +3,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
+const { getFullMap } = require('./lib/map');
 
 const app = express();
 const server = http.createServer(app);
@@ -71,6 +72,9 @@ io.on('connection', (socket) => {
     socket.emit('host-state', {
       code, phase: room.phase, day: room.day, players: playerSummary(room),
     });
+    if (room.phase === 'started') {
+      socket.emit('map-state', getFullMap());
+    }
     console.log(`[Room ${code}] host reconnected`);
   });
 
@@ -123,6 +127,9 @@ io.on('connection', (socket) => {
     room.phase = 'started';
     room.day = 1;
     io.to(currentRoom).emit('game-started', { day: room.day });
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('map-state', getFullMap());
+    }
     console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s)`);
   });
 

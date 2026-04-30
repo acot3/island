@@ -1,5 +1,7 @@
 const socket = io();
 
+initMinimap(socket, document.getElementById('minimap'));
+
 const narrationContent = document.getElementById('narration-content');
 const debugPanel = document.getElementById('debug');
 const debugToggle = document.getElementById('debug-toggle');
