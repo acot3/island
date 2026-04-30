@@ -198,8 +198,8 @@
       <span class="tts-controls">
         <select id="tts-mode" title="Audio mode">
           <option value="off">Audio: Off</option>
-          <option value="browser" selected>Audio: Browser</option>
-          <option value="elevenlabs">Audio: ElevenLabs ($)</option>
+          <option value="browser">Audio: Browser</option>
+          <option value="elevenlabs" selected>Audio: ElevenLabs ($)</option>
         </select>
       </span>
     </h2>
@@ -217,8 +217,6 @@
 </div>
 
 <script type="module">
-import event from './events/king-krab.js';
-
 // ============================================================
 // Player (hardcoded)
 // ============================================================
@@ -229,33 +227,46 @@ const PLAYER = {
 };
 
 // ============================================================
+// Event registry — add new events here.
+// ============================================================
+const EVENTS = [
+  { id: 'king-krab', label: 'King Krab', path: './events/king-krab.js' },
+  { id: 'sage',      label: 'The Sage',  path: './events/sage.js' },
+];
+
+// ============================================================
 // Stage (event-agnostic harness)
 // ============================================================
-document.title = event.title;
+let event = null;
+let EMIT_BEAT_TOOL = null;
 
-const ALL_VOICE_KEYS = ['narrator', ...event.characters.map(c => c.key)];
-
-const EMIT_BEAT_TOOL = {
-  name: 'emit_beat',
-  description: 'Emit the next beat of the host-screen script as an ordered list of voice segments.',
-  input_schema: {
-    type: 'object',
-    properties: {
-      segments: {
-        type: 'array',
-        items: {
-          type: 'object',
-          properties: {
-            voice: { type: 'string', enum: ALL_VOICE_KEYS },
-            text:  { type: 'string' },
+function buildEmitBeatTool(allVoiceKeys) {
+  return {
+    name: 'emit_beat',
+    description: 'Emit the next beat of the host-screen script as an ordered list of voice segments.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        segments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              voice: { type: 'string', enum: allVoiceKeys },
+              text:  { type: 'string' },
+            },
+            required: ['voice', 'text'],
           },
-          required: ['voice', 'text'],
+        },
+        scene_complete: {
+          type: 'boolean',
+          description: 'Set true if this beat naturally closes the scene (e.g. the character has departed). Optional; defaults to false.',
         },
       },
+      required: ['segments'],
     },
-    required: ['segments'],
-  },
-};
+  };
+}
 
 // ============================================================
 // State
@@ -310,7 +321,10 @@ async function callStoryteller(beatInstruction) {
   state.lastToolUseId = toolUse.id;
 
   renderDebug();
-  return toolUse.input.segments;
+  return {
+    segments: toolUse.input.segments,
+    sceneComplete: !!toolUse.input.scene_complete,
+  };
 }
 
 async function callTool({ system, userMessage, tool, max_tokens = 200 }) {
@@ -339,12 +353,12 @@ const NARRATOR_CONFIG = {
   volume: 1.0,
 };
 
-const VOICE_CONFIGS = [NARRATOR_CONFIG, ...event.characters];
-const VOICE_KEYS = VOICE_CONFIGS.map(c => c.key);
-const VOICE_BY_KEY = Object.fromEntries(VOICE_CONFIGS.map(c => [c.key, c]));
+// Set by loadEvent() once the user picks an event.
+let VOICE_CONFIGS = [NARRATOR_CONFIG];
+let VOICE_BY_KEY = { narrator: NARRATOR_CONFIG };
+let VOICE_MAP = { narrator: null };
 
 const synth = window.speechSynthesis;
-const VOICE_MAP = Object.fromEntries(VOICE_KEYS.map(k => [k, null]));
 let voicesReady = false;
 
 function loadVoices() {
@@ -574,7 +588,16 @@ const engine = {
 // ============================================================
 // Boot
 // ============================================================
-loadVoices();
+async function loadEvent(path) {
+  const mod = await import(path);
+  event = mod.default;
+  document.title = event.title;
+  VOICE_CONFIGS = [NARRATOR_CONFIG, ...event.characters];
+  VOICE_BY_KEY = Object.fromEntries(VOICE_CONFIGS.map(c => [c.key, c]));
+  VOICE_MAP = Object.fromEntries(VOICE_CONFIGS.map(c => [c.key, null]));
+  EMIT_BEAT_TOOL = buildEmitBeatTool(VOICE_CONFIGS.map(c => c.key));
+  await loadVoices();
+}
 
 const ttsModeEl = document.getElementById('tts-mode');
 function syncVoiceDropdownVisibility() {
@@ -588,14 +611,28 @@ syncVoiceDropdownVisibility();
 
 document.getElementById('player-name').textContent = PLAYER.name;
 
-setPhone(`<div class="prompt">Ready when you are.</div><div class="actions"><button id="begin">Begin event</button></div>`);
-document.getElementById('begin').onclick = async () => {
-  try {
-    await event.run(engine);
-  } catch (e) {
-    setPhoneError(`Error: ${e.message}`);
-  }
-};
+function showEventPicker() {
+  const options = EVENTS
+    .map(e => `<option value="${e.path}">${e.label}</option>`)
+    .join('');
+  setPhone(`
+    <div class="prompt">Choose an event:</div>
+    <select id="event-pick" style="width:100%;padding:11px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#e6edf3;font-size:14px;font-family:inherit;">${options}</select>
+    <div class="actions"><button id="begin">Begin event</button></div>
+  `);
+  document.getElementById('begin').onclick = async () => {
+    const path = document.getElementById('event-pick').value;
+    setPhoneLoading('Loading event…');
+    try {
+      await loadEvent(path);
+      await event.run(engine);
+    } catch (e) {
+      setPhoneError(`Error: ${e.message}`);
+    }
+  };
+}
+
+showEventPicker();
 </script>
 </body>
 </html>

@@ -23,7 +23,7 @@ CONTINUITY: Prior beats in this conversation are visible as your past tool calls
 
 CONSTRAINTS: Do not invent player actions, decisions, dialogue, items, or outcomes. The player's turn belongs to the player. Stop at the player's next choice (or at scene close for terminal beats).
 
-BREVITY: Each beat is limited to 80 words total across all segments — punchy and evocative, not expansive. Every word is read aloud; keep the audience moving.`;
+BREVITY: Each beat is limited to 100 words total across all segments — punchy and evocative, not expansive. Every word is read aloud; keep the audience moving.`;
 
 const KRAB_JUDGMENT_SYSTEM = `You are King Krab. You believe the island herself chose you as king of the crabs and you thereby exercise a divine right to rule. You expect great deference. You judge whether offerings presented to you are worthy of a king's acceptance — based purely on your own taste and high standards. Reject commonplace or unextraordinary items.`;
 
@@ -103,7 +103,7 @@ export default {
         `Generate the OPENING beat of the King Krab encounter. The player ${player.name} has just rounded a bend on the beach and come upon King Krab for the first time. ` +
         `The narrator may refer to ${player.name} by name (the narrator is omniscient). King Krab himself does not yet know ${player.name}'s name — he should greet ${player.name} as a stranger and demand to know who has approached. ` +
         `End the beat at the moment ${player.name} must respond.`;
-      const segments = await engine.callStoryteller(instruction);
+      const { segments } = await engine.callStoryteller(instruction);
       const els = engine.renderBeat(segments);
       engine.playSegments(els); // non-blocking
     }
@@ -121,7 +121,7 @@ export default {
         `${player.name} just replied: "${reply}". ` +
         `Generate the next beat: King Krab now knows ${player.name}'s name (or interprets whatever was said). King Krab demands an offering — a tribute befitting a king. ` +
         `End at the moment ${player.name} must choose what to offer.`;
-      const segments = await engine.callStoryteller(instruction);
+      const { segments } = await engine.callStoryteller(instruction);
       const els = engine.renderBeat(segments);
       engine.playSegments(els);
     }
@@ -135,7 +135,7 @@ export default {
       const instruction =
         `${player.name} has politely declined to offer anything and is backing away. ` +
         `Generate the closing beat — narrator only. King Krab does NOT speak in this beat. The narrator describes ${player.name} retreating from the king's presence and returning the way he came. The encounter ends here.`;
-      const segments = await engine.callStoryteller(instruction);
+      const { segments } = await engine.callStoryteller(instruction);
       const els = engine.renderBeat(segments);
       engine.end(`<strong>Outcome 3 — Politely declined.</strong><br>Inventory unchanged: ${player.inventory.join(', ')}`, 3);
       await engine.playSegments(els);
@@ -157,7 +157,7 @@ export default {
       const instruction =
         `${player.name} just offered "${item}" as tribute. King Krab considers it a WORTHY offering. ` +
         `Generate the outcome beat: King Krab accepts the offering, presents "${giftItem}" in return, and explains its usefulness. The encounter concludes here — close the scene cleanly.`;
-      const segments = await engine.callStoryteller(instruction);
+      const { segments } = await engine.callStoryteller(instruction);
       const els = engine.renderBeat(segments);
       engine.end(
         `<strong>Outcome 1 — Worthy offering.</strong><br>Received: <em>${giftItem}</em><br>Inventory: ${player.inventory.join(', ') || '(empty)'}`,
@@ -169,7 +169,7 @@ export default {
       const instruction =
         `${player.name} just offered "${item}" as tribute. King Krab considers it an UNWORTHY offering. ` +
         `Generate the outcome beat: King Krab becomes angry, insults ${player.name}, and declares that he is destroying the offered item. The encounter concludes here — close the scene cleanly.`;
-      const segments = await engine.callStoryteller(instruction);
+      const { segments } = await engine.callStoryteller(instruction);
       const els = engine.renderBeat(segments);
       engine.end(
         `<strong>Outcome 2 — Unworthy offering.</strong><br><em>${item}</em> destroyed.<br>Inventory: ${player.inventory.join(', ') || '(empty)'}`,
