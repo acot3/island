@@ -275,7 +275,8 @@ function drawMolecule() {
     visual.setAttribute('cx', String(nb.dx));
     visual.setAttribute('cy', String(nb.dy));
     visual.setAttribute('r', '0.25');
-    visual.setAttribute('class', `map-node biome-${nb.biome}`);
+    const dim = nb.visited ? '' : ' unvisited';
+    visual.setAttribute('class', `map-node biome-${nb.biome}${dim}`);
     g.appendChild(visual);
 
     if (pendingMoveTarget && pendingMoveTarget.nodeId === nb.nodeId) {

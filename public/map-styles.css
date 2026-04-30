@@ -1,22 +1,39 @@
 /* Shared map rendering — used by host minimap AND phone molecule. */
 
 :root {
-  --biome-beach:  #e8d36a;
-  --biome-jungle: #84a26d;
-  --biome-cave:   #d68b85;
+  --biome-beach:       #e8d36a;
+  --biome-jungle:      #84a26d;
+  --biome-cave:        #d68b85;
+  /* "dim" variants ≈ visible biome × 0.4 over black — used for adjacent-only
+     nodes (visible but not yet entered). Fully opaque so connectors don't
+     bleed through. */
+  --biome-beach-dim:   #2e2a15;
+  --biome-jungle-dim:  #1a2016;
+  --biome-cave-dim:    #2b1c1b;
 }
 
 .map-edge {
-  stroke: #666;
+  stroke: #2a2a2a;       /* default = "partial": visited↔adjacent */
   stroke-width: 0.05;
   fill: none;
   stroke-linecap: round;
+}
+
+.map-edge.visited {
+  stroke: #ffffff;       /* both endpoints visited — bright trail */
 }
 
 .map-node {
   stroke: #111;
   stroke-width: 0.04;
 }
+
+/* Adjacent-only nodes (visible but not yet entered) render in a dim biome
+   color. Opacity-based dimming would let edges bleed through; solid colors
+   keep them on top. */
+.map-node.biome-beach.unvisited   { fill: var(--biome-beach-dim); }
+.map-node.biome-jungle.unvisited  { fill: var(--biome-jungle-dim); }
+.map-node.biome-cave.unvisited    { fill: var(--biome-cave-dim); }
 
 .map-node.biome-beach   { fill: var(--biome-beach); }
 .map-node.biome-jungle  { fill: var(--biome-jungle); }

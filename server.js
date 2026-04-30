@@ -4,8 +4,9 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const {
-  getFullMap, pickStartingCorner,
-  NODES, neighborsOf, neighborsWithMeta,
+  pickStartingCorner,
+  NODES, EDGES, neighborsOf, neighborsWithMeta,
+  computeViewBox,
 } = require('./lib/map');
 
 const PLAYER_COLORS = [
@@ -50,22 +51,63 @@ function playerSummary(room) {
   }));
 }
 
+// Once-seen-always-seen fog model:
+//   visited = nodes any player has actually been on (monotonic).
+//   seen    = visited ∪ (neighbors of every visited node, across all players).
+// Both sets only grow. Every visited node permanently reveals its neighbors.
+function computeFog(room) {
+  const visited = new Set();
+  for (const [, p] of room.players) {
+    if (p.visited) for (const id of p.visited) visited.add(id);
+  }
+  const seen = new Set(visited);
+  for (const id of visited) {
+    for (const nb of neighborsOf(id)) seen.add(nb);
+  }
+  return { visited, seen };
+}
+
 function buildMapPayload(room) {
+  const { visited, seen } = computeFog(room);
+
+  const nodes = Object.entries(NODES)
+    .filter(([id]) => seen.has(id))
+    .map(([id, n]) => ({
+      id, biome: n.biome, x: n.x, y: n.y,
+      visited: visited.has(id),
+    }));
+
+  // Edges drawn iff both endpoints are seen AND at least one is visited.
+  // Both `seen` and `visited` are monotonic, so once an edge appears it stays.
+  const edges = EDGES
+    .filter(([a, b]) => seen.has(a) && seen.has(b) && (visited.has(a) || visited.has(b)))
+    .map(([a, b]) => ({
+      from: a, to: b,
+      kind: visited.has(a) && visited.has(b) ? 'visited' : 'partial',
+    }));
+
   const players = Array.from(room.players.entries())
     .filter(([, p]) => p.nodeId)
     .map(([name, p]) => ({ name, color: p.color, nodeId: p.nodeId }));
-  return { ...getFullMap(), players };
+
+  const viewBox = computeViewBox(nodes);
+  return { nodes, edges, players, viewBox };
 }
 
 function buildLocationPayload(room, name) {
   const player = room.players.get(name);
   if (!player || !player.nodeId) return null;
+  const { visited } = computeFog(room);
   const node = NODES[player.nodeId];
+  const neighbors = neighborsWithMeta(player.nodeId).map((nb) => ({
+    ...nb,
+    visited: visited.has(nb.nodeId),
+  }));
   return {
     nodeId: player.nodeId,
     biome: node.biome,
     color: player.color,
-    neighbors: neighborsWithMeta(player.nodeId),
+    neighbors,
   };
 }
 
@@ -157,7 +199,10 @@ io.on('connection', (socket) => {
     room.phase = 'started';
     room.day = 1;
     room.startNodeId = pickStartingCorner();
-    for (const [, p] of room.players) p.nodeId = room.startNodeId;
+    for (const [, p] of room.players) {
+      p.nodeId = room.startNodeId;
+      p.visited = new Set([room.startNodeId]);
+    }
     io.to(currentRoom).emit('game-started', { day: room.day });
     if (room.hostSocket) {
       io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
@@ -179,6 +224,8 @@ io.on('connection', (socket) => {
     if (!neighborsOf(player.nodeId).includes(targetNodeId)) return;
 
     player.nodeId = targetNodeId;
+    if (!player.visited) player.visited = new Set();
+    player.visited.add(targetNodeId);
     if (room.hostSocket) {
       io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
     }

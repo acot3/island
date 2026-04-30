@@ -4,18 +4,69 @@
 // Self-contained: subscribes to `map-state` events on the given socket
 // and renders an SVG into the given mount element. Hides itself when
 // no map data has arrived yet.
+//
+// The SVG element is persisted across renders so the viewBox can be
+// smoothly interpolated when the visible region changes (fog reveal).
 // ============================================================
 
 (function () {
   const SVG_NS = 'http://www.w3.org/2000/svg';
+  const VIEWBOX_TRANSITION_MS = 400;
+
+  let svgEl = null;     // persistent across renders
+  let liveVB = null;    // last applied viewBox, updated each animation frame
+  let animFrame = null; // active rAF, if any
+
+  function ensureSvg(mountEl) {
+    if (svgEl && svgEl.parentNode === mountEl) return svgEl;
+    svgEl = document.createElementNS(SVG_NS, 'svg');
+    mountEl.innerHTML = '';
+    mountEl.appendChild(svgEl);
+    liveVB = null;
+    return svgEl;
+  }
+
+  function clearChildren(el) {
+    while (el.firstChild) el.removeChild(el.firstChild);
+  }
+
+  function easeInOut(t) {
+    return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+  }
+
+  function lerp4(a, b, t) {
+    return [
+      a[0] + (b[0] - a[0]) * t,
+      a[1] + (b[1] - a[1]) * t,
+      a[2] + (b[2] - a[2]) * t,
+      a[3] + (b[3] - a[3]) * t,
+    ];
+  }
+
+  function applyViewBox(svg, vb) {
+    svg.setAttribute('viewBox', vb.join(' '));
+    liveVB = vb;
+  }
+
+  function animateViewBox(svg, from, to) {
+    if (animFrame) cancelAnimationFrame(animFrame);
+    const start = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - start) / VIEWBOX_TRANSITION_MS);
+      applyViewBox(svg, lerp4(from, to, easeInOut(t)));
+      if (t < 1) animFrame = requestAnimationFrame(step);
+      else animFrame = null;
+    }
+    animFrame = requestAnimationFrame(step);
+  }
 
   function render(state, mountEl) {
+    const svg = ensureSvg(mountEl);
+    clearChildren(svg);
+
     const nodeById = Object.fromEntries(state.nodes.map(n => [n.id, n]));
 
-    const svg = document.createElementNS(SVG_NS, 'svg');
-    svg.setAttribute('viewBox', '-4.8 -4.8 9.6 9.6');
-
-    // Edges first so nodes layer on top
+    // Edges first so nodes draw on top
     for (const e of state.edges) {
       const a = nodeById[e.from];
       const b = nodeById[e.to];
@@ -25,24 +76,24 @@
       line.setAttribute('y1', a.y);
       line.setAttribute('x2', b.x);
       line.setAttribute('y2', b.y);
-      line.setAttribute('class', 'map-edge');
+      // server-supplied kind: 'visited' (white) or 'partial' (grey, the default)
+      line.setAttribute('class', `map-edge ${e.kind || 'partial'}`);
       svg.appendChild(line);
     }
 
-    // Nodes
+    // Nodes — visited fully colored, adjacent-only dimmed via .unvisited class
     for (const n of state.nodes) {
       const c = document.createElementNS(SVG_NS, 'circle');
       c.setAttribute('cx', n.x);
       c.setAttribute('cy', n.y);
       c.setAttribute('r', '0.25');
-      c.setAttribute('class', `map-node biome-${n.biome}`);
+      const dim = n.visited ? '' : ' unvisited';
+      c.setAttribute('class', `map-node biome-${n.biome}${dim}`);
       c.setAttribute('data-id', n.id);
       svg.appendChild(c);
     }
 
-    // Player rings — one ring per node, divided into equal arcs (donut style).
-    // Trick: each segment is a full circle with a stroke-dasharray that exposes
-    // only its slice, offset to start where the previous segment ends.
+    // Player rings — donut-style segments at each occupied node
     const playersByNode = {};
     for (const p of state.players || []) {
       if (!p.nodeId) continue;
@@ -64,15 +115,20 @@
         ring.setAttribute('stroke-width', '0.08');
         ring.setAttribute('stroke-dasharray', `${segLen} ${C - segLen}`);
         ring.setAttribute('stroke-dashoffset', String(-i * segLen));
-        // Rotate so segment 0 starts at 12 o'clock and the donut grows clockwise.
         ring.setAttribute('transform', `rotate(-90 ${n.x} ${n.y})`);
         ring.setAttribute('class', 'map-player-ring');
         svg.appendChild(ring);
       });
     }
 
-    mountEl.innerHTML = '';
-    mountEl.appendChild(svg);
+    // ViewBox — snap on first render, animate on subsequent changes
+    const target = state.viewBox || [-4.8, -4.8, 9.6, 9.6];
+    if (!liveVB) {
+      applyViewBox(svg, target.slice());
+    } else {
+      const changed = target.some((v, i) => Math.abs(v - liveVB[i]) > 0.001);
+      if (changed) animateViewBox(svg, liveVB.slice(), target.slice());
+    }
   }
 
   function renderPlayerLegend(state, el) {
