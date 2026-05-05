@@ -183,12 +183,16 @@ socket.on('action-public', ({ name, action }) => {
   }
 });
 
-socket.on('categorizer-result', ({ player, action, biome, result }) => {
+socket.on('categorizer-result', ({ player, action, biome, result, outcome }) => {
   const possible = result.possible ? 'possible' : 'impossible';
-  debug(
-    `[CAT] ${player} on ${biome}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} — ${result.rationale}`,
-    'api',
-  );
+  let line = `[CAT] ${player} on ${biome}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} — ${result.rationale}`;
+  if (outcome.reason === 'impossible') {
+    line += `\n      → auto-fail (impossible)`;
+  } else {
+    const r = outcome.roll;
+    line += `\n      → roll ${r.d20} + ${r.modifier} = ${r.total} vs DC ${r.dc} → ${outcome.success ? 'SUCCESS' : 'FAIL'}`;
+  }
+  debug(line, 'api');
 });
 
 socket.on('categorizer-error', ({ player, action, error }) => {

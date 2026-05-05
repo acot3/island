@@ -9,6 +9,7 @@ const {
   buildMapPayload, buildLocationPayload,
 } = require('./lib/map');
 const { categorizeAction } = require('./lib/categorizer');
+const { resolveAction } = require('./lib/resolver');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -87,9 +88,10 @@ function runCategorizer(room) {
 
     categorizeAction({ action, biome })
       .then((result) => {
+        const outcome = resolveAction(result);
         if (room.hostSocket) {
           io.to(room.hostSocket).emit('categorizer-result', {
-            player: name, action, biome, result,
+            player: name, action, biome, result, outcome,
           });
         }
       })
