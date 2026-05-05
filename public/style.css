@@ -378,3 +378,55 @@ button:disabled {
   color: #c44;
   border-color: #c44;
 }
+
+/* Action status (host) */
+.action-prompt-host {
+  text-align: center;
+  font-size: 20px;
+  color: #bbb;
+  letter-spacing: 2px;
+  margin: 32px 0 16px;
+}
+
+.status-list {
+  margin: 24px 0;
+}
+
+.status-players {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 48px;
+}
+
+.status-group {
+  text-align: center;
+}
+
+.status-item {
+  font-size: 1em;
+  text-align: center;
+}
+
+.status-item.submitted {
+  color: #7c8a5c;
+}
+
+.status-item.pending {
+  color: #888;
+}
+
+.status-name {
+  color: #6a9fb5;
+}
+
+.status-public-action {
+  color: #6a9fb5;
+}
+
+.status-assist {
+  color: #b5a06a;
+  font-size: 0.75em;
+  margin-top: 4px;
+}

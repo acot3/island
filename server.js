@@ -94,6 +94,34 @@ function buildMapPayload(room) {
   return { nodes, edges, players, viewBox };
 }
 
+function computeActionStatus(room) {
+  const submitted = [];
+  const pending = [];
+  const assists = {};
+  for (const [name, p] of room.players) {
+    if (p.chosenAction !== null) {
+      submitted.push(name);
+      const match = p.chosenAction.match(/^Assist (.+)$/);
+      if (match) assists[name] = match[1];
+    } else {
+      pending.push(name);
+    }
+  }
+  return { submitted, pending, assists };
+}
+
+function emitActionStatus(room) {
+  if (!room.hostSocket) return;
+  io.to(room.hostSocket).emit('action-status', computeActionStatus(room));
+}
+
+function moveActionLabel(fromNodeId, targetNodeId) {
+  const meta = neighborsWithMeta(fromNodeId).find((n) => n.nodeId === targetNodeId);
+  if (!meta) return null;
+  const biome = meta.biome.charAt(0).toUpperCase() + meta.biome.slice(1);
+  return `Move to ${biome} (${meta.direction})`;
+}
+
 function buildLocationPayload(room, name) {
   const player = room.players.get(name);
   if (!player || !player.nodeId) return null;
@@ -142,6 +170,12 @@ io.on('connection', (socket) => {
     });
     if (room.phase === 'started') {
       socket.emit('map-state', buildMapPayload(room));
+      socket.emit('action-status', computeActionStatus(room));
+      for (const [name, p] of room.players) {
+        if (p.isPublic && p.chosenAction) {
+          socket.emit('action-public', { name, action: p.chosenAction });
+        }
+      }
     }
     console.log(`[Room ${code}] host reconnected`);
   });
@@ -159,7 +193,10 @@ io.on('connection', (socket) => {
     if (room.players.has(name)) return socket.emit('join-error', { message: 'Name already taken.' });
 
     const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
-    room.players.set(name, { socketId: socket.id, pronouns, mbti, color });
+    room.players.set(name, {
+      socketId: socket.id, pronouns, mbti, color,
+      chosenAction: null, isPublic: false,
+    });
     currentRoom = code;
     currentName = name;
     socket.join(code);
@@ -186,6 +223,18 @@ io.on('connection', (socket) => {
     socket.emit('rejoin-state', { code, name, phase: room.phase, day: room.day });
     if (room.phase === 'started' && player.nodeId) {
       socket.emit('your-location', buildLocationPayload(room, name));
+      if (player.chosenAction !== null) {
+        socket.emit('action-confirmed', {
+          action: player.chosenAction,
+          isPublic: player.isPublic,
+        });
+      } else {
+        for (const [otherName, p] of room.players) {
+          if (otherName !== name && p.isPublic && p.chosenAction) {
+            socket.emit('assist-option', { name: otherName, action: p.chosenAction });
+          }
+        }
+      }
     }
     console.log(`[Room ${code}] ${name} reconnected`);
   });
@@ -206,6 +255,7 @@ io.on('connection', (socket) => {
     io.to(currentRoom).emit('game-started', { day: room.day });
     if (room.hostSocket) {
       io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
+      emitActionStatus(room);
     }
     for (const [name, p] of room.players) {
       if (p.socketId) {
@@ -221,16 +271,105 @@ io.on('connection', (socket) => {
     if (!room || room.phase !== 'started') return;
     const player = room.players.get(currentName);
     if (!player || !player.nodeId) return;
+    if (player.chosenAction !== null) return;
     if (!neighborsOf(player.nodeId).includes(targetNodeId)) return;
 
-    player.nodeId = targetNodeId;
-    if (!player.visited) player.visited = new Set();
-    player.visited.add(targetNodeId);
+    const label = moveActionLabel(player.nodeId, targetNodeId);
+    if (!label) return;
+
+    player.chosenAction = label;
+    player.isPublic = false;
+    socket.emit('action-confirmed', { action: label, isPublic: false });
+    emitActionStatus(room);
+    console.log(`[Room ${currentRoom}] ${currentName} chose: "${label}"`);
+  });
+
+  socket.on('submit-action', ({ action } = {}) => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    const player = room.players.get(currentName);
+    if (!player || player.chosenAction !== null) return;
+
+    const text = typeof action === 'string' ? action.trim() : '';
+    if (!text || text.length > 50) return;
+
+    player.chosenAction = text;
+    player.isPublic = false;
+    socket.emit('action-confirmed', { action: text, isPublic: false });
+    emitActionStatus(room);
+    console.log(`[Room ${currentRoom}] ${currentName} chose: "${text}"`);
+  });
+
+  socket.on('make-public', () => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    const player = room.players.get(currentName);
+    if (!player || player.chosenAction === null || player.isPublic) return;
+    if (/^Assist (.+)$/.test(player.chosenAction)) return;
+
+    player.isPublic = true;
     if (room.hostSocket) {
-      io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
+      io.to(room.hostSocket).emit('action-public', { name: currentName, action: player.chosenAction });
     }
-    socket.emit('your-location', buildLocationPayload(room, currentName));
-    console.log(`[Room ${currentRoom}] ${currentName} moved to ${targetNodeId}`);
+    for (const [name, p] of room.players) {
+      if (name !== currentName && p.chosenAction === null && p.socketId) {
+        io.to(p.socketId).emit('assist-option', { name: currentName, action: player.chosenAction });
+      }
+    }
+    console.log(`[Room ${currentRoom}] ${currentName} made action public: "${player.chosenAction}"`);
+  });
+
+  socket.on('cancel-action', () => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    const player = room.players.get(currentName);
+    if (!player || player.chosenAction === null) return;
+
+    const wasPublic = player.isPublic;
+    player.chosenAction = null;
+    player.isPublic = false;
+
+    // Cascade-cancel anyone assisting this player
+    for (const [name, p] of room.players) {
+      if (name === currentName) continue;
+      if (p.chosenAction === `Assist ${currentName}`) {
+        p.chosenAction = null;
+        p.isPublic = false;
+        if (p.socketId) {
+          io.to(p.socketId).emit('action-cancelled');
+          // Re-send still-active assist options from other public players
+          for (const [otherName, op] of room.players) {
+            if (otherName !== name && op.isPublic && op.chosenAction) {
+              io.to(p.socketId).emit('assist-option', { name: otherName, action: op.chosenAction });
+            }
+          }
+        }
+      }
+    }
+
+    socket.emit('action-cancelled');
+    // Re-send active assist options to the cancelling player
+    for (const [name, p] of room.players) {
+      if (name !== currentName && p.isPublic && p.chosenAction) {
+        socket.emit('assist-option', { name, action: p.chosenAction });
+      }
+    }
+
+    emitActionStatus(room);
+    if (wasPublic) {
+      if (room.hostSocket) {
+        io.to(room.hostSocket).emit('action-unpublic', { name: currentName });
+      }
+      for (const [name, p] of room.players) {
+        if (name !== currentName && p.socketId) {
+          io.to(p.socketId).emit('assist-removed', { name: currentName });
+        }
+      }
+    }
+    console.log(`[Room ${currentRoom}] ${currentName} cancelled action`);
   });
 
   socket.on('reset-room', () => {

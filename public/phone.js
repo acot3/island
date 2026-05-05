@@ -174,6 +174,8 @@ socket.on('rejoin-state', ({ name, code, phase, day }) => {
 let currentDay = 1;
 let myLocation = null;       // { nodeId, biome, color, neighbors }
 let pendingMoveTarget = null; // a neighbor object the player has tapped but not confirmed
+let assistOptions = [];      // [{ name, action }] from publicly-shared actions
+let actionInputOpen = false; // is the "Take action here" input expanded?
 
 socket.on('game-started', ({ day }) => {
   currentDay = day;
@@ -186,22 +188,115 @@ socket.on('game-started', ({ day }) => {
 socket.on('your-location', (loc) => {
   myLocation = loc;
   pendingMoveTarget = null;
+  assistOptions = [];
+  actionInputOpen = false;
   renderActions();
 });
 
-// Default action view: a "Move" button. (Other action types will land here.)
 function renderActions() {
   if (!myLocation) {
     contentEl.innerHTML = '<p class="status-msg">Loading…</p>';
     return;
   }
+  let html = `<p class="day-label">Day ${currentDay}</p>`;
+  html += `<p class="action-prompt">What will you do?</p>`;
+  if (actionInputOpen) {
+    html += `
+      <div class="custom-action">
+        <input type="text" id="custom-input" maxlength="50" autocomplete="off">
+        <button id="custom-submit">Go</button>
+      </div>
+    `;
+  } else {
+    html += `<button class="suggestion-btn" id="btn-take-action">Take action here</button>`;
+  }
+  html += `<p class="action-prompt">OR</p>`;
+  html += `<button class="suggestion-btn" id="btn-move">Move</button>`;
+
+  if (assistOptions.length > 0) {
+    html += `<p class="action-prompt">OR</p>`;
+    html += `<div class="assists">`;
+    assistOptions.forEach((opt, i) => {
+      html += `<div class="assist-wrapper">
+        <button class="suggestion-btn assist-btn" data-index="${i}">${escapeHtml(opt.action)}</button>
+        <div class="assist-label">Assist ${escapeHtml(opt.name)}</div>
+      </div>`;
+    });
+    html += `</div>`;
+  }
+
+  contentEl.innerHTML = html;
+
+  if (actionInputOpen) {
+    const input = document.getElementById('custom-input');
+    input.focus();
+    const go = () => {
+      const val = input.value.trim();
+      if (!val || val.length > 50) return;
+      socket.emit('submit-action', { action: val });
+    };
+    document.getElementById('custom-submit').onclick = go;
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  } else {
+    document.getElementById('btn-take-action').onclick = () => {
+      actionInputOpen = true;
+      renderActions();
+    };
+  }
+  document.getElementById('btn-move').onclick = renderMolecule;
+
+  contentEl.querySelectorAll('.assist-btn').forEach((btn) => {
+    btn.onclick = () => {
+      const i = parseInt(btn.dataset.index, 10);
+      const opt = assistOptions[i];
+      if (opt) socket.emit('submit-action', { action: `Assist ${opt.name}` });
+    };
+  });
+}
+
+function renderActionConfirmed(action, isPublic) {
+  const isAssist = /^Assist .+$/.test(action);
+  const cls = isAssist ? 'assist' : (isPublic ? 'public' : '');
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
-    <p class="action-prompt">What will you do?</p>
-    <button class="suggestion-btn" id="btn-move">Move</button>
+    <div class="chosen-action ${cls}">${escapeHtml(action)}</div>
+    ${(!isAssist && !isPublic) ? '<button id="btn-make-public" class="btn-make-public">Make public</button>' : ''}
+    <button id="btn-cancel-action" class="btn-cancel-action">Cancel</button>
   `;
-  document.getElementById('btn-move').onclick = renderMolecule;
+  const mp = document.getElementById('btn-make-public');
+  if (mp) {
+    mp.onclick = function () {
+      socket.emit('make-public');
+      this.remove();
+      const box = contentEl.querySelector('.chosen-action');
+      if (box) box.classList.add('public');
+    };
+  }
+  document.getElementById('btn-cancel-action').onclick = () => {
+    socket.emit('cancel-action');
+  };
 }
+
+socket.on('action-confirmed', ({ action, isPublic }) => {
+  actionInputOpen = false;
+  renderActionConfirmed(action, !!isPublic);
+});
+
+socket.on('action-cancelled', () => {
+  actionInputOpen = false;
+  renderActions();
+});
+
+socket.on('assist-option', ({ name, action }) => {
+  if (assistOptions.some((o) => o.name === name)) return;
+  assistOptions.push({ name, action });
+  if (!contentEl.querySelector('.chosen-action')) renderActions();
+});
+
+socket.on('assist-removed', ({ name }) => {
+  assistOptions = assistOptions.filter((o) => o.name !== name);
+  if (!contentEl.querySelector('.chosen-action')) renderActions();
+});
 
 // Molecule view: current node centered, neighbors arrayed at their real
 // relative offsets. Tap a neighbor → inline confirm panel.
@@ -314,7 +409,6 @@ function onNeighborTap(neighbor) {
   confirmEl.classList.remove('hidden');
   document.getElementById('btn-confirm-move').onclick = () => {
     socket.emit('submit-move', { targetNodeId: neighbor.nodeId });
-    // Server will respond with `your-location`, which calls renderActions().
   };
   document.getElementById('btn-deny-move').onclick = () => {
     pendingMoveTarget = null;
