@@ -5,9 +5,10 @@ const path = require('path');
 const { Server } = require('socket.io');
 const {
   pickStartingCorner,
-  NODES, EDGES, neighborsOf, neighborsWithMeta,
-  computeViewBox,
+  NODES, neighborsOf, neighborsWithMeta,
+  buildMapPayload, buildLocationPayload,
 } = require('./lib/map');
+const { categorizeAction } = require('./lib/categorizer');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -51,49 +52,6 @@ function playerSummary(room) {
   }));
 }
 
-// Once-seen-always-seen fog model:
-//   visited = nodes any player has actually been on (monotonic).
-//   seen    = visited ∪ (neighbors of every visited node, across all players).
-// Both sets only grow. Every visited node permanently reveals its neighbors.
-function computeFog(room) {
-  const visited = new Set();
-  for (const [, p] of room.players) {
-    if (p.visited) for (const id of p.visited) visited.add(id);
-  }
-  const seen = new Set(visited);
-  for (const id of visited) {
-    for (const nb of neighborsOf(id)) seen.add(nb);
-  }
-  return { visited, seen };
-}
-
-function buildMapPayload(room) {
-  const { visited, seen } = computeFog(room);
-
-  const nodes = Object.entries(NODES)
-    .filter(([id]) => seen.has(id))
-    .map(([id, n]) => ({
-      id, biome: n.biome, x: n.x, y: n.y,
-      visited: visited.has(id),
-    }));
-
-  // Edges drawn iff both endpoints are seen AND at least one is visited.
-  // Both `seen` and `visited` are monotonic, so once an edge appears it stays.
-  const edges = EDGES
-    .filter(([a, b]) => seen.has(a) && seen.has(b) && (visited.has(a) || visited.has(b)))
-    .map(([a, b]) => ({
-      from: a, to: b,
-      kind: visited.has(a) && visited.has(b) ? 'visited' : 'partial',
-    }));
-
-  const players = Array.from(room.players.entries())
-    .filter(([, p]) => p.nodeId)
-    .map(([name, p]) => ({ name, color: p.color, nodeId: p.nodeId }));
-
-  const viewBox = computeViewBox(nodes);
-  return { nodes, edges, players, viewBox };
-}
-
 function computeActionStatus(room) {
   const submitted = [];
   const pending = [];
@@ -115,28 +73,41 @@ function emitActionStatus(room) {
   io.to(room.hostSocket).emit('action-status', computeActionStatus(room));
 }
 
+// Triggered by the host pressing "Categorize". Calls the categorizer for
+// every currently-submitted action that is not a Move or an Assist; emits
+// results to the host's debug panel as they return. Skips players who
+// haven't submitted yet.
+function runCategorizer(room) {
+  for (const [name, p] of room.players) {
+    const action = p.chosenAction;
+    if (action === null) continue;
+    if (/^Move to /.test(action) || /^Assist /.test(action)) continue;
+    const biome = NODES[p.nodeId]?.biome;
+    if (!biome) continue;
+
+    categorizeAction({ action, biome })
+      .then((result) => {
+        if (room.hostSocket) {
+          io.to(room.hostSocket).emit('categorizer-result', {
+            player: name, action, biome, result,
+          });
+        }
+      })
+      .catch((err) => {
+        if (room.hostSocket) {
+          io.to(room.hostSocket).emit('categorizer-error', {
+            player: name, action, error: err.message,
+          });
+        }
+      });
+  }
+}
+
 function moveActionLabel(fromNodeId, targetNodeId) {
   const meta = neighborsWithMeta(fromNodeId).find((n) => n.nodeId === targetNodeId);
   if (!meta) return null;
   const biome = meta.biome.charAt(0).toUpperCase() + meta.biome.slice(1);
   return `Move to ${biome} (${meta.direction})`;
-}
-
-function buildLocationPayload(room, name) {
-  const player = room.players.get(name);
-  if (!player || !player.nodeId) return null;
-  const { visited } = computeFog(room);
-  const node = NODES[player.nodeId];
-  const neighbors = neighborsWithMeta(player.nodeId).map((nb) => ({
-    ...nb,
-    visited: visited.has(nb.nodeId),
-  }));
-  return {
-    nodeId: player.nodeId,
-    biome: node.biome,
-    color: player.color,
-    neighbors,
-  };
 }
 
 // --- Sockets ---
@@ -370,6 +341,13 @@ io.on('connection', (socket) => {
       }
     }
     console.log(`[Room ${currentRoom}] ${currentName} cancelled action`);
+  });
+
+  socket.on('categorize-now', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    runCategorizer(room);
   });
 
   socket.on('reset-room', () => {

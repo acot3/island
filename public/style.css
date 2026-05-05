@@ -159,6 +159,7 @@ html, body {
   display: flex;
   flex-direction: row;
   justify-content: center;
+  flex-wrap: wrap;
   gap: 48px;
 }
 
@@ -334,9 +335,8 @@ button:disabled {
 .debug-line {
   font-size: 11px;
   line-height: 1.4;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .debug-info { color: #555; }
@@ -379,54 +379,22 @@ button:disabled {
   border-color: #c44;
 }
 
-/* Action status (host) */
-.action-prompt-host {
-  text-align: center;
-  font-size: 20px;
-  color: #bbb;
-  letter-spacing: 2px;
-  margin: 32px 0 16px;
-}
-
-.status-list {
-  margin: 24px 0;
-}
-
-.status-players {
-  display: flex;
-  flex-direction: row;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 48px;
-}
-
-.status-group {
-  text-align: center;
-}
-
-.status-item {
-  font-size: 1em;
-  text-align: center;
-}
-
-.status-item.submitted {
-  color: #7c8a5c;
-}
-
-.status-item.pending {
+/* Temporary debug button */
+.temp-btn {
+  display: block;
+  margin: 24px auto 0;
+  background: none;
+  border: 1px dashed #555;
   color: #888;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 16px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
 }
 
-.status-name {
-  color: #6a9fb5;
-}
-
-.status-public-action {
-  color: #6a9fb5;
-}
-
-.status-assist {
-  color: #b5a06a;
-  font-size: 0.75em;
-  margin-top: 4px;
+.temp-btn:hover {
+  border-color: #aaa;
+  color: #ddd;
 }

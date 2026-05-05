@@ -114,7 +114,12 @@ function renderStarted(day) {
     <p class="day-label">Day ${day}</p>
     <p class="action-prompt-host">What will you do?</p>
     <div id="action-status" class="status-list"></div>
+    <button id="btn-categorize" class="temp-btn">Categorize</button>
   `);
+  document.getElementById('btn-categorize').addEventListener('click', () => {
+    socket.emit('categorize-now');
+    debug('Categorize requested', 'phase');
+  });
 }
 
 function renderActionStatus(statuses, assists) {
@@ -176,6 +181,18 @@ socket.on('action-public', ({ name, action }) => {
       }
     });
   }
+});
+
+socket.on('categorizer-result', ({ player, action, biome, result }) => {
+  const possible = result.possible ? 'possible' : 'impossible';
+  debug(
+    `[CAT] ${player} on ${biome}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} — ${result.rationale}`,
+    'api',
+  );
+});
+
+socket.on('categorizer-error', ({ player, action, error }) => {
+  debug(`[CAT-ERR] ${player}: "${action}" — ${error}`, 'error');
 });
 
 socket.on('action-unpublic', ({ name }) => {
