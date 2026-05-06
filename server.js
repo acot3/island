@@ -4,14 +4,14 @@ const http = require('http');
 const path = require('path');
 const { Server } = require('socket.io');
 const {
-  pickStartingCorner,
+  CORNERS,
   NODES, neighborsOf, nodeLabel,
   buildMapPayload, buildLocationPayload,
+  distributeScenes, findSceneNode,
 } = require('./lib/map');
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
 const { narrateMorning, narrateDay } = require('./lib/narrator');
-const { distributeScenes } = require('./lib/nodeState');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -51,6 +51,14 @@ function createRoom() {
     nodeState: null,        // { [nodeId]: { sceneId, foundItems } }
   };
   distributeScenes(room);
+  // The wreckage is the players' arrival point and must sit on a corner.
+  // If distribution dropped it on a beach side, swap it with a random corner.
+  const wreckageNode = findSceneNode(room, 'wreckage-site');
+  if (wreckageNode && !CORNERS.includes(wreckageNode)) {
+    const target = CORNERS[Math.floor(Math.random() * CORNERS.length)];
+    [room.nodeState[wreckageNode], room.nodeState[target]] =
+      [room.nodeState[target], room.nodeState[wreckageNode]];
+  }
   rooms.set(code, room);
   return code;
 }
@@ -388,7 +396,7 @@ io.on('connection', (socket) => {
 
     room.phase = 'started';
     room.day = 1;
-    room.startNodeId = pickStartingCorner();
+    room.startNodeId = findSceneNode(room, 'wreckage-site');
     for (const [, p] of room.players) {
       p.nodeId = room.startNodeId;
       p.visited = new Set([room.startNodeId]);
