@@ -379,6 +379,55 @@ button:disabled {
   border-color: #c44;
 }
 
+/* Narration prose (host) */
+.narration-prose {
+  white-space: pre-wrap;
+  line-height: 1.6;
+  margin: 16px 0;
+  color: #ddd;
+  font-size: 15px;
+}
+
+.narration-prose.full {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid #333;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.narration-controls {
+  text-align: right;
+  margin: 4px 0 16px;
+}
+
+.link-btn {
+  background: none;
+  border: none;
+  color: #6a9fb5;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: #8bbfd5;
+}
+
+.phase-controls {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 24px;
+}
+
+.phase-controls .temp-btn {
+  margin: 0;
+}
+
 /* Temporary debug button */
 .temp-btn {
   display: block;
@@ -394,7 +443,13 @@ button:disabled {
   border-radius: 0;
 }
 
-.temp-btn:hover {
+.temp-btn:hover:not(:disabled) {
   border-color: #aaa;
   color: #ddd;
+}
+
+.temp-btn:disabled {
+  border-color: #333;
+  color: #444;
+  cursor: not-allowed;
 }

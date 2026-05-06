@@ -16,6 +16,13 @@
   display: none;
 }
 
+/* When the map is showing, keep the narration column to the left of it.
+   Map is 440px wide, inset 16px from the right edge — reserve 472px so the
+   two never overlap. */
+#map-overlay:not(.hidden) ~ #layout {
+  padding-right: 472px;
+}
+
 #minimap {
   width: 440px;
   height: 440px;

@@ -5,11 +5,12 @@ const path = require('path');
 const { Server } = require('socket.io');
 const {
   pickStartingCorner,
-  NODES, neighborsOf, neighborsWithMeta,
+  NODES, neighborsOf, nodeLabel,
   buildMapPayload, buildLocationPayload,
 } = require('./lib/map');
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
+const { narrateMorning, narrateDay } = require('./lib/narrator');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -43,6 +44,9 @@ function createRoom() {
     players: new Map(), // name -> { socketId, pronouns, mbti }
     phase: 'lobby',     // 'lobby' | 'started'
     day: 1,
+    narrative: '',          // the canonical growing prose document
+    currentChunk: null,     // { kind: 'morning' | 'day', day, text }
+    narratorBusy: false,    // single-flight guard
   });
   return code;
 }
@@ -74,42 +78,193 @@ function emitActionStatus(room) {
   io.to(room.hostSocket).emit('action-status', computeActionStatus(room));
 }
 
-// Triggered by the host pressing "Categorize". Calls the categorizer for
-// every currently-submitted action that is not a Move or an Assist; emits
-// results to the host's debug panel as they return. Skips players who
-// haven't submitted yet.
-function runCategorizer(room) {
-  for (const [name, p] of room.players) {
-    const action = p.chosenAction;
-    if (action === null) continue;
-    if (/^Move to /.test(action) || /^Assist /.test(action)) continue;
-    const biome = NODES[p.nodeId]?.biome;
-    if (!biome) continue;
+// Build a snapshot of player profiles passed to every narrator call.
+function narratorPlayers(room) {
+  return Array.from(room.players.entries()).map(([name, p]) => ({
+    name, pronouns: p.pronouns, mbti: p.mbti,
+  }));
+}
 
-    categorizeAction({ action, biome })
-      .then((result) => {
-        const outcome = resolveAction(result);
+// Build a snapshot of where every player currently is. The narrator uses
+// this to distinguish co-located characters from characters at different
+// nodes within the same biome (j_nw vs j_ne both read as "jungle" but are
+// different places).
+function locationsSnapshot(room) {
+  return Array.from(room.players.entries())
+    .filter(([, p]) => p.nodeId)
+    .map(([name, p]) => ({ name, nodeId: p.nodeId, label: nodeLabel(p.nodeId) }));
+}
+
+// Append a chunk of prose to the room's narrative; record it as the current
+// chunk so the host's narration panel can show "what just happened".
+function appendNarrationChunk(room, kind, text) {
+  room.narrative += text;
+  room.currentChunk = { kind, day: room.day, text };
+  io.to(room.hostSocket).emit('narration-chunk', {
+    kind, day: room.day, text, full: room.narrative,
+  });
+  // Debug: visualize whitespace so we can see whether the AI emitted \n\n.
+  io.to(room.hostSocket).emit('narration-debug', {
+    kind, day: room.day,
+    raw: JSON.stringify(text),
+  });
+}
+
+// Insert "## Day N" header before each day's first chunk. System-managed.
+function ensureDayHeader(room) {
+  const header = `## Day ${room.day}\n\n`;
+  if (!room.narrative.endsWith(header)) {
+    room.narrative += (room.narrative.length === 0 ? '' : '\n\n') + header;
+  }
+}
+
+async function runMorningNarration(room) {
+  if (room.narratorBusy) return;
+  room.narratorBusy = true;
+  io.to(room.hostSocket).emit('narration-pending', { kind: 'morning', day: room.day });
+  try {
+    ensureDayHeader(room);
+    const { chunk } = await narrateMorning({
+      narrative: room.narrative,
+      day: room.day,
+      players: narratorPlayers(room),
+      locations: locationsSnapshot(room),
+    });
+    appendNarrationChunk(room, 'morning', chunk + '\n\n');
+  } catch (err) {
+    io.to(room.hostSocket).emit('narration-error', {
+      kind: 'morning', day: room.day, error: err.message,
+    });
+  } finally {
+    room.narratorBusy = false;
+  }
+}
+
+// Build action reports for every player who submitted, running the
+// categorizer + resolver for free-text actions in parallel. Move and
+// assist actions skip the AI/dice — they only need a label.
+async function buildActionReports(room) {
+  const tasks = [];
+  let anyMoved = false;
+  for (const [name, p] of room.players) {
+    if (p.chosenAction === null) continue;
+    const action = p.chosenAction;
+    const fromLabel = nodeLabel(p.nodeId); // capture *before* applying any move
+
+    if (/^Move to /.test(action)) {
+      const target = p.pendingMove;
+      if (target && neighborsOf(p.nodeId).includes(target)) {
+        p.nodeId = target;
+        if (!p.visited) p.visited = new Set();
+        p.visited.add(target);
+        anyMoved = true;
+      }
+      p.pendingMove = null;
+      tasks.push(Promise.resolve({
+        player: name, action, type: 'move',
+        fromLabel, currentLabel: nodeLabel(p.nodeId),
+      }));
+      continue;
+    }
+    if (/^Assist /.test(action)) {
+      tasks.push(Promise.resolve({
+        player: name, action, type: 'assist',
+        currentLabel: fromLabel,
+      }));
+      continue;
+    }
+
+    const fromBiome = NODES[p.nodeId]?.biome;
+    tasks.push((async () => {
+      try {
+        const verdict = await categorizeAction({ action, biome: fromBiome });
+        const outcome = resolveAction(verdict);
+        // Stream the categorizer result to the host's debug panel as before.
         if (room.hostSocket) {
           io.to(room.hostSocket).emit('categorizer-result', {
-            player: name, action, biome, result, outcome,
+            player: name, action, location: fromLabel, result: verdict, outcome,
           });
         }
-      })
-      .catch((err) => {
+        return {
+          player: name, action, type: 'free',
+          currentLabel: fromLabel,
+          possible: verdict.possible,
+          attribute: verdict.attribute,
+          difficulty: verdict.difficulty,
+          rationale: verdict.rationale,
+          success: outcome.success,
+          reason: outcome.reason,
+        };
+      } catch (err) {
         if (room.hostSocket) {
           io.to(room.hostSocket).emit('categorizer-error', {
             player: name, action, error: err.message,
           });
         }
-      });
+        // Graceful degrade: pass the raw action with no verdict; narrator
+        // will treat it like a generic free-text action.
+        return {
+          player: name, action, type: 'free',
+          currentLabel: fromLabel,
+          possible: true, success: true, reason: 'rolled',
+        };
+      }
+    })());
+  }
+  const reports = await Promise.all(tasks);
+  if (anyMoved && room.hostSocket) {
+    io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
+  }
+  return reports;
+}
+
+async function runDayNarration(room) {
+  if (room.narratorBusy) return;
+  room.narratorBusy = true;
+  io.to(room.hostSocket).emit('narration-pending', { kind: 'day', day: room.day });
+  try {
+    const actionReports = await buildActionReports(room);
+    const { chunk } = await narrateDay({
+      narrative: room.narrative,
+      day: room.day,
+      players: narratorPlayers(room),
+      locations: locationsSnapshot(room), // post-move snapshot
+      actionReports,
+    });
+    appendNarrationChunk(room, 'day', chunk + '\n\n');
+  } catch (err) {
+    io.to(room.hostSocket).emit('narration-error', {
+      kind: 'day', day: room.day, error: err.message,
+    });
+  } finally {
+    room.narratorBusy = false;
   }
 }
 
+// Reset chosen actions, increment day, fire the morning narrator. Phones
+// reset their action UI via action-cancelled.
+function endDay(room) {
+  for (const [name, p] of room.players) {
+    p.chosenAction = null;
+    p.isPublic = false;
+    p.pendingMove = null;
+    if (p.socketId) {
+      io.to(p.socketId).emit('your-location', buildLocationPayload(room, name));
+      io.to(p.socketId).emit('action-cancelled');
+    }
+  }
+  room.day += 1;
+  io.to(room.hostSocket).emit('day-changed', { day: room.day });
+  for (const [, p] of room.players) {
+    if (p.socketId) io.to(p.socketId).emit('day-changed', { day: room.day });
+  }
+  emitActionStatus(room);
+  runMorningNarration(room);
+}
+
 function moveActionLabel(fromNodeId, targetNodeId) {
-  const meta = neighborsWithMeta(fromNodeId).find((n) => n.nodeId === targetNodeId);
-  if (!meta) return null;
-  const biome = meta.biome.charAt(0).toUpperCase() + meta.biome.slice(1);
-  return `Move to ${biome} (${meta.direction})`;
+  if (!neighborsOf(fromNodeId).includes(targetNodeId)) return null;
+  return `Move to ${nodeLabel(targetNodeId)}`;
 }
 
 // --- Sockets ---
@@ -149,6 +304,14 @@ io.on('connection', (socket) => {
           socket.emit('action-public', { name, action: p.chosenAction });
         }
       }
+      if (room.currentChunk) {
+        socket.emit('narration-chunk', {
+          kind: room.currentChunk.kind,
+          day: room.currentChunk.day,
+          text: room.currentChunk.text,
+          full: room.narrative,
+        });
+      }
     }
     console.log(`[Room ${code}] host reconnected`);
   });
@@ -168,7 +331,7 @@ io.on('connection', (socket) => {
     const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
     room.players.set(name, {
       socketId: socket.id, pronouns, mbti, color,
-      chosenAction: null, isPublic: false,
+      chosenAction: null, isPublic: false, pendingMove: null,
     });
     currentRoom = code;
     currentName = name;
@@ -236,6 +399,7 @@ io.on('connection', (socket) => {
       }
     }
     console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s) at ${room.startNodeId}`);
+    runMorningNarration(room);
   });
 
   socket.on('submit-move', ({ targetNodeId } = {}) => {
@@ -252,6 +416,7 @@ io.on('connection', (socket) => {
 
     player.chosenAction = label;
     player.isPublic = false;
+    player.pendingMove = targetNodeId;
     socket.emit('action-confirmed', { action: label, isPublic: false });
     emitActionStatus(room);
     console.log(`[Room ${currentRoom}] ${currentName} chose: "${label}"`);
@@ -304,6 +469,7 @@ io.on('connection', (socket) => {
     const wasPublic = player.isPublic;
     player.chosenAction = null;
     player.isPublic = false;
+    player.pendingMove = null;
 
     // Cascade-cancel anyone assisting this player
     for (const [name, p] of room.players) {
@@ -311,6 +477,7 @@ io.on('connection', (socket) => {
       if (p.chosenAction === `Assist ${currentName}`) {
         p.chosenAction = null;
         p.isPublic = false;
+        p.pendingMove = null;
         if (p.socketId) {
           io.to(p.socketId).emit('action-cancelled');
           // Re-send still-active assist options from other public players
@@ -345,11 +512,22 @@ io.on('connection', (socket) => {
     console.log(`[Room ${currentRoom}] ${currentName} cancelled action`);
   });
 
-  socket.on('categorize-now', () => {
+  socket.on('proceed-day', () => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'started') return;
-    runCategorizer(room);
+    if (room.players.size === 0) return;
+    for (const [, p] of room.players) {
+      if (p.chosenAction === null) return; // not all submitted
+    }
+    runDayNarration(room);
+  });
+
+  socket.on('end-day', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    endDay(room);
   });
 
   socket.on('reset-room', () => {

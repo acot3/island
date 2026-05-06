@@ -177,6 +177,11 @@ let pendingMoveTarget = null; // a neighbor object the player has tapped but not
 let assistOptions = [];      // [{ name, action }] from publicly-shared actions
 let actionInputOpen = false; // is the "Take action here" input expanded?
 
+socket.on('day-changed', ({ day }) => {
+  currentDay = day;
+  // action-cancelled (sent right after) will trigger renderActions() with the new day.
+});
+
 socket.on('game-started', ({ day }) => {
   currentDay = day;
   // your-location arrives in the same tick from the server. If it hasn't yet,
@@ -188,6 +193,12 @@ socket.on('game-started', ({ day }) => {
 socket.on('your-location', (loc) => {
   myLocation = loc;
   pendingMoveTarget = null;
+  // If the phone is currently in the chosen-action view, just refresh the
+  // location data quietly. The follow-up `action-cancelled` (sent by the
+  // server right after) will re-render the selection screen with fresh
+  // neighbors. This prevents the chosen-action box from flickering away
+  // when End Day primes new locations mid-state.
+  if (contentEl.querySelector('.chosen-action')) return;
   assistOptions = [];
   actionInputOpen = false;
   renderActions();
@@ -398,9 +409,9 @@ function onNeighborTap(neighbor) {
   drawMolecule();
 
   const confirmEl = document.getElementById('move-confirm');
-  const biomeLabel = neighbor.biome.charAt(0).toUpperCase() + neighbor.biome.slice(1);
+  const label = neighbor.label || `${neighbor.biome} (${neighbor.direction})`;
   confirmEl.innerHTML = `
-    <p>Move to ${biomeLabel} (${neighbor.direction})?</p>
+    <p>Move to ${escapeHtml(label)}?</p>
     <div class="confirm-actions">
       <button class="suggestion-btn" id="btn-confirm-move">Confirm</button>
       <button class="btn-cancel-action" id="btn-deny-move">Cancel</button>

@@ -108,18 +108,60 @@ socket.on('host-state', ({ code, phase, day, players }) => {
 
 const publicActions = {};   // name -> action string
 let currentAssists = {};    // assisterName -> assistedName
+let currentDay = 1;
+let currentChunk = null;    // { kind, day, text } — the latest narration to show
+let fullNarrative = '';     // the entire story so far
+let showingFull = false;    // toggle: current chunk vs full doc
 
 function renderStarted(day) {
+  currentDay = day;
   setNarration(`
     <p class="day-label">Day ${day}</p>
+    <div id="narration-prose" class="narration-prose"></div>
+    <div class="narration-controls">
+      <button id="btn-toggle-full" class="link-btn"></button>
+    </div>
     <p class="action-prompt-host">What will you do?</p>
     <div id="action-status" class="status-list"></div>
-    <button id="btn-categorize" class="temp-btn">Categorize</button>
+    <div class="phase-controls">
+      <button id="btn-proceed" class="temp-btn" disabled>Proceed</button>
+      <button id="btn-end-day" class="temp-btn">End Day</button>
+    </div>
   `);
-  document.getElementById('btn-categorize').addEventListener('click', () => {
-    socket.emit('categorize-now');
-    debug('Categorize requested', 'phase');
+  renderNarration();
+  document.getElementById('btn-toggle-full').addEventListener('click', () => {
+    showingFull = !showingFull;
+    renderNarration();
   });
+  document.getElementById('btn-proceed').addEventListener('click', () => {
+    socket.emit('proceed-day');
+    debug('Proceed requested', 'phase');
+  });
+  document.getElementById('btn-end-day').addEventListener('click', () => {
+    socket.emit('end-day');
+    debug('End day requested', 'phase');
+  });
+}
+
+function renderNarration() {
+  const proseEl = document.getElementById('narration-prose');
+  const toggleEl = document.getElementById('btn-toggle-full');
+  if (!proseEl) return;
+
+  if (showingFull) {
+    proseEl.classList.add('full');
+    proseEl.textContent = fullNarrative || '(no narration yet)';
+  } else {
+    proseEl.classList.remove('full');
+    proseEl.textContent = currentChunk
+      ? currentChunk.text
+      : '(generating opening narration…)';
+  }
+
+  if (toggleEl) {
+    toggleEl.textContent = showingFull ? 'Show current only' : 'Show full story';
+    toggleEl.style.display = fullNarrative ? '' : 'none';
+  }
 }
 
 function renderActionStatus(statuses, assists) {
@@ -152,13 +194,53 @@ function renderActionStatus(statuses, assists) {
     });
 
   el.innerHTML = `<div class="status-players">${groups.join('')}</div>`;
+
+  const proceedBtn = document.getElementById('btn-proceed');
+  if (proceedBtn) {
+    const allSubmitted = statuses.length > 0 && statuses.every((s) => s.submitted);
+    proceedBtn.disabled = !allSubmitted;
+  }
 }
 
 socket.on('game-started', ({ day }) => {
   debug(`Game started — day ${day}`, 'phase');
   Object.keys(publicActions).forEach((k) => delete publicActions[k]);
   currentAssists = {};
+  currentChunk = null;
+  fullNarrative = '';
+  showingFull = false;
   renderStarted(day);
+});
+
+socket.on('narration-pending', ({ kind, day }) => {
+  debug(`Narrator pending: ${kind} (day ${day})`, 'api');
+  // Show a placeholder if we don't yet have any prose for the new state.
+  if (!currentChunk || currentChunk.day !== day || currentChunk.kind !== kind) {
+    currentChunk = { kind, day, text: '(generating ' + kind + ' narration…)' };
+    renderNarration();
+  }
+});
+
+socket.on('narration-chunk', ({ kind, day, text, full }) => {
+  debug(`Narrator: ${kind} (day ${day}) — ${text.length} chars`, 'api');
+  currentChunk = { kind, day, text };
+  fullNarrative = full;
+  renderNarration();
+});
+
+socket.on('narration-error', ({ kind, day, error }) => {
+  debug(`Narrator error: ${kind} (day ${day}) — ${error}`, 'error');
+});
+
+socket.on('narration-debug', ({ kind, day, raw }) => {
+  debug(`Narrator raw (${kind}, day ${day}): ${raw}`, 'api');
+});
+
+socket.on('day-changed', ({ day }) => {
+  currentDay = day;
+  const dayLabel = document.querySelector('#narration-content .day-label');
+  if (dayLabel) dayLabel.textContent = `Day ${day}`;
+  debug(`Day → ${day}`, 'phase');
 });
 
 socket.on('action-status', ({ submitted, pending, assists }) => {
@@ -183,9 +265,9 @@ socket.on('action-public', ({ name, action }) => {
   }
 });
 
-socket.on('categorizer-result', ({ player, action, biome, result, outcome }) => {
+socket.on('categorizer-result', ({ player, action, location, result, outcome }) => {
   const possible = result.possible ? 'possible' : 'impossible';
-  let line = `[CAT] ${player} on ${biome}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} — ${result.rationale}`;
+  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} — ${result.rationale}`;
   if (outcome.reason === 'impossible') {
     line += `\n      → auto-fail (impossible)`;
   } else {

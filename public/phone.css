@@ -22,6 +22,8 @@ html, body {
   padding: 24px 20px;
   display: flex;
   flex-direction: column;
+  max-width: 420px;
+  margin: 0 auto;
 }
 
 /* --- Join screen --- */
