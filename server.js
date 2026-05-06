@@ -11,6 +11,7 @@ const {
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
 const { narrateMorning, narrateDay } = require('./lib/narrator');
+const { distributeScenes } = require('./lib/nodeState');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -39,7 +40,7 @@ function generateRoomCode() {
 
 function createRoom() {
   const code = generateRoomCode();
-  rooms.set(code, {
+  const room = {
     hostSocket: null,
     players: new Map(), // name -> { socketId, pronouns, mbti }
     phase: 'lobby',     // 'lobby' | 'started'
@@ -47,7 +48,10 @@ function createRoom() {
     narrative: '',          // the canonical growing prose document
     currentChunk: null,     // { kind: 'morning' | 'day', day, text }
     narratorBusy: false,    // single-flight guard
-  });
+    nodeState: null,        // { [nodeId]: { sceneId, foundItems } }
+  };
+  distributeScenes(room);
+  rooms.set(code, room);
   return code;
 }
 
@@ -86,13 +90,12 @@ function narratorPlayers(room) {
 }
 
 // Build a snapshot of where every player currently is. The narrator uses
-// this to distinguish co-located characters from characters at different
-// nodes within the same biome (j_nw vs j_ne both read as "jungle" but are
-// different places).
+// nodeId to judge co-location and biome to describe scenery; it never sees
+// the human-readable label, which would leak compass info into the prose.
 function locationsSnapshot(room) {
   return Array.from(room.players.entries())
     .filter(([, p]) => p.nodeId)
-    .map(([name, p]) => ({ name, nodeId: p.nodeId, label: nodeLabel(p.nodeId) }));
+    .map(([name, p]) => ({ name, nodeId: p.nodeId, biome: NODES[p.nodeId].biome }));
 }
 
 // Append a chunk of prose to the room's narrative; record it as the current
@@ -149,7 +152,9 @@ async function buildActionReports(room) {
   for (const [name, p] of room.players) {
     if (p.chosenAction === null) continue;
     const action = p.chosenAction;
-    const fromLabel = nodeLabel(p.nodeId); // capture *before* applying any move
+    const fromNodeId = p.nodeId; // capture *before* applying any move
+    const fromBiome = NODES[fromNodeId]?.biome;
+    const fromLabel = nodeLabel(fromNodeId); // host debug panel only
 
     if (/^Move to /.test(action)) {
       const target = p.pendingMove;
@@ -162,19 +167,19 @@ async function buildActionReports(room) {
       p.pendingMove = null;
       tasks.push(Promise.resolve({
         player: name, action, type: 'move',
-        fromLabel, currentLabel: nodeLabel(p.nodeId),
+        fromNodeId, fromBiome,
+        nodeId: p.nodeId, biome: NODES[p.nodeId]?.biome,
       }));
       continue;
     }
     if (/^Assist /.test(action)) {
       tasks.push(Promise.resolve({
         player: name, action, type: 'assist',
-        currentLabel: fromLabel,
+        nodeId: fromNodeId, biome: fromBiome,
       }));
       continue;
     }
 
-    const fromBiome = NODES[p.nodeId]?.biome;
     tasks.push((async () => {
       try {
         const verdict = await categorizeAction({ action, biome: fromBiome });
@@ -187,7 +192,7 @@ async function buildActionReports(room) {
         }
         return {
           player: name, action, type: 'free',
-          currentLabel: fromLabel,
+          nodeId: fromNodeId, biome: fromBiome,
           possible: verdict.possible,
           attribute: verdict.attribute,
           difficulty: verdict.difficulty,
@@ -205,7 +210,7 @@ async function buildActionReports(room) {
         // will treat it like a generic free-text action.
         return {
           player: name, action, type: 'free',
-          currentLabel: fromLabel,
+          nodeId: fromNodeId, biome: fromBiome,
           possible: true, success: true, reason: 'rolled',
         };
       }
