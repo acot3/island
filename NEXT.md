@@ -10,4 +10,4 @@
 
 6. Fallback AI.
 
-7. Wire categorizer to resolver
+## 7. Wire categorizer to resolver
