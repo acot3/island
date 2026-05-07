@@ -26,7 +26,17 @@
   <div id="layout">
     <div id="main">
       <div id="narration" class="panel">
-        <div class="panel-label">NARRATION</div>
+        <div class="panel-label">
+          NARRATION
+          <span class="tts-controls">
+            <select id="tts-mode" title="Audio mode">
+              <option value="off">Audio: Off</option>
+              <option value="browser" selected>Audio: Browser</option>
+              <option value="elevenlabs">Audio: ElevenLabs ($)</option>
+            </select>
+            <select id="tts-browser-voice" title="System voice"></select>
+          </span>
+        </div>
         <div id="narration-content">
           <h1>ISLAND</h1>
           <p>A survival story.</p>

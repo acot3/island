@@ -226,7 +226,99 @@ socket.on('narration-chunk', ({ kind, day, text, full }) => {
   currentChunk = { kind, day, text };
   fullNarrative = full;
   renderNarration();
+  speakNarration(text);
 });
+
+// --- TTS ---
+
+const ELEVENLABS_VOICE_ID = 'USEQXnsXRJlw2k9LUzG4';
+const elAudioCache = new Map(); // text -> blob URL
+let currentAudio = null;
+let browserVoice = null;
+
+const ttsModeEl = document.getElementById('tts-mode');
+const ttsVoiceEl = document.getElementById('tts-browser-voice');
+
+function syncVoicePickerVisibility() {
+  ttsVoiceEl.style.display = ttsModeEl.value === 'browser' ? '' : 'none';
+}
+ttsModeEl.addEventListener('change', syncVoicePickerVisibility);
+syncVoicePickerVisibility();
+
+function loadBrowserVoices() {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  const voices = synth.getVoices();
+  if (!voices.length) return;
+  ttsVoiceEl.innerHTML = '';
+  for (const v of voices) {
+    const opt = document.createElement('option');
+    opt.value = v.name;
+    opt.textContent = `${v.name} (${v.lang})`;
+    ttsVoiceEl.appendChild(opt);
+  }
+  // Prefer an English voice by default
+  const preferred = voices.find(v => /en[-_]?US/i.test(v.lang) && /samantha|daniel|alex|google/i.test(v.name))
+    || voices.find(v => /^en/i.test(v.lang))
+    || voices[0];
+  if (preferred) {
+    ttsVoiceEl.value = preferred.name;
+    browserVoice = preferred;
+  }
+}
+ttsVoiceEl.addEventListener('change', () => {
+  const voices = window.speechSynthesis?.getVoices() || [];
+  browserVoice = voices.find(v => v.name === ttsVoiceEl.value) || null;
+});
+if (window.speechSynthesis) {
+  loadBrowserVoices();
+  window.speechSynthesis.addEventListener('voiceschanged', loadBrowserVoices);
+}
+
+function stopAudio() {
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (currentAudio) {
+    try { currentAudio.pause(); } catch {}
+    currentAudio = null;
+  }
+}
+
+function speakBrowser(text) {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  const utter = new SpeechSynthesisUtterance(text);
+  if (browserVoice) utter.voice = browserVoice;
+  utter.rate = 1.0;
+  synth.speak(utter);
+}
+
+async function speakElevenLabs(text) {
+  let blobUrl = elAudioCache.get(text);
+  if (!blobUrl) {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice_id: ELEVENLABS_VOICE_ID, text }),
+    });
+    if (!resp.ok) {
+      debug(`[TTS] HTTP ${resp.status}`, 'error');
+      return;
+    }
+    const blob = await resp.blob();
+    blobUrl = URL.createObjectURL(blob);
+    elAudioCache.set(text, blobUrl);
+  }
+  currentAudio = new Audio(blobUrl);
+  currentAudio.play().catch((e) => debug(`[TTS] play failed: ${e.message}`, 'error'));
+}
+
+function speakNarration(text) {
+  const mode = ttsModeEl.value;
+  if (mode === 'off' || !text) return;
+  stopAudio();
+  if (mode === 'elevenlabs') return speakElevenLabs(text);
+  return speakBrowser(text);
+}
 
 socket.on('narration-error', ({ kind, day, error }) => {
   debug(`Narrator error: ${kind} (day ${day}) — ${error}`, 'error');

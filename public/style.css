@@ -75,6 +75,26 @@ html, body {
   color: #333;
 }
 
+.tts-controls {
+  display: inline-flex;
+  gap: 6px;
+  margin-left: 10px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.tts-controls select {
+  background: transparent;
+  color: #888;
+  border: 1px solid #333;
+  font-family: inherit;
+  font-size: 10px;
+  padding: 2px 4px;
+  cursor: pointer;
+}
+
+.tts-controls select:hover { color: #ccc; }
+
 #seed-select {
   background: transparent;
   border: none;
