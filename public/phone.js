@@ -1,6 +1,7 @@
 const socket = io();
 
 let myName = '';
+let myHp = null;
 let myRoom = '';
 
 const joinScreen = document.getElementById('join-screen');
@@ -39,10 +40,26 @@ socket.on('room-closed', () => {
 
 // --- Header ---
 
+// HP is measured in half-hearts (0..6). Render as 3 hearts: each one shows
+// full / half / empty depending on the player's remaining halves.
+function renderHearts(hp) {
+  let html = '<span class="hearts">';
+  for (let i = 0; i < 3; i++) {
+    const heartHp = Math.max(0, Math.min(2, hp - i * 2));
+    if (heartHp === 2) html += '<span class="heart full">♥</span>';
+    else if (heartHp === 1) html += '<span class="heart half">♥</span>';
+    else html += '<span class="heart empty">♡</span>';
+  }
+  html += '</span>';
+  return html;
+}
+
 function renderHeader() {
+  const hearts = myHp === null ? '' : renderHearts(myHp);
   headerEl.innerHTML = `
     <div class="stats">
       <span class="player-name">${escapeHtml(myName)}</span>
+      ${hearts}
     </div>
   `;
 }
@@ -193,6 +210,10 @@ socket.on('game-started', ({ day }) => {
 socket.on('your-location', (loc) => {
   myLocation = loc;
   pendingMoveTarget = null;
+  if (typeof loc.hp === 'number') {
+    myHp = loc.hp;
+    renderHeader();
+  }
   // If the phone is currently in the chosen-action view, just refresh the
   // location data quietly. The follow-up `action-cancelled` (sent by the
   // server right after) will re-render the selection screen with fresh

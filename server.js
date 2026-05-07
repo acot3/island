@@ -7,7 +7,7 @@ const {
   CORNERS,
   NODES, neighborsOf, nodeLabel,
   buildMapPayload, buildLocationPayload,
-  distributeScenes, findSceneNode, getNodeView,
+  distributeScenes, findSceneNode, getNodeView, markItemFound,
 } = require('./lib/map');
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
@@ -193,6 +193,15 @@ async function buildActionReports(room) {
         const verdict = await categorizeAction({ action, biome: fromBiome });
         const sceneContext = getNodeView(room, fromNodeId);
         const outcome = resolveAction(verdict, sceneContext);
+        // Commit found items to the node's state so they can't be found again.
+        // Food is intentionally not depleted yet.
+        if (outcome.kind === 'search') {
+          for (const r of outcome.results) {
+            if (r.category === 'item' && r.success && r.found) {
+              markItemFound(room, fromNodeId, r.found);
+            }
+          }
+        }
         // Stream the categorizer result to the host's debug panel as before.
         if (room.hostSocket) {
           io.to(room.hostSocket).emit('categorizer-result', {
@@ -269,6 +278,7 @@ function endDay(room) {
     p.chosenAction = null;
     p.isPublic = false;
     p.pendingMove = null;
+    p.hp = Math.max(0, p.hp - 1); // half-heart per day
     if (p.socketId) {
       io.to(p.socketId).emit('your-location', buildLocationPayload(room, name));
       io.to(p.socketId).emit('action-cancelled');
@@ -353,6 +363,7 @@ io.on('connection', (socket) => {
     room.players.set(name, {
       socketId: socket.id, pronouns, mbti, color,
       chosenAction: null, isPublic: false, pendingMove: null,
+      hp: 5, // half-hearts; 5 = 2½ hearts. Lose 1 per day.
     });
     currentRoom = code;
     currentName = name;
