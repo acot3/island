@@ -7,7 +7,7 @@ const {
   CORNERS,
   NODES, neighborsOf, nodeLabel,
   buildMapPayload, buildLocationPayload,
-  distributeScenes, findSceneNode,
+  distributeScenes, findSceneNode, getNodeView,
 } = require('./lib/map');
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
@@ -191,13 +191,21 @@ async function buildActionReports(room) {
     tasks.push((async () => {
       try {
         const verdict = await categorizeAction({ action, biome: fromBiome });
-        const outcome = resolveAction(verdict);
+        const sceneContext = getNodeView(room, fromNodeId);
+        const outcome = resolveAction(verdict, sceneContext);
         // Stream the categorizer result to the host's debug panel as before.
         if (room.hostSocket) {
           io.to(room.hostSocket).emit('categorizer-result', {
             player: name, action, location: fromLabel, result: verdict, outcome,
           });
         }
+        // Synthesize a success/reason for the narrator. For search outcomes
+        // this is "any hits" → success; the per-category breakdown lives in
+        // outcome.results and is not wired through to the narrator yet.
+        const summarySuccess = outcome.kind === 'search'
+          ? outcome.results.some((r) => r.success)
+          : outcome.success;
+        const summaryReason = outcome.kind === 'search' ? 'searched' : outcome.reason;
         return {
           player: name, action, type: 'free',
           nodeId: fromNodeId, biome: fromBiome,
@@ -205,8 +213,8 @@ async function buildActionReports(room) {
           attribute: verdict.attribute,
           difficulty: verdict.difficulty,
           rationale: verdict.rationale,
-          success: outcome.success,
-          reason: outcome.reason,
+          success: summarySuccess,
+          reason: summaryReason,
         };
       } catch (err) {
         if (room.hostSocket) {

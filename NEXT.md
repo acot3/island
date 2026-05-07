@@ -1,6 +1,6 @@
 ## 1. add fog of war & map centering
 
-2. build out node objects (descriptions, features, items, events)
+## 2. build out node objects
 
 ## 3. create GP-narrator and day-pass cycle
 
@@ -10,3 +10,4 @@
 
 6. Fallback AI.
 
+7. Wire categorizer to resolver

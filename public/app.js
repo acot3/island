@@ -267,9 +267,20 @@ socket.on('action-public', ({ name, action }) => {
 
 socket.on('categorizer-result', ({ player, action, location, result, outcome }) => {
   const possible = result.possible ? 'possible' : 'impossible';
-  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} — ${result.rationale}`;
+  const seeking = Array.isArray(result.seeking) && result.seeking.length ? result.seeking.join(',') : 'none';
+  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} | seeking:${seeking} — ${result.rationale}`;
   if (outcome.reason === 'impossible') {
     line += `\n      → auto-fail (impossible)`;
+  } else if (outcome.kind === 'search') {
+    if (!outcome.results.length) {
+      line += `\n      → search: nothing to roll on this scene`;
+    } else {
+      for (const r of outcome.results) {
+        const pct = (r.chance * 100).toFixed(0);
+        const verdict = r.success ? `FOUND ${r.found || '(unknown)'}` : 'miss';
+        line += `\n      → ${r.category} @ ${pct}% → ${verdict}`;
+      }
+    }
   } else {
     const r = outcome.roll;
     line += `\n      → roll ${r.d20} + ${r.modifier} = ${r.total} vs DC ${r.dc} → ${outcome.success ? 'SUCCESS' : 'FAIL'}`;
