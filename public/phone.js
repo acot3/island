@@ -2,12 +2,15 @@ const socket = io();
 
 let myName = '';
 let myHp = null;
+let myInventory = null; // null = pre-game; once game starts it becomes [].
+const INVENTORY_SIZE = 3;
 let myRoom = '';
 
 const joinScreen = document.getElementById('join-screen');
 const gameScreen = document.getElementById('game-screen');
 const headerEl = document.getElementById('player-header');
 const contentEl = document.getElementById('player-content');
+const inventoryEl = document.getElementById('player-inventory');
 const joinError = document.getElementById('join-error');
 
 // --- Reconnection ---
@@ -61,6 +64,27 @@ function renderHeader() {
       <span class="player-name">${escapeHtml(myName)}</span>
       ${hearts}
     </div>
+  `;
+}
+
+// Inventory: always renders INVENTORY_SIZE slots once the game has started.
+// Empty slots show a dash. Null myInventory means pre-game — render nothing.
+function renderInventory() {
+  if (!inventoryEl) return;
+  if (myInventory === null) {
+    inventoryEl.innerHTML = '';
+    return;
+  }
+  const slots = [];
+  for (let i = 0; i < INVENTORY_SIZE; i++) {
+    const item = myInventory[i];
+    const empty = item === undefined ? ' empty' : '';
+    const text = item === undefined ? '—' : escapeHtml(item);
+    slots.push(`<div class="inventory-slot${empty}">${text}</div>`);
+  }
+  inventoryEl.innerHTML = `
+    <p class="action-prompt">Inventory</p>
+    <div class="inventory">${slots.join('')}</div>
   `;
 }
 
@@ -213,6 +237,10 @@ socket.on('your-location', (loc) => {
   if (typeof loc.hp === 'number') {
     myHp = loc.hp;
     renderHeader();
+  }
+  if (Array.isArray(loc.inventory)) {
+    myInventory = loc.inventory;
+    renderInventory();
   }
   // If the phone is currently in the chosen-action view, just refresh the
   // location data quietly. The follow-up `action-cancelled` (sent by the

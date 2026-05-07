@@ -17,6 +17,8 @@ const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
 ];
 
+const INVENTORY_SIZE = 3;
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
@@ -223,13 +225,20 @@ async function buildActionReports(room) {
       try {
         const verdict = await categorizeAction({ action, biome: fromBiome });
         const sceneContext = getNodeView(room, fromNodeId);
-        const outcome = resolveAction(verdict, sceneContext);
-        // Commit found items to the node's state so they can't be found again.
-        // Food is intentionally not depleted yet.
+        const playerContext = { inventoryRemaining: INVENTORY_SIZE - p.inventory.length };
+        const outcome = resolveAction(verdict, sceneContext, playerContext);
+        // Commit found items + food to the player's inventory. Items are
+        // also removed from the node's pool so they can't be found again.
+        // Food is treated as an inventory item but isn't tracked on the node
+        // (food.chance / kinds are scene constants, not depleting state).
         if (outcome.kind === 'search') {
           for (const r of outcome.results) {
-            if (r.category === 'item' && r.success && r.found) {
+            if (!r.success || !r.found) continue;
+            if (r.category === 'item') {
+              p.inventory.push(r.found);
               markItemFound(room, fromNodeId, r.found);
+            } else if (r.category === 'food') {
+              p.inventory.push(r.found);
             }
           }
         }
@@ -293,6 +302,13 @@ async function runDayNarration(room) {
       actionReports,
     });
     appendNarrationChunk(room, 'day', chunk + '\n\n');
+    // Push fresh per-player state (hp, inventory) alongside the day's prose
+    // so phones reflect today's finds the moment the narration publishes.
+    for (const [pname, pp] of room.players) {
+      if (pp.socketId) {
+        io.to(pp.socketId).emit('your-location', buildLocationPayload(room, pname));
+      }
+    }
   } catch (err) {
     io.to(room.hostSocket).emit('narration-error', {
       kind: 'day', day: room.day, error: err.message,
@@ -395,6 +411,8 @@ io.on('connection', (socket) => {
       socketId: socket.id, pronouns, mbti, color,
       chosenAction: null, isPublic: false, pendingMove: null,
       hp: 5, // half-hearts; 5 = 2½ hearts. Lose 1 per day.
+      inventory: [], // up to INVENTORY_SIZE item names. Resolver gates rolls
+                     // on remaining capacity; full inventory blocks new rolls.
     });
     currentRoom = code;
     currentName = name;
