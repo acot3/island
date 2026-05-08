@@ -347,6 +347,17 @@ socket.on('action-cancelled', () => {
   renderActions();
 });
 
+// The day's narration has published. The player's submitted action is now
+// resolved — they can no longer cancel it — so freeze the screen into a
+// waiting state until the host clicks End Day. action-cancelled (sent next)
+// will redraw the picker for the new day.
+socket.on('day-narrated', () => {
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="status-msg">Waiting for the next day…</p>
+  `;
+});
+
 socket.on('assist-option', ({ name, action }) => {
   if (assistOptions.some((o) => o.name === name)) return;
   assistOptions.push({ name, action });

@@ -303,10 +303,13 @@ async function runDayNarration(room) {
     });
     appendNarrationChunk(room, 'day', chunk + '\n\n');
     // Push fresh per-player state (hp, inventory) alongside the day's prose
-    // so phones reflect today's finds the moment the narration publishes.
+    // so phones reflect today's finds the moment the narration publishes,
+    // and emit a phase signal so phones can switch to the post-day waiting
+    // screen until the host clicks End Day.
     for (const [pname, pp] of room.players) {
       if (pp.socketId) {
         io.to(pp.socketId).emit('your-location', buildLocationPayload(room, pname));
+        io.to(pp.socketId).emit('day-narrated', { day: room.day });
       }
     }
   } catch (err) {

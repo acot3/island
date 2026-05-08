@@ -124,8 +124,8 @@ function renderStarted(day) {
     <p class="action-prompt-host">What will you do?</p>
     <div id="action-status" class="status-list"></div>
     <div class="phase-controls">
-      <button id="btn-proceed" class="temp-btn" disabled>Proceed</button>
-      <button id="btn-end-day" class="temp-btn">End Day</button>
+      <button id="btn-proceed" class="temp-btn" style="display:none">Proceed</button>
+      <button id="btn-end-day" class="temp-btn" style="display:none">End Day</button>
     </div>
   `);
   renderNarration();
@@ -153,9 +153,7 @@ function renderNarration() {
     proseEl.textContent = fullNarrative || '(no narration yet)';
   } else {
     proseEl.classList.remove('full');
-    proseEl.textContent = currentChunk
-      ? currentChunk.text
-      : '(generating opening narration…)';
+    proseEl.textContent = currentChunk ? currentChunk.text : 'Loading…';
   }
 
   if (toggleEl) {
@@ -198,7 +196,7 @@ function renderActionStatus(statuses, assists) {
   const proceedBtn = document.getElementById('btn-proceed');
   if (proceedBtn) {
     const allSubmitted = statuses.length > 0 && statuses.every((s) => s.submitted);
-    proceedBtn.disabled = !allSubmitted;
+    proceedBtn.style.display = allSubmitted ? '' : 'none';
   }
 }
 
@@ -216,8 +214,19 @@ socket.on('narration-pending', ({ kind, day }) => {
   debug(`Narrator pending: ${kind} (day ${day})`, 'api');
   // Show a placeholder if we don't yet have any prose for the new state.
   if (!currentChunk || currentChunk.day !== day || currentChunk.kind !== kind) {
-    currentChunk = { kind, day, text: '(generating ' + kind + ' narration…)' };
+    currentChunk = { kind, day, text: 'Loading…' };
     renderNarration();
+  }
+  // While narration is generating, hide the action-selection chrome.
+  const prompt = document.querySelector('.action-prompt-host');
+  const status = document.getElementById('action-status');
+  if (prompt) prompt.style.display = 'none';
+  if (status) status.style.display = 'none';
+  // Day narration in flight → Proceed has done its job; hide it so the host
+  // doesn't see two phase buttons at once. End Day waits until prose lands.
+  if (kind === 'day') {
+    const proceedBtn = document.getElementById('btn-proceed');
+    if (proceedBtn) proceedBtn.style.display = 'none';
   }
 });
 
@@ -227,6 +236,22 @@ socket.on('narration-chunk', ({ kind, day, text, full }) => {
   fullNarrative = full;
   renderNarration();
   speakNarration(text);
+  // Day narration has published → swap the action-selection UI for the End
+  // Day control. The prompt + per-player status list stay hidden until the
+  // next day begins.
+  if (kind === 'day') {
+    const endBtn = document.getElementById('btn-end-day');
+    if (endBtn) endBtn.style.display = '';
+  }
+  // Morning narration has published → the action-selection round for the
+  // new day is open. Re-show the prompt and status list (hidden during the
+  // morning generation).
+  if (kind === 'morning') {
+    const prompt = document.querySelector('.action-prompt-host');
+    const status = document.getElementById('action-status');
+    if (prompt) prompt.style.display = '';
+    if (status) status.style.display = '';
+  }
 });
 
 // --- TTS ---
@@ -332,6 +357,17 @@ socket.on('day-changed', ({ day }) => {
   currentDay = day;
   const dayLabel = document.querySelector('#narration-content .day-label');
   if (dayLabel) dayLabel.textContent = `Day ${day}`;
+  // Reset for the new day: both phase buttons hidden, prompt and status
+  // list back in view. Proceed reappears once every player submits; End
+  // Day reappears once the day's narration publishes.
+  const proceedBtn = document.getElementById('btn-proceed');
+  const endBtn = document.getElementById('btn-end-day');
+  const prompt = document.querySelector('.action-prompt-host');
+  const status = document.getElementById('action-status');
+  if (proceedBtn) proceedBtn.style.display = 'none';
+  if (endBtn) endBtn.style.display = 'none';
+  if (prompt) prompt.style.display = '';
+  if (status) status.style.display = '';
   debug(`Day → ${day}`, 'phase');
 });
 
