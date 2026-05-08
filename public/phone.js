@@ -498,21 +498,53 @@ function drawMolecule() {
 
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(SVG_NS, 'svg');
-  svg.setAttribute('viewBox', '-4 -4 8 8');
   svg.setAttribute('class', 'molecule');
 
-  // Spokes (current → each neighbor)
-  for (const nb of myLocation.neighbors) {
+  const fogNodes = myLocation.fogNodes || [];
+  const fogEdges = myLocation.fogEdges || [];
+  const neighborsById = Object.fromEntries(
+    (myLocation.neighbors || []).map((nb) => [nb.nodeId, nb])
+  );
+  const fogById = Object.fromEntries(fogNodes.map((n) => [n.id, n]));
+
+  // ViewBox sized to fit every revealed node, with the player at (0,0).
+  let max = 1.5;
+  for (const n of fogNodes) {
+    const m = Math.max(Math.abs(n.dx), Math.abs(n.dy));
+    if (m > max) max = m;
+  }
+  const pad = 1;
+  const span = (max + pad) * 2;
+  svg.setAttribute('viewBox', `${-(max + pad)} ${-(max + pad)} ${span} ${span}`);
+
+  // Edges first so nodes paint on top.
+  for (const e of fogEdges) {
+    const a = fogById[e.from];
+    const b = fogById[e.to];
+    if (!a || !b) continue;
     const line = document.createElementNS(SVG_NS, 'line');
-    line.setAttribute('x1', '0');
-    line.setAttribute('y1', '0');
-    line.setAttribute('x2', String(nb.dx));
-    line.setAttribute('y2', String(nb.dy));
-    line.setAttribute('class', 'map-edge');
+    line.setAttribute('x1', String(a.dx));
+    line.setAttribute('y1', String(a.dy));
+    line.setAttribute('x2', String(b.dx));
+    line.setAttribute('y2', String(b.dy));
+    line.setAttribute('class', `map-edge ${e.kind || 'partial'}`);
     svg.appendChild(line);
   }
 
-  // Center node + player ring
+  // Non-neighbor nodes: visible but not tappable.
+  for (const n of fogNodes) {
+    if (n.id === myLocation.nodeId) continue;
+    if (neighborsById[n.id]) continue;
+    const c = document.createElementNS(SVG_NS, 'circle');
+    c.setAttribute('cx', String(n.dx));
+    c.setAttribute('cy', String(n.dy));
+    c.setAttribute('r', '0.25');
+    const dim = n.visited ? '' : ' unvisited';
+    c.setAttribute('class', `map-node biome-${n.biome}${dim}`);
+    svg.appendChild(c);
+  }
+
+  // Center (player) node + player ring.
   const center = document.createElementNS(SVG_NS, 'circle');
   center.setAttribute('cx', '0');
   center.setAttribute('cy', '0');
@@ -532,12 +564,11 @@ function drawMolecule() {
   }
 
   const wreckage = myLocation.wreckageNodeId;
-  // Campfire icon at the wreckage if it's the player's current node.
   if (wreckage && myLocation.nodeId === wreckage) {
     svg.appendChild(makeCampIcon(0, 0));
   }
 
-  // Neighbors — each wrapped in a <g> with a transparent oversized hit target
+  // Tappable neighbors.
   for (const nb of myLocation.neighbors) {
     const g = document.createElementNS(SVG_NS, 'g');
     g.setAttribute('class', 'neighbor-tap');
@@ -572,10 +603,15 @@ function drawMolecule() {
     g.addEventListener('click', () => onNeighborTap(nb));
     svg.appendChild(g);
 
-    // Campfire icon if this neighbor is the wreckage.
     if (wreckage && nb.nodeId === wreckage) {
       svg.appendChild(makeCampIcon(nb.dx, nb.dy));
     }
+  }
+
+  // Campfire icon for non-neighbor visible wreckage too.
+  if (wreckage && myLocation.nodeId !== wreckage && !neighborsById[wreckage]) {
+    const w = fogById[wreckage];
+    if (w) svg.appendChild(makeCampIcon(w.dx, w.dy));
   }
 
   container.innerHTML = '';
