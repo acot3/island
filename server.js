@@ -173,6 +173,47 @@ function checkGameOver(room) {
   }
 }
 
+// Push the cache and derived counters to the host and every player who is
+// currently around the fire. Called after every deposit/withdraw so all
+// camp views stay in sync.
+function broadcastCampfireState(room) {
+  const cache = room.cache;
+  const foodUnits = cache
+    .filter((s) => s.type === 'food')
+    .reduce((sum, s) => sum + s.count, 0);
+  const aliveCount = alivePlayerEntries(room).length;
+  const payload = { cache, foodUnits, aliveCount };
+  if (room.hostSocket) io.to(room.hostSocket).emit('campfire-state', payload);
+  for (const [, p] of aliveAtWreckage(room)) {
+    if (p.socketId) io.to(p.socketId).emit('campfire-state', payload);
+  }
+}
+
+// Add to the cache: food stacks by name, items always open a new slot.
+function addToCache(room, name, type, count) {
+  if (type === 'food') {
+    const existing = room.cache.find((s) => s.type === 'food' && s.name === name);
+    if (existing) existing.count += count;
+    else room.cache.push({ name, count, type: 'food' });
+  } else {
+    room.cache.push({ name, count: 1, type: 'item' });
+  }
+}
+
+// Add to a player's personal inventory: food stacks by name, items always
+// open a new slot. Caller is expected to have verified slot availability.
+function addToPersonalInventory(player, name, type, count) {
+  if (type === 'food') {
+    const existing = player.inventory.find(
+      (s) => s.type === 'food' && s.name === name
+    );
+    if (existing) existing.count += count;
+    else player.inventory.push({ name, count, type: 'food' });
+  } else {
+    player.inventory.push({ name, count: 1, type: 'item' });
+  }
+}
+
 // Run the v0.3 feeding rule on the room's cache against the alive count.
 // If pool food units >= alive, drain that many; otherwise everyone alive
 // loses 1 HP (which may kill them). Returns a summary the host can display.
@@ -731,6 +772,81 @@ io.on('connection', (socket) => {
     p.hp = Math.min(MAX_HP, p.hp + 1);
     if (p.socketId) {
       io.to(p.socketId).emit('your-location', buildLocationPayload(room, currentName));
+    }
+  });
+
+  // Move 1 unit (food) or 1 slot (item) from the player's personal
+  // inventory into the camp cache. Player must be alive, at the wreckage,
+  // and the room must be in campfire phase.
+  socket.on('campfire-deposit', ({ name } = {}) => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'campfire') return;
+    const p = room.players.get(currentName);
+    if (!p || p.dead) return;
+    const wreckage = findSceneNode(room, 'wreckage-site');
+    if (p.nodeId !== wreckage) return;
+    const idx = p.inventory.findIndex((s) => s.name === name);
+    if (idx < 0) return;
+    const slot = p.inventory[idx];
+    const slotName = slot.name;
+    const slotType = slot.type;
+    if (slotType === 'food' && slot.count > 1) {
+      slot.count -= 1;
+      addToCache(room, slotName, 'food', 1);
+    } else {
+      p.inventory.splice(idx, 1);
+      addToCache(room, slotName, slotType, slotType === 'food' ? slot.count : 1);
+    }
+    if (p.socketId) {
+      io.to(p.socketId).emit('your-location', buildLocationPayload(room, currentName));
+    }
+    broadcastCampfireState(room);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('campfire-log', {
+        name: currentName, action: 'shared', what: slotName,
+      });
+    }
+  });
+
+  // Withdraw the inverse: pull from the cache into the player's personal
+  // inventory. Fails silently if the player has no slot (and no matching
+  // food slot to stack onto).
+  socket.on('campfire-withdraw', ({ name } = {}) => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'campfire') return;
+    const p = room.players.get(currentName);
+    if (!p || p.dead) return;
+    const wreckage = findSceneNode(room, 'wreckage-site');
+    if (p.nodeId !== wreckage) return;
+    const idx = room.cache.findIndex((s) => s.name === name);
+    if (idx < 0) return;
+    const slot = room.cache[idx];
+    const slotName = slot.name;
+    const slotType = slot.type;
+    const remaining = INVENTORY_SIZE - p.inventory.length;
+    const hasMatchingFood =
+      slotType === 'food' &&
+      p.inventory.some((s) => s.type === 'food' && s.name === slotName);
+    const canLand = hasMatchingFood || remaining > 0;
+    if (!canLand) return;
+    if (slotType === 'food' && slot.count > 1) {
+      slot.count -= 1;
+      addToPersonalInventory(p, slotName, 'food', 1);
+    } else {
+      const movedCount = slotType === 'food' ? slot.count : 1;
+      room.cache.splice(idx, 1);
+      addToPersonalInventory(p, slotName, slotType, movedCount);
+    }
+    if (p.socketId) {
+      io.to(p.socketId).emit('your-location', buildLocationPayload(room, currentName));
+    }
+    broadcastCampfireState(room);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('campfire-log', {
+        name: currentName, action: 'took', what: slotName,
+      });
     }
   });
 

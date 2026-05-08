@@ -281,7 +281,7 @@ socket.on('day-resolution-options', ({ playersAtCamp }) => {
 // Campfire phase has begun. Replace the entire narration panel with the
 // v0.3-style campfire view: image, group food pool, fed/hungry status,
 // transfer log, and an End Day button. Deposit/withdraw lands next push.
-socket.on('campfire-start', ({ day, playersAtCamp, foodUnits, aliveCount }) => {
+socket.on('campfire-start', ({ day, playersAtCamp, foodUnits, aliveCount, cache }) => {
   debug(`Campfire: ${playersAtCamp.join(', ')}`, 'phase');
   inCampfireView = true;
   const fed = foodUnits >= aliveCount;
@@ -289,22 +289,67 @@ socket.on('campfire-start', ({ day, playersAtCamp, foodUnits, aliveCount }) => {
     <p class="day-label">Day ${day} — Campfire</p>
     <p>The fire crackles. What will you share?</p>
     <img src="/campfire.png" class="campfire-img" alt="">
-    <div class="campfire-food">
-      <div class="campfire-food-label">Food</div>
-      <div class="campfire-food-number"><span id="campfire-pool-num">${foodUnits}</span> of ${aliveCount} needed</div>
+    <div class="campfire-grid">
+      <div class="campfire-col">
+        <div class="campfire-food">
+          <div class="campfire-food-label">Food</div>
+          <div class="campfire-food-number"><span id="campfire-pool-num">${foodUnits}</span> of ${aliveCount} needed</div>
+        </div>
+        <p id="hungry-warning" class="hungry-warning" style="display:${fed ? 'none' : 'block'}">The group will go hungry tonight. −1 HP</p>
+        <p id="food-ok" class="food-ok" style="display:${fed ? 'block' : 'none'}">The group has enough food for everyone.</p>
+        <p class="phase-note">Around the fire: ${playersAtCamp.map(escapeHtml).join(', ')}.</p>
+        <div id="campfire-log" class="campfire-log"></div>
+      </div>
+      <div class="campfire-col">
+        <p class="campfire-food-label">Group inventory</p>
+        <div id="campfire-cache" class="campfire-cache"></div>
+      </div>
     </div>
-    <p id="hungry-warning" class="hungry-warning" style="display:${fed ? 'none' : 'block'}">The group will go hungry tonight. −1 HP</p>
-    <p id="food-ok" class="food-ok" style="display:${fed ? 'block' : 'none'}">The group has enough food for everyone.</p>
-    <p class="phase-note">Around the fire: ${playersAtCamp.map(escapeHtml).join(', ')}.</p>
-    <div id="campfire-log" class="campfire-log"></div>
     <div class="campfire-actions">
       <button id="btn-end-day-campfire" class="temp-btn">End Day</button>
     </div>
   `);
+  renderCampfireCache(cache || []);
   document.getElementById('btn-end-day-campfire').addEventListener('click', () => {
     socket.emit('end-day');
     debug('End day requested', 'phase');
   });
+});
+
+function renderCampfireCache(cache) {
+  const el = document.getElementById('campfire-cache');
+  if (!el) return;
+  if (!cache.length) {
+    el.innerHTML = '<div class="cache-slot empty">—</div>';
+    return;
+  }
+  el.innerHTML = cache.map((s) => {
+    if (s.type === 'food') {
+      return `<div class="cache-slot">${escapeHtml(s.name)} [${s.count}]</div>`;
+    }
+    return `<div class="cache-slot">${escapeHtml(s.name)}</div>`;
+  }).join('');
+}
+
+// Live updates from any deposit/withdraw at the campfire.
+socket.on('campfire-state', ({ cache, foodUnits, aliveCount }) => {
+  const num = document.getElementById('campfire-pool-num');
+  if (num) num.textContent = foodUnits;
+  const fed = foodUnits >= aliveCount;
+  const hungry = document.getElementById('hungry-warning');
+  const ok = document.getElementById('food-ok');
+  if (hungry) hungry.style.display = fed ? 'none' : 'block';
+  if (ok) ok.style.display = fed ? 'block' : 'none';
+  renderCampfireCache(cache || []);
+});
+
+socket.on('campfire-log', ({ name, action, what }) => {
+  const log = document.getElementById('campfire-log');
+  if (!log) return;
+  const verb = action === 'shared' ? 'shared' : 'took';
+  const entry = document.createElement('p');
+  entry.textContent = `${name} ${verb} ${what}.`;
+  log.appendChild(entry);
 });
 
 socket.on('feeding-result', ({ fed, deaths }) => {

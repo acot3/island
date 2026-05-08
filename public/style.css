@@ -259,6 +259,40 @@ html, body {
   margin-top: 24px;
 }
 
+/* Two-column layout under the campfire image: status/log on the left,
+   group inventory on the right. */
+.campfire-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 32px;
+  margin-top: 16px;
+}
+
+.campfire-col {
+  display: flex;
+  flex-direction: column;
+}
+
+.campfire-cache {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.cache-slot {
+  border: 1px solid #555;
+  color: #ddd;
+  font-size: 15px;
+  padding: 14px 16px;
+  text-align: left;
+}
+
+.cache-slot.empty {
+  border-color: #333;
+  color: #444;
+}
+
 .hungry-warning {
   color: #c44;
   font-size: 14px;
@@ -450,69 +484,6 @@ button:disabled {
   font-size: 13px;
   font-style: italic;
   margin-top: 16px;
-}
-
-/* Campfire phase view — host-side */
-.campfire-img {
-  display: block;
-  margin: 32px auto 0;
-  height: 180px;
-  width: auto;
-}
-
-.campfire-food {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin: 32px 0;
-}
-
-.campfire-food-label {
-  color: #b5a06a;
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 4px;
-  margin-bottom: 12px;
-}
-
-.campfire-food-number {
-  font-size: 48px;
-  color: #fff;
-  border: 1px solid #555;
-  padding: 16px 32px;
-  min-width: 120px;
-  text-align: center;
-}
-
-.hungry-warning {
-  color: #c44;
-  font-size: 14px;
-  text-align: center;
-  margin-top: 8px;
-}
-
-.food-ok {
-  color: #7c8a5c;
-  font-size: 14px;
-  text-align: center;
-  margin-top: 8px;
-}
-
-.campfire-log {
-  margin: 12px 0;
-  text-align: center;
-}
-
-.campfire-log p {
-  font-size: 13px;
-  margin-bottom: 4px;
-  color: #888;
-}
-
-.campfire-actions {
-  display: flex;
-  justify-content: center;
-  margin-top: 24px;
 }
 
 .phase-controls .temp-btn {

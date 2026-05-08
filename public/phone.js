@@ -4,6 +4,8 @@ let myName = '';
 let myHp = null;
 let myInventory = null; // null = pre-game; once game starts it becomes [].
 let myDead = false;
+let myCampfireMode = false; // true while host is in campfire phase and we're at camp
+let myCache = [];           // group inventory while in campfire mode
 const INVENTORY_SIZE = 3;
 const MAX_HP = 6;
 let myRoom = '';
@@ -79,28 +81,34 @@ function renderInventory() {
     inventoryEl.innerHTML = '';
     return;
   }
+  // In campfire mode, slots become tap-to-deposit buttons. Outside, they're
+  // static divs.
   const slots = [];
   for (let i = 0; i < INVENTORY_SIZE; i++) {
     const it = myInventory[i];
     if (!it) {
       slots.push(`<div class="inventory-slot empty">—</div>`);
-    } else if (it.type === 'food') {
+      continue;
+    }
+    const label = it.type === 'food'
+      ? `${escapeHtml(it.name)} [${it.count}]`
+      : escapeHtml(it.name);
+    if (myCampfireMode) {
       slots.push(
-        `<div class="inventory-slot">${escapeHtml(it.name)} [${it.count}]</div>`
+        `<button class="inventory-slot deposit" data-name="${escapeHtml(it.name)}">${label}</button>`
       );
     } else {
-      slots.push(`<div class="inventory-slot">${escapeHtml(it.name)}</div>`);
+      slots.push(`<div class="inventory-slot">${label}</div>`);
     }
   }
-  // Eat button: a player can spend one food portion for +1 HP, capped at
-  // MAX_HP. Shown only when both conditions hold.
   const hasFood = myInventory.some((s) => s && s.type === 'food' && s.count > 0);
   const canEat = hasFood && typeof myHp === 'number' && myHp < MAX_HP;
   const eatBtn = canEat
     ? '<button id="btn-eat" class="btn-eat">Eat (-1 portion / +1 HP)</button>'
     : '';
+  const title = myCampfireMode ? 'Inventory (tap to share)' : 'Inventory';
   inventoryEl.innerHTML = `
-    <p class="action-prompt">Inventory</p>
+    <p class="action-prompt">${title}</p>
     <div class="inventory">${slots.join('')}</div>
     ${eatBtn}
   `;
@@ -109,6 +117,38 @@ function renderInventory() {
       socket.emit('eat-food');
     });
   }
+  if (myCampfireMode) {
+    inventoryEl.querySelectorAll('.inventory-slot.deposit').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        socket.emit('campfire-deposit', { name: btn.dataset.name });
+      });
+    });
+  }
+}
+
+// Group inventory list (cache) shown in #player-content during campfire.
+// Each cache slot is a tap-to-withdraw button. Empty cache renders one
+// dimmed row so the player sees the section is there.
+function renderCampfireGroup() {
+  const slots = myCache.map((s) => {
+    const label = s.type === 'food'
+      ? `${escapeHtml(s.name)} [${s.count}]`
+      : escapeHtml(s.name);
+    return `<button class="inventory-slot withdraw" data-name="${escapeHtml(s.name)}">${label}</button>`;
+  });
+  const list = slots.length
+    ? slots.join('')
+    : '<div class="inventory-slot empty">—</div>';
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="action-prompt">Stockpile (tap to take)</p>
+    <div class="inventory">${list}</div>
+  `;
+  contentEl.querySelectorAll('.inventory-slot.withdraw').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      socket.emit('campfire-withdraw', { name: btn.dataset.name });
+    });
+  });
 }
 
 // --- Picker overlay ---
@@ -368,8 +408,12 @@ socket.on('action-confirmed', ({ action, isPublic }) => {
 
 socket.on('action-cancelled', () => {
   if (myDead) return;
+  // Leaving any campfire state — back to the action picker for the new day.
+  myCampfireMode = false;
+  myCache = [];
   actionInputOpen = false;
   renderActions();
+  renderInventory();
 });
 
 // The day's narration has published. The player's submitted action is now
@@ -385,14 +429,25 @@ socket.on('day-narrated', () => {
 });
 
 // The host lit the fire. Players at the wreckage receive this event with
-// their personal inventory + the cache. Deposit/withdraw UI lands next push
-// — for now, just a placeholder telling the player they're at camp.
-socket.on('campfire-turn', () => {
+// their personal inventory + the cache. Render the group inventory in the
+// main content area (tap to withdraw); the personal inventory below
+// becomes tap-to-deposit (handled in renderInventory via myCampfireMode).
+socket.on('campfire-turn', ({ cache }) => {
   if (myDead) return;
-  contentEl.innerHTML = `
-    <p class="day-label">Day ${currentDay}</p>
-    <p class="status-msg">Around the campfire. Waiting for the host to end the day…</p>
-  `;
+  myCampfireMode = true;
+  myCache = Array.isArray(cache) ? cache : [];
+  renderCampfireGroup();
+  renderInventory();
+});
+
+// Live updates after any deposit/withdraw at the campfire.
+socket.on('campfire-state', ({ cache }) => {
+  if (!myCampfireMode || myDead) return;
+  myCache = Array.isArray(cache) ? cache : [];
+  renderCampfireGroup();
+  // Personal inventory updates ride on your-location, which fires for the
+  // affected player. Re-render to refresh tap targets.
+  renderInventory();
 });
 
 // The player has died. Replace the entire game UI with a death notice.
