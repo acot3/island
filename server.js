@@ -18,6 +18,7 @@ const PLAYER_COLORS = [
 ];
 
 const INVENTORY_SIZE = 3;
+const MAX_HP = 6; // half-hearts; 6 = 3 full hearts (the renderer's cap)
 
 const app = express();
 const server = http.createServer(app);
@@ -75,13 +76,18 @@ function createRoom() {
   const code = generateRoomCode();
   const room = {
     hostSocket: null,
-    players: new Map(), // name -> { socketId, pronouns, mbti }
-    phase: 'lobby',     // 'lobby' | 'started'
+    players: new Map(), // name -> { socketId, pronouns, mbti, hp, dead, ... }
+    phase: 'lobby',     // 'lobby' | 'started' | 'campfire'
     day: 1,
     narrative: '',          // the canonical growing prose document
     currentChunk: null,     // { kind: 'morning' | 'day', day, text }
     narratorBusy: false,    // single-flight guard
     nodeState: null,        // { [nodeId]: { sceneId, foundItems } }
+    cache: [],              // group inventory at the campfire — same shape
+                            // as a player's inventory: { name, count, type }.
+                            // Mutated only during campfire phase by players
+                            // at the wreckage.
+    gameOver: false,
   };
   distributeScenes(room);
   // The wreckage is the players' arrival point and must sit on a corner.
@@ -107,6 +113,7 @@ function computeActionStatus(room) {
   const pending = [];
   const assists = {};
   for (const [name, p] of room.players) {
+    if (p.dead) continue;
     if (p.chosenAction !== null) {
       submitted.push(name);
       const match = p.chosenAction.match(/^Assist (.+)$/);
@@ -123,19 +130,92 @@ function emitActionStatus(room) {
   io.to(room.hostSocket).emit('action-status', computeActionStatus(room));
 }
 
-// Build a snapshot of player profiles passed to every narrator call.
-function narratorPlayers(room) {
-  return Array.from(room.players.entries()).map(([name, p]) => ({
-    name, pronouns: p.pronouns, mbti: p.mbti,
-  }));
+// --- Alive / death / feeding helpers ---
+
+function alivePlayerEntries(room) {
+  return Array.from(room.players.entries()).filter(([, p]) => !p.dead);
 }
 
-// Build a snapshot of where every player currently is. The narrator uses
-// nodeId to judge co-location and biome to describe scenery; it never sees
-// the human-readable label, which would leak compass info into the prose.
+function aliveAtWreckage(room) {
+  const wreckage = findSceneNode(room, 'wreckage-site');
+  if (!wreckage) return [];
+  return alivePlayerEntries(room).filter(([, p]) => p.nodeId === wreckage);
+}
+
+// Drop HP by `amount` half-hearts, clamped at 0. Marks the player dead and
+// fires the side-effects when HP hits 0. Returns true if the player just
+// died on this call.
+function applyHpLoss(room, name, amount) {
+  const p = room.players.get(name);
+  if (!p || p.dead) return false;
+  p.hp = Math.max(0, p.hp - amount);
+  if (p.hp <= 0) {
+    p.dead = true;
+    p.deathDay = room.day;
+    if (p.socketId) {
+      io.to(p.socketId).emit('you-died', { name, deathDay: p.deathDay });
+    }
+    return true;
+  }
+  return false;
+}
+
+function checkGameOver(room) {
+  if (room.gameOver) return;
+  if (room.phase !== 'started' && room.phase !== 'campfire') return;
+  if (room.players.size === 0) return;
+  const anyAlive = Array.from(room.players.values()).some((p) => !p.dead);
+  if (!anyAlive) {
+    room.gameOver = true;
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('game-over', { day: room.day });
+    }
+  }
+}
+
+// Run the v0.3 feeding rule on the room's cache against the alive count.
+// If pool food units >= alive, drain that many; otherwise everyone alive
+// loses 1 HP (which may kill them). Returns a summary the host can display.
+function runFeeding(room) {
+  const alive = alivePlayerEntries(room);
+  const aliveCount = alive.length;
+  let foodUnits = 0;
+  for (const slot of room.cache) {
+    if (slot.type === 'food') foodUnits += slot.count;
+  }
+  if (foodUnits >= aliveCount && aliveCount > 0) {
+    let toDrain = aliveCount;
+    for (const slot of room.cache) {
+      if (toDrain <= 0) break;
+      if (slot.type !== 'food') continue;
+      const take = Math.min(toDrain, slot.count);
+      slot.count -= take;
+      toDrain -= take;
+    }
+    room.cache = room.cache.filter((s) => s.count > 0);
+    return { fed: true, deaths: [] };
+  }
+  const deaths = [];
+  for (const [name] of alive) {
+    if (applyHpLoss(room, name, 1)) deaths.push(name);
+  }
+  return { fed: false, deaths };
+}
+
+// Build a snapshot of player profiles passed to every narrator call.
+// Dead players are excluded from narration after their death day.
+function narratorPlayers(room) {
+  return Array.from(room.players.entries())
+    .filter(([, p]) => !p.dead)
+    .map(([name, p]) => ({ name, pronouns: p.pronouns, mbti: p.mbti }));
+}
+
+// Build a snapshot of where every alive player currently is. The narrator
+// uses nodeId to judge co-location and biome to describe scenery; it never
+// sees the human-readable label, which would leak compass info.
 function locationsSnapshot(room) {
   return Array.from(room.players.entries())
-    .filter(([, p]) => p.nodeId)
+    .filter(([, p]) => p.nodeId && !p.dead)
     .map(([name, p]) => ({ name, nodeId: p.nodeId, biome: NODES[p.nodeId].biome }));
 }
 
@@ -191,6 +271,7 @@ async function buildActionReports(room) {
   const tasks = [];
   let anyMoved = false;
   for (const [name, p] of room.players) {
+    if (p.dead) continue;
     if (p.chosenAction === null) continue;
     const action = p.chosenAction;
     const fromNodeId = p.nodeId; // capture *before* applying any move
@@ -225,20 +306,29 @@ async function buildActionReports(room) {
       try {
         const verdict = await categorizeAction({ action, biome: fromBiome });
         const sceneContext = getNodeView(room, fromNodeId);
-        const playerContext = { inventoryRemaining: INVENTORY_SIZE - p.inventory.length };
+        const playerContext = {
+          inventoryRemaining: INVENTORY_SIZE - p.inventory.length,
+          existingFoodNames: p.inventory
+            .filter((s) => s.type === 'food')
+            .map((s) => s.name),
+        };
         const outcome = resolveAction(verdict, sceneContext, playerContext);
-        // Commit found items + food to the player's inventory. Items are
-        // also removed from the node's pool so they can't be found again.
-        // Food is treated as an inventory item but isn't tracked on the node
-        // (food.chance / kinds are scene constants, not depleting state).
+        // Commit found items + food to the player's inventory. Items always
+        // take a fresh slot and are also removed from the node's pool. Food
+        // stacks by name onto an existing slot when the player already
+        // carries that kind, otherwise opens a new slot.
         if (outcome.kind === 'search') {
           for (const r of outcome.results) {
             if (!r.success || !r.found) continue;
             if (r.category === 'item') {
-              p.inventory.push(r.found);
+              p.inventory.push({ name: r.found, count: 1, type: 'item' });
               markItemFound(room, fromNodeId, r.found);
             } else if (r.category === 'food') {
-              p.inventory.push(r.found);
+              const existing = p.inventory.find(
+                (s) => s.type === 'food' && s.name === r.found
+              );
+              if (existing) existing.count += 1;
+              else p.inventory.push({ name: r.found, count: 1, type: 'food' });
             }
           }
         }
@@ -305,12 +395,19 @@ async function runDayNarration(room) {
     // Push fresh per-player state (hp, inventory) alongside the day's prose
     // so phones reflect today's finds the moment the narration publishes,
     // and emit a phase signal so phones can switch to the post-day waiting
-    // screen until the host clicks End Day.
+    // screen until the host advances. Tell the host whether the campfire
+    // is even an option for this day's resolution.
     for (const [pname, pp] of room.players) {
-      if (pp.socketId) {
+      if (pp.socketId && !pp.dead) {
         io.to(pp.socketId).emit('your-location', buildLocationPayload(room, pname));
         io.to(pp.socketId).emit('day-narrated', { day: room.day });
       }
+    }
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('day-resolution-options', {
+        day: room.day,
+        playersAtCamp: aliveAtWreckage(room).map(([name]) => name),
+      });
     }
   } catch (err) {
     io.to(room.hostSocket).emit('narration-error', {
@@ -324,11 +421,11 @@ async function runDayNarration(room) {
 // Reset chosen actions, increment day, fire the morning narrator. Phones
 // reset their action UI via action-cancelled.
 function endDay(room) {
+  // HP changes happen at the campfire (or when nobody lit it), not here.
   for (const [name, p] of room.players) {
     p.chosenAction = null;
     p.isPublic = false;
     p.pendingMove = null;
-    p.hp = Math.max(0, p.hp - 1); // half-heart per day
     if (p.socketId) {
       io.to(p.socketId).emit('your-location', buildLocationPayload(room, name));
       io.to(p.socketId).emit('action-cancelled');
@@ -413,9 +510,13 @@ io.on('connection', (socket) => {
     room.players.set(name, {
       socketId: socket.id, pronouns, mbti, color,
       chosenAction: null, isPublic: false, pendingMove: null,
-      hp: 5, // half-hearts; 5 = 2½ hearts. Lose 1 per day.
-      inventory: [], // up to INVENTORY_SIZE item names. Resolver gates rolls
-                     // on remaining capacity; full inventory blocks new rolls.
+      hp: 5, // half-hearts; 5 = 2½ hearts. -1 per unfed day at the campfire.
+      inventory: [], // up to INVENTORY_SIZE slots of { name, count, type }.
+                     // Food (type:'food') stacks by name — a slot can hold
+                     // multiple daily portions. Items (type:'item') always
+                     // count 1 per slot.
+      dead: false,
+      deathDay: null,
     });
     currentRoom = code;
     currentName = name;
@@ -441,7 +542,9 @@ io.on('connection', (socket) => {
     currentName = name;
     socket.join(code);
     socket.emit('rejoin-state', { code, name, phase: room.phase, day: room.day });
-    if (room.phase === 'started' && player.nodeId) {
+    if (player.dead) {
+      socket.emit('you-died', { name, deathDay: player.deathDay });
+    } else if (room.phase === 'started' && player.nodeId) {
       socket.emit('your-location', buildLocationPayload(room, name));
       if (player.chosenAction !== null) {
         socket.emit('action-confirmed', {
@@ -491,7 +594,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'started') return;
     const player = room.players.get(currentName);
-    if (!player || !player.nodeId) return;
+    if (!player || player.dead || !player.nodeId) return;
     if (player.chosenAction !== null) return;
     if (!neighborsOf(player.nodeId).includes(targetNodeId)) return;
 
@@ -511,7 +614,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'started') return;
     const player = room.players.get(currentName);
-    if (!player || player.chosenAction !== null) return;
+    if (!player || player.dead || player.chosenAction !== null) return;
 
     const text = typeof action === 'string' ? action.trim() : '';
     if (!text || text.length > 50) return;
@@ -528,7 +631,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'started') return;
     const player = room.players.get(currentName);
-    if (!player || player.chosenAction === null || player.isPublic) return;
+    if (!player || player.dead || player.chosenAction === null || player.isPublic) return;
     if (/^Assist (.+)$/.test(player.chosenAction)) return;
 
     player.isPublic = true;
@@ -548,7 +651,7 @@ io.on('connection', (socket) => {
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'started') return;
     const player = room.players.get(currentName);
-    if (!player || player.chosenAction === null) return;
+    if (!player || player.dead || player.chosenAction === null) return;
 
     const wasPublic = player.isPublic;
     player.chosenAction = null;
@@ -600,17 +703,85 @@ io.on('connection', (socket) => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'started') return;
-    if (room.players.size === 0) return;
-    for (const [, p] of room.players) {
-      if (p.chosenAction === null) return; // not all submitted
+    const alive = alivePlayerEntries(room);
+    if (alive.length === 0) return;
+    for (const [, p] of alive) {
+      if (p.chosenAction === null) return; // not all alive submitted
     }
     runDayNarration(room);
+  });
+
+  // Spend 1 daily portion from any food slot to recover 1 HP. Available any
+  // time the player has food and isn't at full health. Pulls from the first
+  // food slot found; player has no kind selection yet (refine later).
+  socket.on('eat-food', () => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room) return;
+    const p = room.players.get(currentName);
+    if (!p || p.dead) return;
+    if (p.hp >= MAX_HP) return;
+    const idx = p.inventory.findIndex(
+      (s) => s.type === 'food' && s.count > 0
+    );
+    if (idx < 0) return;
+    const slot = p.inventory[idx];
+    slot.count -= 1;
+    if (slot.count <= 0) p.inventory.splice(idx, 1);
+    p.hp = Math.min(MAX_HP, p.hp + 1);
+    if (p.socketId) {
+      io.to(p.socketId).emit('your-location', buildLocationPayload(room, currentName));
+    }
+  });
+
+  // Host enters the campfire phase. Only valid when at least one alive
+  // player is at the wreckage. Players elsewhere stay in their waiting
+  // state; players at the wreckage get a campfire-turn event.
+  socket.on('light-fire', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'started') return;
+    const atCamp = aliveAtWreckage(room);
+    if (atCamp.length === 0) return;
+    room.phase = 'campfire';
+    const foodUnits = room.cache
+      .filter((s) => s.type === 'food')
+      .reduce((sum, s) => sum + s.count, 0);
+    const aliveCount = alivePlayerEntries(room).length;
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('campfire-start', {
+        day: room.day,
+        cache: room.cache,
+        playersAtCamp: atCamp.map(([name]) => name),
+        foodUnits,
+        aliveCount,
+      });
+    }
+    for (const [, p] of atCamp) {
+      if (p.socketId) {
+        io.to(p.socketId).emit('campfire-turn', {
+          day: room.day,
+          inventory: p.inventory,
+          cache: room.cache,
+        });
+      }
+    }
   });
 
   socket.on('end-day', () => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
-    if (!room || room.phase !== 'started') return;
+    if (!room) return;
+    if (room.phase !== 'started' && room.phase !== 'campfire') return;
+    // Run the feeding rule: if cache covers everyone alive, drain it; else
+    // every alive player loses 1 HP (some may die). Then advance the day.
+    const summary = runFeeding(room);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('feeding-result', summary);
+    }
+    checkGameOver(room);
+    if (room.gameOver) return; // don't roll into a new day if everyone died
+    room.phase = 'started';
     endDay(room);
   });
 

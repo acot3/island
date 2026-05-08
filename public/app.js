@@ -112,6 +112,7 @@ let currentDay = 1;
 let currentChunk = null;    // { kind, day, text } — the latest narration to show
 let fullNarrative = '';     // the entire story so far
 let showingFull = false;    // toggle: current chunk vs full doc
+let inCampfireView = false; // narration content is currently the campfire screen
 
 function renderStarted(day) {
   currentDay = day;
@@ -123,8 +124,10 @@ function renderStarted(day) {
     </div>
     <p class="action-prompt-host">What will you do?</p>
     <div id="action-status" class="status-list"></div>
+    <p id="phase-note" class="phase-note" style="display:none"></p>
     <div class="phase-controls">
       <button id="btn-proceed" class="temp-btn" style="display:none">Proceed</button>
+      <button id="btn-light-fire" class="temp-btn" style="display:none">Light the Fire</button>
       <button id="btn-end-day" class="temp-btn" style="display:none">End Day</button>
     </div>
   `);
@@ -136,6 +139,10 @@ function renderStarted(day) {
   document.getElementById('btn-proceed').addEventListener('click', () => {
     socket.emit('proceed-day');
     debug('Proceed requested', 'phase');
+  });
+  document.getElementById('btn-light-fire').addEventListener('click', () => {
+    socket.emit('light-fire');
+    debug('Light the fire', 'phase');
   });
   document.getElementById('btn-end-day').addEventListener('click', () => {
     socket.emit('end-day');
@@ -236,13 +243,9 @@ socket.on('narration-chunk', ({ kind, day, text, full }) => {
   fullNarrative = full;
   renderNarration();
   speakNarration(text);
-  // Day narration has published → swap the action-selection UI for the End
-  // Day control. The prompt + per-player status list stay hidden until the
-  // next day begins.
-  if (kind === 'day') {
-    const endBtn = document.getElementById('btn-end-day');
-    if (endBtn) endBtn.style.display = '';
-  }
+  // Day narration has published → the day-resolution-options event will tell
+  // us which phase button to show (Light the Fire vs End Day). Nothing to do
+  // here for that.
   // Morning narration has published → the action-selection round for the
   // new day is open. Re-show the prompt and status list (hidden during the
   // morning generation).
@@ -252,6 +255,70 @@ socket.on('narration-chunk', ({ kind, day, text, full }) => {
     if (prompt) prompt.style.display = '';
     if (status) status.style.display = '';
   }
+});
+
+// Day narration has finished resolving. Server tells us which players (if
+// any) are alive at the wreckage so the host can decide whether to offer the
+// campfire or skip straight to the next day.
+socket.on('day-resolution-options', ({ playersAtCamp }) => {
+  const lightBtn = document.getElementById('btn-light-fire');
+  const endBtn = document.getElementById('btn-end-day');
+  const note = document.getElementById('phase-note');
+  if (playersAtCamp && playersAtCamp.length > 0) {
+    if (lightBtn) lightBtn.style.display = '';
+    if (endBtn) endBtn.style.display = 'none';
+    if (note) note.style.display = 'none';
+  } else {
+    if (lightBtn) lightBtn.style.display = 'none';
+    if (endBtn) endBtn.style.display = '';
+    if (note) {
+      note.textContent = 'Nobody is at the camp to light the fire.';
+      note.style.display = '';
+    }
+  }
+});
+
+// Campfire phase has begun. Replace the entire narration panel with the
+// v0.3-style campfire view: image, group food pool, fed/hungry status,
+// transfer log, and an End Day button. Deposit/withdraw lands next push.
+socket.on('campfire-start', ({ day, playersAtCamp, foodUnits, aliveCount }) => {
+  debug(`Campfire: ${playersAtCamp.join(', ')}`, 'phase');
+  inCampfireView = true;
+  const fed = foodUnits >= aliveCount;
+  setNarration(`
+    <p class="day-label">Day ${day} — Campfire</p>
+    <p>The fire crackles. What will you share?</p>
+    <img src="/campfire.png" class="campfire-img" alt="">
+    <div class="campfire-food">
+      <div class="campfire-food-label">Food</div>
+      <div class="campfire-food-number"><span id="campfire-pool-num">${foodUnits}</span> of ${aliveCount} needed</div>
+    </div>
+    <p id="hungry-warning" class="hungry-warning" style="display:${fed ? 'none' : 'block'}">The group will go hungry tonight. −1 HP</p>
+    <p id="food-ok" class="food-ok" style="display:${fed ? 'block' : 'none'}">The group has enough food for everyone.</p>
+    <p class="phase-note">Around the fire: ${playersAtCamp.map(escapeHtml).join(', ')}.</p>
+    <div id="campfire-log" class="campfire-log"></div>
+    <div class="campfire-actions">
+      <button id="btn-end-day-campfire" class="temp-btn">End Day</button>
+    </div>
+  `);
+  document.getElementById('btn-end-day-campfire').addEventListener('click', () => {
+    socket.emit('end-day');
+    debug('End day requested', 'phase');
+  });
+});
+
+socket.on('feeding-result', ({ fed, deaths }) => {
+  if (fed) debug('Camp pool fed everyone.', 'phase');
+  else debug(`Pool insufficient — everyone alive lost 1 HP.${deaths.length ? ' Deaths: ' + deaths.join(', ') : ''}`, 'phase');
+});
+
+socket.on('game-over', ({ day }) => {
+  debug(`Game over — day ${day}`, 'phase');
+  setNarration(`
+    <h1>THE END</h1>
+    <p class="room-info">All players have died.</p>
+    <p class="room-info">Day ${day}.</p>
+  `);
 });
 
 // --- TTS ---
@@ -355,19 +422,31 @@ socket.on('narration-debug', ({ kind, day, raw }) => {
 
 socket.on('day-changed', ({ day }) => {
   currentDay = day;
-  const dayLabel = document.querySelector('#narration-content .day-label');
-  if (dayLabel) dayLabel.textContent = `Day ${day}`;
-  // Reset for the new day: both phase buttons hidden, prompt and status
-  // list back in view. Proceed reappears once every player submits; End
-  // Day reappears once the day's narration publishes.
-  const proceedBtn = document.getElementById('btn-proceed');
-  const endBtn = document.getElementById('btn-end-day');
-  const prompt = document.querySelector('.action-prompt-host');
-  const status = document.getElementById('action-status');
-  if (proceedBtn) proceedBtn.style.display = 'none';
-  if (endBtn) endBtn.style.display = 'none';
-  if (prompt) prompt.style.display = '';
-  if (status) status.style.display = '';
+  // If we were on the campfire screen, rebuild the action UI from scratch.
+  // Otherwise just update the day label and reset the phase chrome.
+  if (inCampfireView) {
+    inCampfireView = false;
+    currentChunk = null;
+    showingFull = false;
+    Object.keys(publicActions).forEach((k) => delete publicActions[k]);
+    currentAssists = {};
+    renderStarted(day);
+  } else {
+    const dayLabel = document.querySelector('#narration-content .day-label');
+    if (dayLabel) dayLabel.textContent = `Day ${day}`;
+    const proceedBtn = document.getElementById('btn-proceed');
+    const lightBtn = document.getElementById('btn-light-fire');
+    const endBtn = document.getElementById('btn-end-day');
+    const prompt = document.querySelector('.action-prompt-host');
+    const status = document.getElementById('action-status');
+    const note = document.getElementById('phase-note');
+    if (proceedBtn) proceedBtn.style.display = 'none';
+    if (lightBtn) lightBtn.style.display = 'none';
+    if (endBtn) endBtn.style.display = 'none';
+    if (note) note.style.display = 'none';
+    if (prompt) prompt.style.display = '';
+    if (status) status.style.display = '';
+  }
   debug(`Day → ${day}`, 'phase');
 });
 

@@ -3,7 +3,9 @@ const socket = io();
 let myName = '';
 let myHp = null;
 let myInventory = null; // null = pre-game; once game starts it becomes [].
+let myDead = false;
 const INVENTORY_SIZE = 3;
+const MAX_HP = 6;
 let myRoom = '';
 
 const joinScreen = document.getElementById('join-screen');
@@ -68,24 +70,45 @@ function renderHeader() {
 }
 
 // Inventory: always renders INVENTORY_SIZE slots once the game has started.
-// Empty slots show a dash. Null myInventory means pre-game — render nothing.
+// Empty slots show a dash. Slots are { name, count, type }; food slots show
+// the count in brackets (daily portions, not literal item count). Items
+// don't show a count — duplicates simply open a new slot.
 function renderInventory() {
   if (!inventoryEl) return;
-  if (myInventory === null) {
+  if (myInventory === null || myDead) {
     inventoryEl.innerHTML = '';
     return;
   }
   const slots = [];
   for (let i = 0; i < INVENTORY_SIZE; i++) {
-    const item = myInventory[i];
-    const empty = item === undefined ? ' empty' : '';
-    const text = item === undefined ? '—' : escapeHtml(item);
-    slots.push(`<div class="inventory-slot${empty}">${text}</div>`);
+    const it = myInventory[i];
+    if (!it) {
+      slots.push(`<div class="inventory-slot empty">—</div>`);
+    } else if (it.type === 'food') {
+      slots.push(
+        `<div class="inventory-slot">${escapeHtml(it.name)} [${it.count}]</div>`
+      );
+    } else {
+      slots.push(`<div class="inventory-slot">${escapeHtml(it.name)}</div>`);
+    }
   }
+  // Eat button: a player can spend one food portion for +1 HP, capped at
+  // MAX_HP. Shown only when both conditions hold.
+  const hasFood = myInventory.some((s) => s && s.type === 'food' && s.count > 0);
+  const canEat = hasFood && typeof myHp === 'number' && myHp < MAX_HP;
+  const eatBtn = canEat
+    ? '<button id="btn-eat" class="btn-eat">Eat (-1 portion / +1 HP)</button>'
+    : '';
   inventoryEl.innerHTML = `
     <p class="action-prompt">Inventory</p>
     <div class="inventory">${slots.join('')}</div>
+    ${eatBtn}
   `;
+  if (canEat) {
+    document.getElementById('btn-eat').addEventListener('click', () => {
+      socket.emit('eat-food');
+    });
+  }
 }
 
 // --- Picker overlay ---
@@ -232,6 +255,7 @@ socket.on('game-started', ({ day }) => {
 });
 
 socket.on('your-location', (loc) => {
+  if (myDead) return;
   myLocation = loc;
   pendingMoveTarget = null;
   if (typeof loc.hp === 'number') {
@@ -343,19 +367,42 @@ socket.on('action-confirmed', ({ action, isPublic }) => {
 });
 
 socket.on('action-cancelled', () => {
+  if (myDead) return;
   actionInputOpen = false;
   renderActions();
 });
 
 // The day's narration has published. The player's submitted action is now
 // resolved — they can no longer cancel it — so freeze the screen into a
-// waiting state until the host clicks End Day. action-cancelled (sent next)
+// waiting state until the host advances. action-cancelled (sent next day)
 // will redraw the picker for the new day.
 socket.on('day-narrated', () => {
+  if (myDead) return;
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
     <p class="status-msg">Waiting for the next day…</p>
   `;
+});
+
+// The host lit the fire. Players at the wreckage receive this event with
+// their personal inventory + the cache. Deposit/withdraw UI lands next push
+// — for now, just a placeholder telling the player they're at camp.
+socket.on('campfire-turn', () => {
+  if (myDead) return;
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="status-msg">Around the campfire. Waiting for the host to end the day…</p>
+  `;
+});
+
+// The player has died. Replace the entire game UI with a death notice.
+socket.on('you-died', ({ deathDay }) => {
+  myDead = true;
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${deathDay}</p>
+    <p class="status-msg">You have died.</p>
+  `;
+  if (inventoryEl) inventoryEl.innerHTML = '';
 });
 
 socket.on('assist-option', ({ name, action }) => {
