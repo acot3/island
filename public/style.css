@@ -220,38 +220,61 @@ html, body {
   margin-top: 24px;
 }
 
-/* Campfire image */
+/* Campfire image — kept centered. The log floats to its right via the
+   .campfire-top container without shifting the image. */
+.campfire-top {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 32px;
+  min-height: 180px;
+}
+
 .campfire-img {
   display: block;
-  margin: 32px auto 0;
   height: 180px;
   width: auto;
 }
 
 /* Campfire food pool */
-.campfire-food {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  margin: 32px 0;
-}
-
 .campfire-food-label {
   color: #b5a06a;
   font-size: 14px;
   text-transform: uppercase;
   letter-spacing: 4px;
-  margin-bottom: 12px;
+  margin: 0 0 12px;
 }
 
-.campfire-food-number {
-  font-size: 48px;
-  color: #fff;
+.campfire-food-box {
   border: 1px solid #555;
-  padding: 16px 32px;
-  min-width: 120px;
+  padding: 16px;
   text-align: center;
 }
+
+.meal-need-num {
+  display: block;
+  font-size: 48px;
+  color: #fff;
+  line-height: 1;
+}
+
+.meal-need-label {
+  display: block;
+  font-size: 13px;
+  color: #888;
+  margin-top: 4px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+}
+
+.meal-status {
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.meal-status-warning { color: #c44; }
+.meal-status-ok { color: #7c8a5c; }
 
 .campfire-actions {
   display: flex;
@@ -277,7 +300,6 @@ html, body {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 12px;
 }
 
 .cache-slot {
@@ -293,40 +315,46 @@ html, body {
   color: #444;
 }
 
-.hungry-warning {
-  color: #c44;
-  font-size: 14px;
-  text-align: center;
-  margin-top: 8px;
+.campfire-meal {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
 }
 
-.water-status {
-  font-size: 14px;
-  text-align: center;
-  margin-top: 8px;
+button.cache-slot {
+  width: 100%;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  -webkit-appearance: none;
+  border-radius: 0;
 }
 
-.water-ok {
-  color: #6a9fb5;
+button.cache-slot:hover,
+button.cache-slot:active {
+  border-color: #aaa;
+  color: #fff;
 }
 
-.food-ok {
-  color: #7c8a5c;
-}
-
-.water-warning {
-  color: #c44;
-}
-
-/* Campfire log */
+/* Campfire log — positioned absolutely inside .campfire-top so the
+   campfire image stays centered. Scrolls when entries overflow. */
 .campfire-log {
-  margin: 12px 0;
-  text-align: center;
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 35%;
+  height: 100%;
+  border: 1px solid #555;
+  padding: 12px;
+  box-sizing: border-box;
+  overflow-y: auto;
+  text-align: left;
 }
 
 .campfire-log p {
   font-size: 13px;
-  margin-bottom: 4px;
+  margin: 0 0 4px;
   color: #888;
 }
 

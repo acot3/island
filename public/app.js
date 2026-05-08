@@ -99,6 +99,10 @@ socket.on('host-state', ({ code, phase, day, players }) => {
   debug(`Host state restored: ${phase}`, 'phase');
   if (phase === 'started') {
     renderStarted(day);
+  } else if (phase === 'campfire') {
+    // The campfire-start event arrives in the same tick and rebuilds the
+    // view in full. Don't render the lobby in the meantime — leave the
+    // existing content (whatever was there before reload).
   } else {
     renderLobby(code, players);
   }
@@ -281,27 +285,30 @@ socket.on('day-resolution-options', ({ playersAtCamp }) => {
 // Campfire phase has begun. Replace the entire narration panel with the
 // v0.3-style campfire view: image, group food pool, fed/hungry status,
 // transfer log, and an End Day button. Deposit/withdraw lands next push.
-socket.on('campfire-start', ({ day, playersAtCamp, foodUnits, aliveCount, cache }) => {
+socket.on('campfire-start', ({ day, playersAtCamp, cache, meal, portionsNeeded }) => {
   debug(`Campfire: ${playersAtCamp.join(', ')}`, 'phase');
   inCampfireView = true;
-  const fed = foodUnits >= aliveCount;
   setNarration(`
     <p class="day-label">Day ${day} — Campfire</p>
     <p>The fire crackles. What will you share?</p>
-    <img src="/campfire.png" class="campfire-img" alt="">
+    <div class="campfire-top">
+      <img src="/campfire.png" class="campfire-img" alt="">
+      <div id="campfire-log" class="campfire-log"></div>
+    </div>
+    <p class="phase-note">Around the fire: ${playersAtCamp.map(escapeHtml).join(', ')}.</p>
     <div class="campfire-grid">
       <div class="campfire-col">
-        <div class="campfire-food">
-          <div class="campfire-food-label">Food</div>
-          <div class="campfire-food-number"><span id="campfire-pool-num">${foodUnits}</span> of ${aliveCount} needed</div>
+        <p class="campfire-food-label">Today's Meal</p>
+        <div class="campfire-food-box">
+          <span class="meal-need-num" id="campfire-pool-num">${portionsNeeded}</span>
+          <span class="meal-need-label">portions needed</span>
+          <p id="hungry-warning" class="meal-status meal-status-warning">The group will go hungry tonight (-1 HP).</p>
+          <p id="food-ok" class="meal-status meal-status-ok">The group has enough food for everyone.</p>
         </div>
-        <p id="hungry-warning" class="hungry-warning" style="display:${fed ? 'none' : 'block'}">The group will go hungry tonight. −1 HP</p>
-        <p id="food-ok" class="food-ok" style="display:${fed ? 'block' : 'none'}">The group has enough food for everyone.</p>
-        <p class="phase-note">Around the fire: ${playersAtCamp.map(escapeHtml).join(', ')}.</p>
-        <div id="campfire-log" class="campfire-log"></div>
+        <div id="campfire-meal" class="campfire-meal"></div>
       </div>
       <div class="campfire-col">
-        <p class="campfire-food-label">Group inventory</p>
+        <p class="campfire-food-label">Stockpile</p>
         <div id="campfire-cache" class="campfire-cache"></div>
       </div>
     </div>
@@ -310,11 +317,22 @@ socket.on('campfire-start', ({ day, playersAtCamp, foodUnits, aliveCount, cache 
     </div>
   `);
   renderCampfireCache(cache || []);
+  renderCampfireMeal(meal || []);
+  applyMealStatus(portionsNeeded);
   document.getElementById('btn-end-day-campfire').addEventListener('click', () => {
     socket.emit('end-day');
     debug('End day requested', 'phase');
   });
 });
+
+function applyMealStatus(portionsNeeded) {
+  const num = document.getElementById('campfire-pool-num');
+  if (num) num.textContent = portionsNeeded;
+  const hungry = document.getElementById('hungry-warning');
+  const ok = document.getElementById('food-ok');
+  if (hungry) hungry.style.display = portionsNeeded > 0 ? 'block' : 'none';
+  if (ok) ok.style.display = portionsNeeded > 0 ? 'none' : 'block';
+}
 
 function renderCampfireCache(cache) {
   const el = document.getElementById('campfire-cache');
@@ -324,23 +342,44 @@ function renderCampfireCache(cache) {
     return;
   }
   el.innerHTML = cache.map((s) => {
+    const label = s.type === 'food'
+      ? `${escapeHtml(s.name)} [${s.count}]`
+      : escapeHtml(s.name);
     if (s.type === 'food') {
-      return `<div class="cache-slot">${escapeHtml(s.name)} [${s.count}]</div>`;
+      return `<button class="cache-slot meal-add" data-name="${escapeHtml(s.name)}">${label}</button>`;
     }
-    return `<div class="cache-slot">${escapeHtml(s.name)}</div>`;
+    return `<div class="cache-slot">${label}</div>`;
   }).join('');
+  el.querySelectorAll('.cache-slot.meal-add').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      socket.emit('meal-add', { name: btn.dataset.name });
+    });
+  });
 }
 
-// Live updates from any deposit/withdraw at the campfire.
-socket.on('campfire-state', ({ cache, foodUnits, aliveCount }) => {
-  const num = document.getElementById('campfire-pool-num');
-  if (num) num.textContent = foodUnits;
-  const fed = foodUnits >= aliveCount;
-  const hungry = document.getElementById('hungry-warning');
-  const ok = document.getElementById('food-ok');
-  if (hungry) hungry.style.display = fed ? 'none' : 'block';
-  if (ok) ok.style.display = fed ? 'block' : 'none';
+function renderCampfireMeal(meal) {
+  const el = document.getElementById('campfire-meal');
+  if (!el) return;
+  if (!meal.length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = meal.map((s) => {
+    const label = `${escapeHtml(s.name)} [${s.count}]`;
+    return `<button class="cache-slot meal-remove" data-name="${escapeHtml(s.name)}">${label}</button>`;
+  }).join('');
+  el.querySelectorAll('.cache-slot.meal-remove').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      socket.emit('meal-remove', { name: btn.dataset.name });
+    });
+  });
+}
+
+// Live updates from any deposit/withdraw/meal-stage at the campfire.
+socket.on('campfire-state', ({ cache, meal, portionsNeeded }) => {
+  applyMealStatus(portionsNeeded);
   renderCampfireCache(cache || []);
+  renderCampfireMeal(meal || []);
 });
 
 socket.on('campfire-log', ({ name, action, what }) => {
@@ -349,7 +388,7 @@ socket.on('campfire-log', ({ name, action, what }) => {
   const verb = action === 'shared' ? 'shared' : 'took';
   const entry = document.createElement('p');
   entry.textContent = `${name} ${verb} ${what}.`;
-  log.appendChild(entry);
+  log.insertBefore(entry, log.firstChild);
 });
 
 socket.on('feeding-result', ({ fed, deaths }) => {

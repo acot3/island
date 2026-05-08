@@ -268,6 +268,11 @@ socket.on('rejoin-state', ({ name, code, phase, day }) => {
     // your-location will arrive next; render placeholder until it does.
     if (myLocation) renderActions();
     else contentEl.innerHTML = '<p class="status-msg">Loading…</p>';
+  } else if (phase === 'campfire') {
+    // The follow-up events (campfire-turn for camp players, day-narrated
+    // for everyone else) will populate the view. Show a placeholder until
+    // they land.
+    contentEl.innerHTML = '<p class="status-msg">Loading…</p>';
   } else {
     contentEl.innerHTML = '<p class="status-msg">Waiting for game to start...</p>';
   }
@@ -526,6 +531,12 @@ function drawMolecule() {
     svg.appendChild(ring);
   }
 
+  const wreckage = myLocation.wreckageNodeId;
+  // Campfire icon at the wreckage if it's the player's current node.
+  if (wreckage && myLocation.nodeId === wreckage) {
+    svg.appendChild(makeCampIcon(0, 0));
+  }
+
   // Neighbors — each wrapped in a <g> with a transparent oversized hit target
   for (const nb of myLocation.neighbors) {
     const g = document.createElementNS(SVG_NS, 'g');
@@ -560,10 +571,31 @@ function drawMolecule() {
 
     g.addEventListener('click', () => onNeighborTap(nb));
     svg.appendChild(g);
+
+    // Campfire icon if this neighbor is the wreckage.
+    if (wreckage && nb.nodeId === wreckage) {
+      svg.appendChild(makeCampIcon(nb.dx, nb.dy));
+    }
   }
 
   container.innerHTML = '';
   container.appendChild(svg);
+}
+
+function makeCampIcon(cx, cy) {
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const size = 0.4;
+  const img = document.createElementNS(SVG_NS, 'image');
+  img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '/campfire.png');
+  img.setAttribute('href', '/campfire.png');
+  img.setAttribute('x', String(cx - size / 2));
+  img.setAttribute('y', String(cy - size / 2));
+  img.setAttribute('width', String(size));
+  img.setAttribute('height', String(size));
+  img.setAttribute('class', 'map-camp-icon');
+  // Clicks on the icon should fall through to the underlying tap target.
+  img.style.pointerEvents = 'none';
+  return img;
 }
 
 function onNeighborTap(neighbor) {

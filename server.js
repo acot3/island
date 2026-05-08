@@ -83,10 +83,12 @@ function createRoom() {
     currentChunk: null,     // { kind: 'morning' | 'day', day, text }
     narratorBusy: false,    // single-flight guard
     nodeState: null,        // { [nodeId]: { sceneId, foundItems } }
-    cache: [],              // group inventory at the campfire — same shape
-                            // as a player's inventory: { name, count, type }.
-                            // Mutated only during campfire phase by players
-                            // at the wreckage.
+    cache: [],              // stockpile (group inventory) at the campfire —
+                            // shape { name, count, type }. Mutated by camp
+                            // players via deposit/withdraw.
+    meal: [],               // tonight's allocation — the host stages food
+                            // here from the stockpile during campfire. Drained
+                            // at end-of-day; whatever's there gets consumed.
     gameOver: false,
   };
   distributeScenes(room);
@@ -176,13 +178,22 @@ function checkGameOver(room) {
 // Push the cache and derived counters to the host and every player who is
 // currently around the fire. Called after every deposit/withdraw so all
 // camp views stay in sync.
-function broadcastCampfireState(room) {
-  const cache = room.cache;
-  const foodUnits = cache
+function countFoodUnits(slots) {
+  return slots
     .filter((s) => s.type === 'food')
     .reduce((sum, s) => sum + s.count, 0);
+}
+
+function broadcastCampfireState(room) {
   const aliveCount = alivePlayerEntries(room).length;
-  const payload = { cache, foodUnits, aliveCount };
+  const mealUnits = countFoodUnits(room.meal);
+  const payload = {
+    cache: room.cache,
+    meal: room.meal,
+    aliveCount,
+    mealUnits,
+    portionsNeeded: Math.max(0, aliveCount - mealUnits),
+  };
   if (room.hostSocket) io.to(room.hostSocket).emit('campfire-state', payload);
   for (const [, p] of aliveAtWreckage(room)) {
     if (p.socketId) io.to(p.socketId).emit('campfire-state', payload);
@@ -214,33 +225,27 @@ function addToPersonalInventory(player, name, type, count) {
   }
 }
 
-// Run the v0.3 feeding rule on the room's cache against the alive count.
-// If pool food units >= alive, drain that many; otherwise everyone alive
-// loses 1 HP (which may kill them). Returns a summary the host can display.
+// Feeding rule: tonight's meal must cover every alive player. If meal
+// units >= alive count, the meal feeds the group; everything in the meal
+// is consumed (excess is wasted). Else nobody eats and every alive player
+// loses 1 HP — meal is still cleared (the food was prepared regardless).
+// Returns a summary the host can display.
 function runFeeding(room) {
   const alive = alivePlayerEntries(room);
   const aliveCount = alive.length;
-  let foodUnits = 0;
-  for (const slot of room.cache) {
-    if (slot.type === 'food') foodUnits += slot.count;
-  }
-  if (foodUnits >= aliveCount && aliveCount > 0) {
-    let toDrain = aliveCount;
-    for (const slot of room.cache) {
-      if (toDrain <= 0) break;
-      if (slot.type !== 'food') continue;
-      const take = Math.min(toDrain, slot.count);
-      slot.count -= take;
-      toDrain -= take;
+  const mealUnits = countFoodUnits(room.meal);
+  let summary;
+  if (mealUnits >= aliveCount && aliveCount > 0) {
+    summary = { fed: true, deaths: [] };
+  } else {
+    const deaths = [];
+    for (const [name] of alive) {
+      if (applyHpLoss(room, name, 1)) deaths.push(name);
     }
-    room.cache = room.cache.filter((s) => s.count > 0);
-    return { fed: true, deaths: [] };
+    summary = { fed: false, deaths };
   }
-  const deaths = [];
-  for (const [name] of alive) {
-    if (applyHpLoss(room, name, 1)) deaths.push(name);
-  }
-  return { fed: false, deaths };
+  room.meal = []; // tonight's meal is cooked and gone, either way
+  return summary;
 }
 
 // Build a snapshot of player profiles passed to every narrator call.
@@ -531,6 +536,21 @@ io.on('connection', (socket) => {
           full: room.narrative,
         });
       }
+    } else if (room.phase === 'campfire') {
+      // Replay the campfire view so the host can pick up where it left off.
+      socket.emit('map-state', buildMapPayload(room));
+      const aliveCount = alivePlayerEntries(room).length;
+      const mealUnits = countFoodUnits(room.meal);
+      const atCamp = aliveAtWreckage(room);
+      socket.emit('campfire-start', {
+        day: room.day,
+        cache: room.cache,
+        meal: room.meal,
+        playersAtCamp: atCamp.map(([name]) => name),
+        aliveCount,
+        mealUnits,
+        portionsNeeded: Math.max(0, aliveCount - mealUnits),
+      });
     }
     console.log(`[Room ${code}] host reconnected`);
   });
@@ -598,6 +618,21 @@ io.on('connection', (socket) => {
             socket.emit('assist-option', { name: otherName, action: p.chosenAction });
           }
         }
+      }
+    } else if (room.phase === 'campfire' && player.nodeId) {
+      // Restore the player's view based on whether they're at the wreckage.
+      // At-camp players go back into the deposit/withdraw UI; everyone else
+      // stays on the waiting screen.
+      socket.emit('your-location', buildLocationPayload(room, name));
+      const wreckage = findSceneNode(room, 'wreckage-site');
+      if (player.nodeId === wreckage) {
+        socket.emit('campfire-turn', {
+          day: room.day,
+          inventory: player.inventory,
+          cache: room.cache,
+        });
+      } else {
+        socket.emit('day-narrated', { day: room.day });
       }
     }
     console.log(`[Room ${code}] ${name} reconnected`);
@@ -749,6 +784,11 @@ io.on('connection', (socket) => {
     for (const [, p] of alive) {
       if (p.chosenAction === null) return; // not all alive submitted
     }
+    // Lock phones into the waiting screen immediately. The day's narration
+    // hasn't published yet, but actions are committed and uncancellable.
+    for (const [, p] of alive) {
+      if (p.socketId) io.to(p.socketId).emit('day-narrated', { day: room.day });
+    }
     runDayNarration(room);
   });
 
@@ -850,6 +890,37 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Host stages 1 unit of food from the stockpile into tonight's meal.
+  // Items in the stockpile aren't food and can't be staged.
+  socket.on('meal-add', ({ name } = {}) => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'campfire') return;
+    const idx = room.cache.findIndex((s) => s.type === 'food' && s.name === name);
+    if (idx < 0) return;
+    const slot = room.cache[idx];
+    if (slot.count > 1) slot.count -= 1;
+    else room.cache.splice(idx, 1);
+    const existing = room.meal.find((s) => s.type === 'food' && s.name === name);
+    if (existing) existing.count += 1;
+    else room.meal.push({ name, count: 1, type: 'food' });
+    broadcastCampfireState(room);
+  });
+
+  // Host pulls 1 unit of food out of tonight's meal and back to the stockpile.
+  socket.on('meal-remove', ({ name } = {}) => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'campfire') return;
+    const idx = room.meal.findIndex((s) => s.type === 'food' && s.name === name);
+    if (idx < 0) return;
+    const slot = room.meal[idx];
+    if (slot.count > 1) slot.count -= 1;
+    else room.meal.splice(idx, 1);
+    addToCache(room, name, 'food', 1);
+    broadcastCampfireState(room);
+  });
+
   // Host enters the campfire phase. Only valid when at least one alive
   // player is at the wreckage. Players elsewhere stay in their waiting
   // state; players at the wreckage get a campfire-turn event.
@@ -860,17 +931,17 @@ io.on('connection', (socket) => {
     const atCamp = aliveAtWreckage(room);
     if (atCamp.length === 0) return;
     room.phase = 'campfire';
-    const foodUnits = room.cache
-      .filter((s) => s.type === 'food')
-      .reduce((sum, s) => sum + s.count, 0);
     const aliveCount = alivePlayerEntries(room).length;
+    const mealUnits = countFoodUnits(room.meal);
     if (room.hostSocket) {
       io.to(room.hostSocket).emit('campfire-start', {
         day: room.day,
         cache: room.cache,
+        meal: room.meal,
         playersAtCamp: atCamp.map(([name]) => name),
-        foodUnits,
         aliveCount,
+        mealUnits,
+        portionsNeeded: Math.max(0, aliveCount - mealUnits),
       });
     }
     for (const [, p] of atCamp) {

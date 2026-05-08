@@ -93,6 +93,23 @@
       svg.appendChild(c);
     }
 
+    // Campfire icon over the wreckage (the starting node).
+    if (state.wreckageNodeId) {
+      const w = nodeById[state.wreckageNodeId];
+      if (w) {
+        const size = 0.4;
+        const img = document.createElementNS(SVG_NS, 'image');
+        img.setAttributeNS('http://www.w3.org/1999/xlink', 'href', '/campfire.png');
+        img.setAttribute('href', '/campfire.png');
+        img.setAttribute('x', String(w.x - size / 2));
+        img.setAttribute('y', String(w.y - size / 2));
+        img.setAttribute('width', String(size));
+        img.setAttribute('height', String(size));
+        img.setAttribute('class', 'map-camp-icon');
+        svg.appendChild(img);
+      }
+    }
+
     // Player rings — donut-style segments at each occupied node
     const playersByNode = {};
     for (const p of state.players || []) {
