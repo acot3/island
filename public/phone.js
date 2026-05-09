@@ -6,6 +6,7 @@ let myInventory = null; // null = pre-game; once game starts it becomes [].
 let myDead = false;
 let myCampfireMode = false; // true while host is in campfire phase and we're at camp
 let myCache = [];           // group inventory while in campfire mode
+let myFinding = null;       // private one-sentence note from the findings narrator
 const INVENTORY_SIZE = 3;
 const MAX_HP = 6;
 let myRoom = '';
@@ -139,8 +140,12 @@ function renderCampfireGroup() {
   const list = slots.length
     ? slots.join('')
     : '<div class="inventory-slot empty">—</div>';
+  const finding = myFinding
+    ? `<p class="private-narration">${escapeHtml(myFinding)}</p>`
+    : '';
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
+    ${finding}
     <p class="action-prompt">Stockpile (tap to take)</p>
     <div class="inventory">${list}</div>
   `;
@@ -416,21 +421,53 @@ socket.on('action-cancelled', () => {
   // Leaving any campfire state — back to the action picker for the new day.
   myCampfireMode = false;
   myCache = [];
+  myFinding = null; // yesterday's finding doesn't carry into the new day
   actionInputOpen = false;
   renderActions();
   renderInventory();
 });
 
-// The day's narration has published. The player's submitted action is now
-// resolved — they can no longer cancel it — so freeze the screen into a
-// waiting state until the host advances. action-cancelled (sent next day)
-// will redraw the picker for the new day.
-socket.on('day-narrated', () => {
+// The host clicked Proceed. Actions are committed and uncancellable, but
+// narrations are still loading. Show a Loading screen until day-narrated
+// arrives with the finished prose.
+socket.on('day-locked', () => {
   if (myDead) return;
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
+    <p class="status-msg">Loading…</p>
+  `;
+});
+
+// Day narration (and any private finding) has finished generating. Swap
+// the loading screen for the waiting screen, with the player's private
+// finding above the wait message.
+socket.on('day-narrated', () => {
+  if (myDead) return;
+  renderWaiting();
+});
+
+function renderWaiting() {
+  const finding = myFinding
+    ? `<p class="private-narration">${escapeHtml(myFinding)}</p>`
+    : '';
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    ${finding}
     <p class="status-msg">Waiting for the next day…</p>
   `;
+}
+
+// Private one-sentence finding prose for searching players. Lands shortly
+// after day-narrated. Render in whichever view the phone is currently in.
+socket.on('private-narration', ({ text }) => {
+  myFinding = text;
+  if (myDead) return;
+  if (myCampfireMode) {
+    // Campfire view shows the finding above the stockpile.
+    renderCampfireGroup();
+  } else {
+    renderWaiting();
+  }
 });
 
 // The host lit the fire. Players at the wreckage receive this event with

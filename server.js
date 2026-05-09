@@ -12,6 +12,7 @@ const {
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
 const { narrateMorning, narrateDay } = require('./lib/narrator');
+const { narrateFinding } = require('./lib/findings');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -391,6 +392,14 @@ async function buildActionReports(room) {
           ? outcome.results.some((r) => r.success)
           : outcome.success;
         const summaryReason = outcome.kind === 'search' ? 'searched' : outcome.reason;
+        // For search outcomes, capture the items the player actually got
+        // (food kinds + item names). Used out-of-band by the private finding
+        // narrator; not formatted into the public day-narrator prompt.
+        const finds = outcome.kind === 'search'
+          ? outcome.results
+              .filter((r) => r.success && r.found)
+              .map((r) => r.found)
+          : null;
         return {
           player: name, action, type: 'free',
           nodeId: fromNodeId, biome: fromBiome,
@@ -400,6 +409,9 @@ async function buildActionReports(room) {
           rationale: verdict.rationale,
           success: summarySuccess,
           reason: summaryReason,
+          isSearch: outcome.kind === 'search',
+          finds,
+          sceneDescription: sceneContext ? sceneContext.description : null,
         };
       } catch (err) {
         if (room.hostSocket) {
@@ -430,19 +442,46 @@ async function runDayNarration(room) {
   io.to(room.hostSocket).emit('narration-pending', { kind: 'day', day: room.day });
   try {
     const actionReports = await buildActionReports(room);
-    const { chunk } = await narrateDay({
-      narrative: room.narrative,
-      day: room.day,
-      players: narratorPlayers(room),
-      locations: locationsSnapshot(room), // post-move snapshot
-      actionReports,
-    });
-    appendNarrationChunk(room, 'day', chunk + '\n\n');
-    // Push fresh per-player state (hp, inventory) alongside the day's prose
-    // so phones reflect today's finds the moment the narration publishes,
-    // and emit a phase signal so phones can switch to the post-day waiting
-    // screen until the host advances. Tell the host whether the campfire
-    // is even an option for this day's resolution.
+
+    // Fire the public day narration and each searching player's private
+    // finding *in parallel*. Hold every emit until all calls have settled
+    // so the host's prose and the phone's prose appear at the same moment —
+    // neither sooner than the other.
+    const findingCalls = [];
+    for (const r of actionReports) {
+      if (!r.isSearch) continue;
+      const target = room.players.get(r.player);
+      if (!target || target.dead || !target.socketId) continue;
+      findingCalls.push(
+        narrateFinding({
+          description: r.sceneDescription,
+          action: r.action,
+          finds: r.finds || [],
+        })
+          .then((text) => ({ socketId: target.socketId, text }))
+          .catch((err) => {
+            console.error(`[Findings] ${r.player}: ${err.message}`);
+            return null;
+          })
+      );
+    }
+
+    const [dayResult, findings] = await Promise.all([
+      narrateDay({
+        narrative: room.narrative,
+        day: room.day,
+        players: narratorPlayers(room),
+        locations: locationsSnapshot(room), // post-move snapshot
+        actionReports,
+      }),
+      Promise.all(findingCalls),
+    ]);
+
+    appendNarrationChunk(room, 'day', dayResult.chunk + '\n\n');
+    for (const f of findings) {
+      if (!f) continue;
+      io.to(f.socketId).emit('private-narration', { day: room.day, text: f.text });
+    }
     for (const [pname, pp] of room.players) {
       if (pp.socketId && !pp.dead) {
         io.to(pp.socketId).emit('your-location', buildLocationPayload(room, pname));
@@ -784,10 +823,11 @@ io.on('connection', (socket) => {
     for (const [, p] of alive) {
       if (p.chosenAction === null) return; // not all alive submitted
     }
-    // Lock phones into the waiting screen immediately. The day's narration
+    // Lock phones into a loading screen immediately. The day's narration
     // hasn't published yet, but actions are committed and uncancellable.
+    // The 'day-narrated' event fires later, once narrations are ready.
     for (const [, p] of alive) {
-      if (p.socketId) io.to(p.socketId).emit('day-narrated', { day: room.day });
+      if (p.socketId) io.to(p.socketId).emit('day-locked', { day: room.day });
     }
     runDayNarration(room);
   });

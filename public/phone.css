@@ -436,6 +436,14 @@ button.inventory-slot:active {
   margin-top: 16px;
 }
 
+/* Private finding prose — shown to a player after their search resolves. */
+.private-narration {
+  color: #ddd;
+  font-size: 15px;
+  margin-top: 16px;
+  line-height: 1.5;
+}
+
 .food-result {
   margin-top: 12px;
 }
