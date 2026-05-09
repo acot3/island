@@ -226,26 +226,40 @@ function addToPersonalInventory(player, name, type, count) {
   }
 }
 
-// Feeding rule: tonight's meal must cover every alive player. If meal
-// units >= alive count, the meal feeds the group; everything in the meal
-// is consumed (excess is wasted). Else nobody eats and every alive player
-// loses 1 HP — meal is still cleared (the food was prepared regardless).
-// Returns a summary the host can display.
+// Feeding rule: tonight's meal must cover every alive player.
+//   - meal >= alive: group is fed; alive count's worth of portions are
+//     consumed, anything beyond that is wasted (meal cleared).
+//   - meal <  alive: nobody eats; everyone alive loses 1 HP. The partial
+//     meal is kicked back to the stockpile (food isn't squandered when the
+//     group failed to assemble a real meal).
 function runFeeding(room) {
   const alive = alivePlayerEntries(room);
   const aliveCount = alive.length;
   const mealUnits = countFoodUnits(room.meal);
   let summary;
   if (mealUnits >= aliveCount && aliveCount > 0) {
+    let toDrain = aliveCount;
+    for (const slot of room.meal) {
+      if (toDrain <= 0) break;
+      if (slot.type !== 'food') continue;
+      const take = Math.min(toDrain, slot.count);
+      slot.count -= take;
+      toDrain -= take;
+    }
+    room.meal = []; // anything left after draining is wasted
     summary = { fed: true, deaths: [] };
   } else {
+    // Return the partial meal to the stockpile.
+    for (const slot of room.meal) {
+      if (slot.type === 'food') addToCache(room, slot.name, 'food', slot.count);
+    }
+    room.meal = [];
     const deaths = [];
     for (const [name] of alive) {
       if (applyHpLoss(room, name, 1)) deaths.push(name);
     }
     summary = { fed: false, deaths };
   }
-  room.meal = []; // tonight's meal is cooked and gone, either way
   return summary;
 }
 
@@ -932,11 +946,15 @@ io.on('connection', (socket) => {
   });
 
   // Host stages 1 unit of food from the stockpile into tonight's meal.
-  // Items in the stockpile aren't food and can't be staged.
+  // Items in the stockpile aren't food and can't be staged. The meal can
+  // never exceed the alive count — anything beyond that would be waste, so
+  // the rule blocks it outright.
   socket.on('meal-add', ({ name } = {}) => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
     if (!room || room.phase !== 'campfire') return;
+    const aliveCount = alivePlayerEntries(room).length;
+    if (countFoodUnits(room.meal) >= aliveCount) return;
     const idx = room.cache.findIndex((s) => s.type === 'food' && s.name === name);
     if (idx < 0) return;
     const slot = room.cache[idx];

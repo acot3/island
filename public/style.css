@@ -331,10 +331,16 @@ button.cache-slot {
   border-radius: 0;
 }
 
-button.cache-slot:hover,
-button.cache-slot:active {
+button.cache-slot:hover:not(:disabled),
+button.cache-slot:active:not(:disabled) {
   border-color: #aaa;
   color: #fff;
+}
+
+button.cache-slot:disabled {
+  border-color: #333;
+  color: #444;
+  cursor: not-allowed;
 }
 
 /* Campfire log — wrapped column on the right of .campfire-top so the

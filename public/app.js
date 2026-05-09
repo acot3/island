@@ -117,6 +117,7 @@ let currentChunk = null;    // { kind, day, text } — the latest narration to s
 let fullNarrative = '';     // the entire story so far
 let showingFull = false;    // toggle: current chunk vs full doc
 let inCampfireView = false; // narration content is currently the campfire screen
+let campfireMealFull = false; // set per campfire-state; gates meal-add clicks
 
 function renderStarted(day) {
   currentDay = day;
@@ -324,6 +325,7 @@ socket.on('campfire-start', ({ day, playersAtCamp, cache, meal, portionsNeeded }
       <button id="btn-end-day-campfire" class="temp-btn">End Day</button>
     </div>
   `);
+  campfireMealFull = portionsNeeded <= 0;
   renderCampfireCache(cache || []);
   renderCampfireMeal(meal || []);
   applyMealStatus(portionsNeeded);
@@ -381,11 +383,12 @@ function renderCampfireCache(cache) {
       ? `${escapeHtml(s.name)} [${s.count}]`
       : escapeHtml(s.name);
     if (s.type === 'food') {
-      return `<button class="cache-slot meal-add" data-name="${escapeHtml(s.name)}">${label}</button>`;
+      const disabled = campfireMealFull ? ' disabled' : '';
+      return `<button class="cache-slot meal-add" data-name="${escapeHtml(s.name)}"${disabled}>${label}</button>`;
     }
     return `<div class="cache-slot">${label}</div>`;
   }).join('');
-  el.querySelectorAll('.cache-slot.meal-add').forEach((btn) => {
+  el.querySelectorAll('.cache-slot.meal-add:not([disabled])').forEach((btn) => {
     btn.addEventListener('click', () => {
       socket.emit('meal-add', { name: btn.dataset.name });
     });
@@ -412,6 +415,7 @@ function renderCampfireMeal(meal) {
 
 // Live updates from any deposit/withdraw/meal-stage at the campfire.
 socket.on('campfire-state', ({ cache, meal, portionsNeeded }) => {
+  campfireMealFull = portionsNeeded <= 0;
   applyMealStatus(portionsNeeded);
   renderCampfireCache(cache || []);
   renderCampfireMeal(meal || []);
