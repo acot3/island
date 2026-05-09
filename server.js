@@ -392,9 +392,10 @@ async function buildActionReports(room) {
           ? outcome.results.some((r) => r.success)
           : outcome.success;
         const summaryReason = outcome.kind === 'search' ? 'searched' : outcome.reason;
-        // For search outcomes, capture the items the player actually got
-        // (food kinds + item names). Used out-of-band by the private finding
-        // narrator; not formatted into the public day-narrator prompt.
+        // A search-intent action — flagged by the categorizer's `seeking`
+        // list — is private. Public narrator sees only that the player
+        // searched; the private finding narrator handles the outcome.
+        const isSearch = (verdict.seeking || []).length > 0;
         const finds = outcome.kind === 'search'
           ? outcome.results
               .filter((r) => r.success && r.found)
@@ -409,7 +410,7 @@ async function buildActionReports(room) {
           rationale: verdict.rationale,
           success: summarySuccess,
           reason: summaryReason,
-          isSearch: outcome.kind === 'search',
+          isSearch,
           finds,
           sceneDescription: sceneContext ? sceneContext.description : null,
         };
