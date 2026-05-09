@@ -833,19 +833,19 @@ io.on('connection', (socket) => {
     runDayNarration(room);
   });
 
-  // Spend 1 daily portion from any food slot to recover 1 HP. Available any
-  // time the player has food and isn't at full health. Pulls from the first
-  // food slot found; player has no kind selection yet (refine later).
-  socket.on('eat-food', () => {
+  // Spend 1 daily portion of a specific food kind for +1 HP. Available any
+  // time the player has food and isn't at full health. If `name` is omitted
+  // (back-compat), pulls from the first food slot found.
+  socket.on('eat-food', ({ name } = {}) => {
     if (!currentRoom || !currentName) return;
     const room = rooms.get(currentRoom);
     if (!room) return;
     const p = room.players.get(currentName);
     if (!p || p.dead) return;
     if (p.hp >= MAX_HP) return;
-    const idx = p.inventory.findIndex(
-      (s) => s.type === 'food' && s.count > 0
-    );
+    const idx = name
+      ? p.inventory.findIndex((s) => s.type === 'food' && s.name === name && s.count > 0)
+      : p.inventory.findIndex((s) => s.type === 'food' && s.count > 0);
     if (idx < 0) return;
     const slot = p.inventory[idx];
     slot.count -= 1;

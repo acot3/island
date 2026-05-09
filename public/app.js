@@ -293,7 +293,15 @@ socket.on('campfire-start', ({ day, playersAtCamp, cache, meal, portionsNeeded }
     <p>The fire crackles. What will you share?</p>
     <div class="campfire-top">
       <img src="/campfire.png" class="campfire-img" alt="">
-      <div id="campfire-log" class="campfire-log"></div>
+      <div class="campfire-log-wrap">
+        <p class="campfire-food-label">Log</p>
+        <div class="campfire-log-frame">
+          <div id="campfire-log" class="campfire-log"></div>
+          <div id="campfire-scroll" class="campfire-scroll" aria-hidden="true">
+            <div id="campfire-scroll-thumb" class="campfire-scroll-thumb"></div>
+          </div>
+        </div>
+      </div>
     </div>
     <p class="phase-note">Around the fire: ${playersAtCamp.map(escapeHtml).join(', ')}.</p>
     <div class="campfire-grid">
@@ -323,7 +331,34 @@ socket.on('campfire-start', ({ day, playersAtCamp, cache, meal, portionsNeeded }
     socket.emit('end-day');
     debug('End day requested', 'phase');
   });
+  // Custom scrollbar wiring (replaces macOS overlay native scrollbar that
+  // hides on idle). Listen for scroll + window resize; recompute on insert.
+  const log = document.getElementById('campfire-log');
+  if (log) {
+    log.addEventListener('scroll', updateCampfireScroll);
+    window.addEventListener('resize', updateCampfireScroll);
+    updateCampfireScroll();
+  }
 });
+
+function updateCampfireScroll() {
+  const log = document.getElementById('campfire-log');
+  const scroll = document.getElementById('campfire-scroll');
+  const thumb = document.getElementById('campfire-scroll-thumb');
+  if (!log || !scroll || !thumb) return;
+  const frame = log.parentElement;
+  const overflow = log.scrollHeight > log.clientHeight + 1;
+  if (frame) frame.classList.toggle('has-overflow', overflow);
+  if (!overflow) return;
+  const trackH = scroll.clientHeight;
+  const ratio = log.clientHeight / log.scrollHeight;
+  const thumbH = Math.max(20, trackH * ratio);
+  const scrollMax = log.scrollHeight - log.clientHeight;
+  const trackMax = trackH - thumbH;
+  const top = scrollMax > 0 ? (log.scrollTop / scrollMax) * trackMax : 0;
+  thumb.style.height = `${thumbH}px`;
+  thumb.style.top = `${top}px`;
+}
 
 function applyMealStatus(portionsNeeded) {
   const num = document.getElementById('campfire-pool-num');
@@ -387,8 +422,9 @@ socket.on('campfire-log', ({ name, action, what }) => {
   if (!log) return;
   const verb = action === 'shared' ? 'shared' : 'took';
   const entry = document.createElement('p');
-  entry.textContent = `${name} ${verb} ${what}.`;
+  entry.textContent = `${name} ${verb}: ${what}`;
   log.insertBefore(entry, log.firstChild);
+  updateCampfireScroll();
 });
 
 socket.on('feeding-result', ({ fed, deaths }) => {

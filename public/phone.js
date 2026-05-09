@@ -82,8 +82,9 @@ function renderInventory() {
     inventoryEl.innerHTML = '';
     return;
   }
-  // In campfire mode, slots become tap-to-deposit buttons. Outside, they're
-  // static divs.
+  const canEatHp = typeof myHp === 'number' && myHp < MAX_HP;
+  // In campfire mode, slots are tap-to-deposit. Food slots additionally get
+  // an inline "Eat (+1 HP)" button when the player isn't at full health.
   const slots = [];
   for (let i = 0; i < INVENTORY_SIZE; i++) {
     const it = myInventory[i];
@@ -91,37 +92,40 @@ function renderInventory() {
       slots.push(`<div class="inventory-slot empty">—</div>`);
       continue;
     }
-    const label = it.type === 'food'
-      ? `${escapeHtml(it.name)} [${it.count}]`
-      : escapeHtml(it.name);
-    if (myCampfireMode) {
-      slots.push(
-        `<button class="inventory-slot deposit" data-name="${escapeHtml(it.name)}">${label}</button>`
-      );
+    const safeName = escapeHtml(it.name);
+    if (it.type === 'food') {
+      const label = `${safeName} [${it.count}]`;
+      const foodEl = myCampfireMode
+        ? `<button class="inventory-slot food-text deposit" data-name="${safeName}">${label}</button>`
+        : `<div class="inventory-slot food-text">${label}</div>`;
+      const eatEl = canEatHp && it.count > 0
+        ? `<button class="inventory-slot eat-slot" data-name="${safeName}">Eat</button>`
+        : '';
+      slots.push(`<div class="inventory-row">${foodEl}${eatEl}</div>`);
+    } else if (myCampfireMode) {
+      slots.push(`<button class="inventory-slot deposit" data-name="${safeName}">${safeName}</button>`);
     } else {
-      slots.push(`<div class="inventory-slot">${label}</div>`);
+      slots.push(`<div class="inventory-slot">${safeName}</div>`);
     }
   }
-  const hasFood = myInventory.some((s) => s && s.type === 'food' && s.count > 0);
-  const canEat = hasFood && typeof myHp === 'number' && myHp < MAX_HP;
-  const eatBtn = canEat
-    ? '<button id="btn-eat" class="btn-eat">Eat (-1 portion / +1 HP)</button>'
-    : '';
   const title = myCampfireMode ? 'Inventory (tap to share)' : 'Inventory';
   inventoryEl.innerHTML = `
     <p class="action-prompt">${title}</p>
     <div class="inventory">${slots.join('')}</div>
-    ${eatBtn}
   `;
-  if (canEat) {
-    document.getElementById('btn-eat').addEventListener('click', () => {
-      socket.emit('eat-food');
+  // Eat buttons (always wired when present).
+  inventoryEl.querySelectorAll('.eat-slot').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      socket.emit('eat-food', { name: btn.dataset.name });
     });
-  }
+  });
+  // Deposit clicks (only in campfire mode). For food rows, the inline Eat
+  // button stops propagation so the row click only fires for non-Eat taps.
   if (myCampfireMode) {
-    inventoryEl.querySelectorAll('.inventory-slot.deposit').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        socket.emit('campfire-deposit', { name: btn.dataset.name });
+    inventoryEl.querySelectorAll('.inventory-slot.deposit').forEach((el) => {
+      el.addEventListener('click', () => {
+        socket.emit('campfire-deposit', { name: el.dataset.name });
       });
     });
   }
@@ -140,12 +144,8 @@ function renderCampfireGroup() {
   const list = slots.length
     ? slots.join('')
     : '<div class="inventory-slot empty">—</div>';
-  const finding = myFinding
-    ? `<p class="private-narration">${escapeHtml(myFinding)}</p>`
-    : '';
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
-    ${finding}
     <p class="action-prompt">Stockpile (tap to take)</p>
     <div class="inventory">${list}</div>
   `;
@@ -458,16 +458,12 @@ function renderWaiting() {
 }
 
 // Private one-sentence finding prose for searching players. Lands shortly
-// after day-narrated. Render in whichever view the phone is currently in.
+// after day-narrated. Only shown on the waiting view — the campfire view
+// hides it (camp UI takes priority during that phase).
 socket.on('private-narration', ({ text }) => {
   myFinding = text;
-  if (myDead) return;
-  if (myCampfireMode) {
-    // Campfire view shows the finding above the stockpile.
-    renderCampfireGroup();
-  } else {
-    renderWaiting();
-  }
+  if (myDead || myCampfireMode) return;
+  renderWaiting();
 });
 
 // The host lit the fire. Players at the wreckage receive this event with

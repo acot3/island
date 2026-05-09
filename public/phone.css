@@ -269,6 +269,9 @@ html, body {
   box-sizing: border-box;
   -webkit-appearance: none;
   border-radius: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .inventory-slot.empty {
@@ -284,6 +287,23 @@ button.inventory-slot:hover,
 button.inventory-slot:active {
   border-color: #aaa;
   color: #fff;
+}
+
+/* Food row: two side-by-side rectangles — the food slot (left) and an
+   independent Eat button rectangle (right) — separated by a small gap. */
+.inventory-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.inventory-row .food-text {
+  flex: 1;
+}
+
+.inventory-row .eat-slot {
+  flex: 0 0 auto;
+  width: auto;
 }
 
 /* Action buttons */
