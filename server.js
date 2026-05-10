@@ -13,6 +13,8 @@ const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
 const { narrateMorning, narrateDay } = require('./lib/narrator');
 const { narrateFinding } = require('./lib/findings');
+const { runEvent } = require('./lib/event-runner');
+const kingKrabEvent = require('./events/king-krab');
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -78,7 +80,7 @@ function createRoom() {
   const room = {
     hostSocket: null,
     players: new Map(), // name -> { socketId, pronouns, mbti, hp, dead, ... }
-    phase: 'lobby',     // 'lobby' | 'started' | 'campfire'
+    phase: 'lobby',     // 'lobby' | 'started' | 'campfire' | 'event'
     day: 1,
     narrative: '',          // the canonical growing prose document
     currentChunk: null,     // { kind: 'morning' | 'day', day, text }
@@ -91,6 +93,11 @@ function createRoom() {
                             // here from the stockpile during campfire. Drained
                             // at end-of-day; whatever's there gets consumed.
     gameOver: false,
+    krabNodeId: null,       // beach node where King Krab takes up residence —
+                            // set the first time any alive player moves to a
+                            // beach node other than the wreckage.
+    krabFired: false,       // King Krab event has run (one-shot per game).
+    activeEvent: null,      // { id, playerName, ... } while phase === 'event'.
   };
   distributeScenes(room);
   // The wreckage is the players' arrival point and must sit on a corner.
@@ -263,6 +270,34 @@ function runFeeding(room) {
   return summary;
 }
 
+// Place King Krab on the first beach node any alive player moves into
+// (other than the starting wreckage). Idempotent — once set, never moves.
+function detectKrabPlacement(room, movedPlayerNames) {
+  if (room.krabNodeId) return;
+  for (const name of movedPlayerNames) {
+    const p = room.players.get(name);
+    if (!p || p.dead || !p.nodeId) continue;
+    if (p.nodeId === room.startNodeId) continue;
+    if (NODES[p.nodeId]?.biome !== 'beach') continue;
+    room.krabNodeId = p.nodeId;
+    return;
+  }
+}
+
+// Returns null or { playerNames: [...], allAlivePresent: bool } describing
+// the state of the Krab encounter trigger after a day's moves apply. Marks
+// room.krabFired so the trigger only fires once.
+function detectKrabTrigger(room) {
+  if (room.krabFired || !room.krabNodeId) return null;
+  const alive = alivePlayerEntries(room);
+  const atKrab = alive.filter(([, p]) => p.nodeId === room.krabNodeId);
+  if (atKrab.length === 0) return null;
+  return {
+    playerNames: atKrab.map(([name]) => name),
+    allAlivePresent: atKrab.length === alive.length,
+  };
+}
+
 // Build a snapshot of player profiles passed to every narrator call.
 // Dead players are excluded from narration after their death day.
 function narratorPlayers(room) {
@@ -331,6 +366,7 @@ async function runMorningNarration(room) {
 async function buildActionReports(room) {
   const tasks = [];
   let anyMoved = false;
+  const movedPlayers = []; // names of players whose moves applied this day
   for (const [name, p] of room.players) {
     if (p.dead) continue;
     if (p.chosenAction === null) continue;
@@ -346,6 +382,7 @@ async function buildActionReports(room) {
         if (!p.visited) p.visited = new Set();
         p.visited.add(target);
         anyMoved = true;
+        movedPlayers.push(name);
       }
       p.pendingMove = null;
       tasks.push(Promise.resolve({
@@ -445,8 +482,11 @@ async function buildActionReports(room) {
     })());
   }
   const reports = await Promise.all(tasks);
-  if (anyMoved && room.hostSocket) {
-    io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
+  if (anyMoved) {
+    detectKrabPlacement(room, movedPlayers);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('map-state', buildMapPayload(room));
+    }
   }
   return reports;
 }
@@ -458,12 +498,22 @@ async function runDayNarration(room) {
   try {
     const actionReports = await buildActionReports(room);
 
-    // Fire the public day narration and each searching player's private
-    // finding *in parallel*. Hold every emit until all calls have settled
-    // so the host's prose and the phone's prose appear at the same moment —
-    // neither sooner than the other.
+    // Detect the Krab encounter trigger now that moves have applied.
+    const krabTrigger = detectKrabTrigger(room);
+    const eventPlayers = new Set(krabTrigger ? krabTrigger.playerNames : []);
+
+    // The day narrator covers everyone NOT in the scene event. If the scene
+    // pulled every alive player, we skip day narration entirely.
+    const narratorReports = actionReports.filter((r) => !eventPlayers.has(r.player));
+    const narratorLocations = locationsSnapshot(room).filter(
+      (l) => !eventPlayers.has(l.name)
+    );
+    const skipDayNarration = krabTrigger && krabTrigger.allAlivePresent;
+
+    // Findings only fire for players whose day was actually narrated and who
+    // performed a search this day.
     const findingCalls = [];
-    for (const r of actionReports) {
+    for (const r of narratorReports) {
       if (!r.isSearch) continue;
       const target = room.players.get(r.player);
       if (!target || target.dead || !target.socketId) continue;
@@ -481,18 +531,23 @@ async function runDayNarration(room) {
       );
     }
 
+    const dayCall = skipDayNarration
+      ? Promise.resolve(null)
+      : narrateDay({
+          narrative: room.narrative,
+          day: room.day,
+          players: narratorPlayers(room),
+          locations: narratorLocations,
+          actionReports: narratorReports,
+          sceneHandoff: krabTrigger ? { names: krabTrigger.playerNames } : null,
+        });
+
     const [dayResult, findings] = await Promise.all([
-      narrateDay({
-        narrative: room.narrative,
-        day: room.day,
-        players: narratorPlayers(room),
-        locations: locationsSnapshot(room), // post-move snapshot
-        actionReports,
-      }),
+      dayCall,
       Promise.all(findingCalls),
     ]);
 
-    appendNarrationChunk(room, 'day', dayResult.chunk + '\n\n');
+    if (dayResult) appendNarrationChunk(room, 'day', dayResult.chunk + '\n\n');
     for (const f of findings) {
       if (!f) continue;
       io.to(f.socketId).emit('private-narration', { day: room.day, text: f.text });
@@ -503,6 +558,15 @@ async function runDayNarration(room) {
         io.to(pp.socketId).emit('day-narrated', { day: room.day });
       }
     }
+
+    // If the Krab event triggered, run it before offering day-resolution
+    // options to the host.
+    if (krabTrigger) {
+      room.narratorBusy = false; // release lock so the event runner can manage state
+      await runKrabEvent(room, krabTrigger.playerNames);
+      room.narratorBusy = true;
+    }
+
     if (room.hostSocket) {
       io.to(room.hostSocket).emit('day-resolution-options', {
         day: room.day,
@@ -515,6 +579,36 @@ async function runDayNarration(room) {
     });
   } finally {
     room.narratorBusy = false;
+  }
+}
+
+// Run the King Krab scene event for the players currently at his node.
+// Picks the first listed name as the active participant; others are
+// considered present but do not act. Sets room.phase = 'event' for the
+// duration; resets to 'started' when the scene closes.
+async function runKrabEvent(room, playerNames) {
+  const primaryName = playerNames[0];
+  const player = room.players.get(primaryName);
+  if (!player) return;
+  room.phase = 'event';
+  room.activeEvent = {
+    id: 'king-krab',
+    playerName: primaryName,
+    pendingResolver: null,
+  };
+  room.krabFired = true;
+  try {
+    await runEvent({ room, event: kingKrabEvent, player, io });
+  } catch (err) {
+    console.error(`[Krab event] ${err.message}`);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('narration-error', {
+        kind: 'event', day: room.day, error: err.message,
+      });
+    }
+  } finally {
+    room.activeEvent = null;
+    room.phase = 'started';
   }
 }
 
@@ -848,6 +942,19 @@ io.on('connection', (socket) => {
   });
 
   // Spend 1 daily portion of a specific food kind for +1 HP. Available any
+  // Player input during a scene event. Routes to the engine's pending
+  // promise resolver. Only valid for the active scene player.
+  socket.on('event-input', (value) => {
+    if (!currentRoom || !currentName) return;
+    const room = rooms.get(currentRoom);
+    if (!room || room.phase !== 'event') return;
+    if (!room.activeEvent || room.activeEvent.playerName !== currentName) return;
+    const resolver = room.activeEvent.pendingResolver;
+    if (!resolver) return;
+    room.activeEvent.pendingResolver = null;
+    resolver(value);
+  });
+
   // time the player has food and isn't at full health. If `name` is omitted
   // (back-compat), pulls from the first food slot found.
   socket.on('eat-food', ({ name } = {}) => {

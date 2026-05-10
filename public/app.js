@@ -431,6 +431,24 @@ socket.on('campfire-log', ({ name, action, what }) => {
   updateCampfireScroll();
 });
 
+// Scene event beats. The runner emits one of these per beat. We append to
+// the displayed narration so the scene flows visually from the day prose.
+socket.on('event-beat', ({ segments }) => {
+  if (!segments || !segments.length) return;
+  const beatText = segments.map((s) => s.text).join(' ');
+  if (!currentChunk || currentChunk.day !== currentDay || currentChunk.kind !== 'day') {
+    currentChunk = { kind: 'day', day: currentDay, text: beatText };
+  } else {
+    currentChunk.text = currentChunk.text + '\n\n' + beatText;
+  }
+  fullNarrative += beatText + '\n\n';
+  renderNarration();
+});
+
+socket.on('event-end', ({ summary }) => {
+  if (summary) debug(`Event ended: ${summary}`, 'phase');
+});
+
 socket.on('feeding-result', ({ fed, deaths }) => {
   if (fed) debug('Camp pool fed everyone.', 'phase');
   else debug(`Pool insufficient — everyone alive lost 1 HP.${deaths.length ? ' Deaths: ' + deaths.join(', ') : ''}`, 'phase');

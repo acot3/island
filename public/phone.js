@@ -498,6 +498,86 @@ socket.on('you-died', ({ deathDay }) => {
   if (inventoryEl) inventoryEl.innerHTML = '';
 });
 
+// --- Scene event UI ----------------------------------------------------
+// The player is the active participant in a scene event. The server pushes
+// custom UI states (loading, picker, prompt, end) via 'event-phone'; the
+// player's choice goes back via 'event-input'.
+
+socket.on('event-phone', ({ kind, payload }) => {
+  if (myDead) return;
+  if (kind === 'loading') return renderEventLoading(payload);
+  if (kind === 'picker')  return renderEventPicker(payload);
+  if (kind === 'prompt')  return renderEventPrompt(payload);
+  if (kind === 'end')     return renderEventEnd();
+});
+
+function renderEventLoading({ text }) {
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="status-msg">${escapeHtml(text || 'Loading…')}</p>
+  `;
+}
+
+function renderEventPicker({ prompt, items, allowDecline }) {
+  const list = (items || []).map((it, i) => `
+    <button class="suggestion-btn event-pick-item" data-idx="${i}">${escapeHtml(it.name)}</button>
+  `).join('');
+  const decline = allowDecline
+    ? '<button class="suggestion-btn" id="btn-event-decline">Politely decline</button>'
+    : '';
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="action-prompt">${escapeHtml(prompt || '')}</p>
+    <div class="suggestions">
+      ${list || '<p class="status-msg">(no items)</p>'}
+      ${decline}
+    </div>
+  `;
+  contentEl.querySelectorAll('.event-pick-item').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.dataset.idx);
+      const item = items[idx];
+      socket.emit('event-input', { kind: 'offer', item: item.name });
+    });
+  });
+  const declineBtn = document.getElementById('btn-event-decline');
+  if (declineBtn) {
+    declineBtn.addEventListener('click', () => {
+      socket.emit('event-input', { kind: 'decline' });
+    });
+  }
+}
+
+function renderEventPrompt({ prompt, placeholder }) {
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="action-prompt">${escapeHtml(prompt || '')}</p>
+    <div class="custom-action">
+      <input type="text" id="event-input-text" maxlength="80" autocomplete="off" placeholder="${escapeHtml(placeholder || '')}">
+      <button id="event-input-submit">Send</button>
+    </div>
+  `;
+  const input = document.getElementById('event-input-text');
+  const btn = document.getElementById('event-input-submit');
+  const submit = () => {
+    const value = (input.value || '').trim();
+    if (!value) return;
+    socket.emit('event-input', value);
+  };
+  btn.addEventListener('click', submit);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  input.focus();
+}
+
+function renderEventEnd() {
+  // Scene over — fall back to the post-day waiting view. Day-changed will
+  // eventually replace this with the next day's action picker.
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${currentDay}</p>
+    <p class="status-msg">The encounter has ended. Waiting for the host…</p>
+  `;
+}
+
 socket.on('assist-option', ({ name, action }) => {
   if (assistOptions.some((o) => o.name === name)) return;
   assistOptions.push({ name, action });
