@@ -14,7 +14,10 @@ const { resolveAction } = require('./lib/resolver');
 const { narrateMorning, narrateDay } = require('./lib/narrator');
 const { narrateFinding } = require('./lib/findings');
 const { runEvent } = require('./lib/event-runner');
-const kingKrabEvent = require('./events/king-krab');
+const kingKrabCharacter = require('./characters/king-krab');
+// Registry of characters by key — lookups go through here so the day flow
+// stays generic.
+const CHARACTERS = { [kingKrabCharacter.key]: kingKrabCharacter };
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -98,6 +101,9 @@ function createRoom() {
                             // beach node other than the wreckage.
     krabFired: false,       // King Krab event has run (one-shot per game).
     activeEvent: null,      // { id, playerName, ... } while phase === 'event'.
+    characterState: {},     // per-character persistent state, keyed by
+                            // character.key. Each entry: { nodes: [...],
+                            // history: [{ day, playerName, action, reply }] }.
   };
   distributeScenes(room);
   // The wreckage is the players' arrival point and must sit on a corner.
@@ -307,12 +313,21 @@ function narratorPlayers(room) {
 }
 
 // Build a snapshot of where every alive player currently is. The narrator
-// uses nodeId to judge co-location and biome to describe scenery; it never
-// sees the human-readable label, which would leak compass info.
+// uses nodeId to judge co-location and biome+description to render scenery;
+// it never sees the human-readable label, which would leak compass info.
 function locationsSnapshot(room) {
   return Array.from(room.players.entries())
     .filter(([, p]) => p.nodeId && !p.dead)
-    .map(([name, p]) => ({ name, nodeId: p.nodeId, biome: NODES[p.nodeId].biome }));
+    .map(([name, p]) => {
+      const view = getNodeView(room, p.nodeId);
+      return {
+        name,
+        nodeId: p.nodeId,
+        biome: NODES[p.nodeId].biome,
+        description: view ? view.description : null,
+        annotations: view ? view.annotations : [],
+      };
+    });
 }
 
 // Append a chunk of prose to the room's narrative; record it as the current
@@ -328,6 +343,40 @@ function appendNarrationChunk(room, kind, text) {
     kind, day: room.day,
     raw: JSON.stringify(text),
   });
+}
+
+// Voice configs for every registered character, so the host can route TTS
+// for any character voice that shows up in a segment.
+function getCharacterVoices() {
+  return Object.values(CHARACTERS)
+    .filter((c) => c.voice)
+    .map((c) => c.voice);
+}
+
+// Same idea but for segmented day-narrator output. Flat text (joined) is
+// added to the canonical narrative; the host receives segments for
+// voice-tagged rendering + TTS, plus the voice configs for any character
+// voice that might appear.
+function appendNarrationSegments(room, kind, segments) {
+  if (!Array.isArray(segments)) {
+    console.error(`[appendNarrationSegments] non-array segments: ${typeof segments}`);
+    segments = [];
+  }
+  const flat = segments.map((s) => s.text).join(' ').trim();
+  room.narrative += flat + '\n\n';
+  room.currentChunk = { kind, day: room.day, segments };
+  if (room.hostSocket) {
+    io.to(room.hostSocket).emit('narration-chunk', {
+      kind, day: room.day,
+      segments,
+      voices: getCharacterVoices(),
+      full: room.narrative,
+    });
+    io.to(room.hostSocket).emit('narration-debug', {
+      kind, day: room.day,
+      raw: JSON.stringify(segments),
+    });
+  }
 }
 
 // Insert "## Day N" header before each day's first chunk. System-managed.
@@ -402,8 +451,26 @@ async function buildActionReports(room) {
 
     tasks.push((async () => {
       try {
-        const verdict = await categorizeAction({ action, biome: fromBiome });
-        const sceneContext = getNodeView(room, fromNodeId);
+        const fromView = getNodeView(room, fromNodeId);
+        // Characters present at this node (for `addressing` detection).
+        const presentCharacters = [];
+        for (const key of Object.keys(CHARACTERS)) {
+          const cs = room.characterState[key];
+          if (cs && cs.nodes && cs.nodes.includes(fromNodeId)) {
+            presentCharacters.push({
+              key,
+              displayName: CHARACTERS[key].displayName,
+            });
+          }
+        }
+        const verdict = await categorizeAction({
+          action,
+          biome: fromBiome,
+          description: fromView ? fromView.description : null,
+          annotations: fromView ? fromView.annotations : [],
+          characters: presentCharacters,
+        });
+        const sceneContext = fromView;
         const playerContext = {
           inventoryRemaining: INVENTORY_SIZE - p.inventory.length,
           existingFoodNames: p.inventory
@@ -464,6 +531,7 @@ async function buildActionReports(room) {
           isSearch,
           finds,
           sceneDescription: sceneContext ? sceneContext.description : null,
+          addressing: verdict.addressing || null,
         };
       } catch (err) {
         if (room.hostSocket) {
@@ -539,6 +607,47 @@ async function runDayNarration(room) {
       );
     }
 
+    // Character respond() calls — one per addressing action that targets a
+    // present, known character. Skip if the player is already in the scene
+    // event roster.
+    const addressingCalls = [];
+    for (const r of narratorReports) {
+      if (!r.addressing) continue;
+      const ch = CHARACTERS[r.addressing];
+      if (!ch || typeof ch.respond !== 'function') continue;
+      const cs = room.characterState[ch.key];
+      if (!cs || !cs.nodes.includes(r.nodeId)) continue;
+      addressingCalls.push(
+        ch.respond({
+          playerName: r.player,
+          playerAction: r.action,
+          history: cs.history.slice(),
+        })
+          .then((reply) => {
+            // Update character memory for next turn.
+            cs.history.push({
+              day: room.day, playerName: r.player, action: r.action, reply,
+            });
+            return {
+              playerName: r.player,
+              characterKey: ch.key,
+              characterName: ch.displayName,
+              voice: ch.voice ? ch.voice.key : ch.key,
+              action: r.action,
+              nodeId: r.nodeId,
+              biome: r.biome,
+              reply,
+            };
+          })
+          .catch((err) => {
+            console.error(`[${ch.key}.respond] ${err.message}`);
+            return null;
+          })
+      );
+    }
+    // Resolve character replies first so the day narrator's prompt has them.
+    const characterReplies = (await Promise.all(addressingCalls)).filter(Boolean);
+
     const dayCall = skipDayNarration
       ? Promise.resolve(null)
       : narrateDay({
@@ -548,8 +657,9 @@ async function runDayNarration(room) {
           locations: narratorLocations,
           actionReports: narratorReports,
           sceneHandoff: krabTrigger
-            ? { names: krabTrigger.playerNames, hint: kingKrabEvent.handoffHint }
+            ? { names: krabTrigger.playerNames, hint: kingKrabCharacter.handoffHint }
             : null,
+          characterReplies,
         });
 
     const [dayResult, findings] = await Promise.all([
@@ -557,7 +667,7 @@ async function runDayNarration(room) {
       Promise.all(findingCalls),
     ]);
 
-    if (dayResult) appendNarrationChunk(room, 'day', dayResult.chunk + '\n\n');
+    if (dayResult) appendNarrationSegments(room, 'day', dayResult.segments);
     for (const f of findings) {
       if (!f) continue;
       io.to(f.socketId).emit('private-narration', { day: room.day, text: f.text });
@@ -577,7 +687,7 @@ async function runDayNarration(room) {
         io.to(room.hostSocket).emit('event-pending', {
           eventId: 'king-krab',
           playerNames: krabTrigger.playerNames,
-          characters: kingKrabEvent.characters || [],
+          characters: kingKrabCharacter.characters || [],
         });
       }
       await eventPromise;
@@ -606,16 +716,35 @@ async function runKrabEvent(room, playerNames) {
   const primaryName = playerNames[0];
   const player = room.players.get(primaryName);
   if (!player) return;
+  // Initialize Krab's character state if this is the first time he's
+  // appearing in this room. nodes records where he can be addressed from
+  // now on; history records every conversational exchange (including the
+  // first encounter, as one synthetic entry).
+  if (!room.characterState[kingKrabCharacter.key]) {
+    room.characterState[kingKrabCharacter.key] = {
+      nodes: [room.krabNodeId],
+      history: [],
+    };
+  }
   room.phase = 'event';
   room.activeEvent = {
     id: 'king-krab',
     playerName: primaryName,
     pendingResolver: null,
-    characters: kingKrabEvent.characters || [],
+    characters: kingKrabCharacter.characters || [],
   };
   room.krabFired = true;
   try {
-    await runEvent({ room, event: kingKrabEvent, player, io });
+    await runEvent({ room, event: kingKrabCharacter, player, io });
+    // Seed the character's memory with the first-encounter exchange. The
+    // scene's full prose lives in room.narrative; this entry is a marker
+    // so future respond() calls know Krab has met this player.
+    room.characterState[kingKrabCharacter.key].history.push({
+      day: room.day,
+      playerName: primaryName,
+      action: '(first encounter — initial meeting)',
+      reply: '(see the unfolding story for what was said and offered)',
+    });
   } catch (err) {
     console.error(`[Krab event] ${err.message}`);
     if (room.hostSocket) {

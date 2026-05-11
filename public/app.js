@@ -265,25 +265,55 @@ socket.on('narration-pending', ({ kind, day }) => {
   }
 });
 
-socket.on('narration-chunk', async ({ kind, day, text, full }) => {
-  debug(`Narrator: ${kind} (day ${day}) — ${text.length} chars`, 'api');
+socket.on('narration-chunk', async ({ kind, day, text, segments, voices, full }) => {
+  const charCount = segments ? segments.reduce((n, s) => n + s.text.length, 0) : (text ? text.length : 0);
+  debug(`Narrator: ${kind} (day ${day}) — ${charCount} chars`, 'api');
+  // Register any character voice configs the day narrator might use.
+  if (voices) for (const v of voices) sceneVoices[v.key] = v;
   const mode = ttsModeEl.value;
-  // For ElevenLabs, prefetch the audio first so visual + audio land together.
-  // For browser/off, render immediately.
-  let blobUrl = null;
-  if (mode === 'elevenlabs') {
-    blobUrl = await prefetchElevenLabs(text, ELEVENLABS_VOICE_ID);
+
+  if (segments) {
+    // Day narrator emits segments now — multi-voice if a character spoke.
+    let blobUrls = null;
+    if (mode === 'elevenlabs') {
+      blobUrls = await Promise.all(segments.map((seg) => {
+        const cfg = sceneVoices[seg.voice];
+        const id = cfg?.elevenLabsId || ELEVENLABS_VOICE_ID;
+        return prefetchElevenLabs(seg.text, id);
+      }));
+    }
+    sceneBeats = segments.slice();
+    currentChunk = { kind, day, segments };
+    fullNarrative = full;
+    renderNarration();
+    if (mode === 'elevenlabs' && blobUrls) {
+      stopAudio();
+      for (const url of blobUrls) {
+        if (!url) continue;
+        await playBlobAwait(url);
+      }
+    } else if (mode === 'browser') {
+      speakSegments(segments);
+    }
+  } else {
+    // Morning narrator (and any flat-text caller) emits a single string.
+    let blobUrl = null;
+    if (mode === 'elevenlabs') {
+      blobUrl = await prefetchElevenLabs(text, ELEVENLABS_VOICE_ID);
+    }
+    sceneBeats = [];
+    currentChunk = { kind, day, text };
+    fullNarrative = full;
+    renderNarration();
+    if (mode === 'elevenlabs' && blobUrl) {
+      stopAudio();
+      currentAudio = new Audio(blobUrl);
+      currentAudio.play().catch((e) => debug(`[TTS] play failed: ${e.message}`, 'error'));
+    } else if (mode === 'browser') {
+      speakBrowser(text);
+    }
   }
-  currentChunk = { kind, day, text };
-  fullNarrative = full;
-  renderNarration();
-  if (mode === 'elevenlabs' && blobUrl) {
-    stopAudio();
-    currentAudio = new Audio(blobUrl);
-    currentAudio.play().catch((e) => debug(`[TTS] play failed: ${e.message}`, 'error'));
-  } else if (mode === 'browser') {
-    speakBrowser(text);
-  }
+
   // Morning narration has published → the action-selection round for the
   // new day is open. Re-show the prompt and status list (hidden during the
   // morning generation).
@@ -754,7 +784,8 @@ socket.on('action-public', ({ name, action }) => {
 socket.on('categorizer-result', ({ player, action, location, result, outcome }) => {
   const possible = result.possible ? 'possible' : 'impossible';
   const seeking = Array.isArray(result.seeking) && result.seeking.length ? result.seeking.join(',') : 'none';
-  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} | seeking:${seeking} — ${result.rationale}`;
+  const addressing = result.addressing || 'none';
+  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} | seeking:${seeking} | addressing:${addressing} — ${result.rationale}`;
   if (outcome.reason === 'impossible') {
     line += `\n      → auto-fail (impossible)`;
   } else if (outcome.kind === 'search') {
