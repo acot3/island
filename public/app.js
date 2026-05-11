@@ -265,15 +265,25 @@ socket.on('narration-pending', ({ kind, day }) => {
   }
 });
 
-socket.on('narration-chunk', ({ kind, day, text, full }) => {
+socket.on('narration-chunk', async ({ kind, day, text, full }) => {
   debug(`Narrator: ${kind} (day ${day}) — ${text.length} chars`, 'api');
+  const mode = ttsModeEl.value;
+  // For ElevenLabs, prefetch the audio first so visual + audio land together.
+  // For browser/off, render immediately.
+  let blobUrl = null;
+  if (mode === 'elevenlabs') {
+    blobUrl = await prefetchElevenLabs(text, ELEVENLABS_VOICE_ID);
+  }
   currentChunk = { kind, day, text };
   fullNarrative = full;
   renderNarration();
-  speakNarration(text);
-  // Day narration has published → the day-resolution-options event will tell
-  // us which phase button to show (Light the Fire vs End Day). Nothing to do
-  // here for that.
+  if (mode === 'elevenlabs' && blobUrl) {
+    stopAudio();
+    currentAudio = new Audio(blobUrl);
+    currentAudio.play().catch((e) => debug(`[TTS] play failed: ${e.message}`, 'error'));
+  } else if (mode === 'browser') {
+    speakBrowser(text);
+  }
   // Morning narration has published → the action-selection round for the
   // new day is open. Re-show the prompt and status list (hidden during the
   // morning generation).
@@ -485,14 +495,32 @@ socket.on('event-start', ({ characters }) => {
   if (btn) btn.style.display = 'none';
 });
 
-// Scene event beats. Append segments to sceneBeats and re-render. Speak
-// each segment in turn with its voice config.
-socket.on('event-beat', ({ segments }) => {
+// Scene event beats. Prefetch all segment audio first (if ElevenLabs),
+// then render the beat and start playback together.
+socket.on('event-beat', async ({ segments }) => {
   if (!segments || !segments.length) return;
+  const mode = ttsModeEl.value;
+  let blobUrls = null;
+  if (mode === 'elevenlabs') {
+    blobUrls = await Promise.all(segments.map((seg) => {
+      const cfg = sceneVoices[seg.voice];
+      const id = cfg?.elevenLabsId || ELEVENLABS_VOICE_ID;
+      return prefetchElevenLabs(seg.text, id);
+    }));
+  }
   for (const seg of segments) sceneBeats.push(seg);
   fullNarrative += segments.map((s) => s.text).join(' ') + '\n\n';
   renderNarration();
-  speakSegments(segments);
+  if (mode === 'off') return;
+  if (mode === 'elevenlabs') {
+    stopAudio();
+    for (const url of blobUrls) {
+      if (!url) continue;
+      await playBlobAwait(url);
+    }
+  } else {
+    speakSegments(segments);
+  }
 });
 
 socket.on('event-end', ({ summary }) => {
@@ -577,23 +605,40 @@ function speakBrowser(text) {
 }
 
 async function speakElevenLabs(text) {
-  let blobUrl = elAudioCache.get(text);
-  if (!blobUrl) {
-    const resp = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voice_id: ELEVENLABS_VOICE_ID, text }),
-    });
-    if (!resp.ok) {
-      debug(`[TTS] HTTP ${resp.status}`, 'error');
-      return;
-    }
-    const blob = await resp.blob();
-    blobUrl = URL.createObjectURL(blob);
-    elAudioCache.set(text, blobUrl);
-  }
+  const blobUrl = await prefetchElevenLabs(text, ELEVENLABS_VOICE_ID);
+  if (!blobUrl) return;
   currentAudio = new Audio(blobUrl);
   currentAudio.play().catch((e) => debug(`[TTS] play failed: ${e.message}`, 'error'));
+}
+
+// Resolve to a playable blob URL for the given text+voice. Cached after
+// the first fetch. Used to gate visual narration on audio readiness.
+async function prefetchElevenLabs(text, voiceId) {
+  const key = `${voiceId}|${text}`;
+  let blobUrl = elAudioCache.get(key);
+  if (blobUrl) return blobUrl;
+  const resp = await fetch('/api/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ voice_id: voiceId, text }),
+  });
+  if (!resp.ok) {
+    debug(`[TTS] HTTP ${resp.status}`, 'error');
+    return null;
+  }
+  const blob = await resp.blob();
+  blobUrl = URL.createObjectURL(blob);
+  elAudioCache.set(key, blobUrl);
+  return blobUrl;
+}
+
+function playBlobAwait(blobUrl) {
+  return new Promise((resolve) => {
+    currentAudio = new Audio(blobUrl);
+    currentAudio.onended = resolve;
+    currentAudio.onerror = resolve;
+    currentAudio.play().catch(() => resolve());
+  });
 }
 
 function speakNarration(text) {
@@ -622,27 +667,9 @@ async function speakSegments(segments) {
 }
 
 async function speakElevenLabsAwait(text, voiceId) {
-  let blobUrl = elAudioCache.get(`${voiceId}|${text}`);
-  if (!blobUrl) {
-    const resp = await fetch('/api/tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ voice_id: voiceId, text }),
-    });
-    if (!resp.ok) {
-      debug(`[TTS] HTTP ${resp.status}`, 'error');
-      return;
-    }
-    const blob = await resp.blob();
-    blobUrl = URL.createObjectURL(blob);
-    elAudioCache.set(`${voiceId}|${text}`, blobUrl);
-  }
-  return new Promise((resolve) => {
-    currentAudio = new Audio(blobUrl);
-    currentAudio.onended = resolve;
-    currentAudio.onerror = resolve;
-    currentAudio.play().catch(() => resolve());
-  });
+  const blobUrl = await prefetchElevenLabs(text, voiceId);
+  if (!blobUrl) return;
+  return playBlobAwait(blobUrl);
 }
 
 async function speakBrowserAwait(text, voiceConfig) {
