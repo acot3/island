@@ -529,6 +529,29 @@ button:disabled {
   line-height: 1.5;
 }
 
+/* Scene event segments — each beat segment is its own paragraph block.
+   Character voices are styled distinctly from narrator prose. */
+.narration-prose .segment {
+  margin: 0 0 14px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+.narration-prose .segment:last-child {
+  margin-bottom: 0;
+}
+
+.narration-prose .segment.voice-narrator {
+  color: #ddd;
+}
+
+.narration-prose .segment.voice-krab {
+  color: #d6c08a;
+  font-style: italic;
+  padding-left: 16px;
+  border-left: 2px solid #b5a06a;
+}
+
 .narration-controls {
   text-align: right;
   margin: 4px 0 16px;

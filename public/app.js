@@ -132,6 +132,7 @@ function renderStarted(day) {
     <p id="phase-note" class="phase-note" style="display:none"></p>
     <div class="phase-controls">
       <button id="btn-proceed" class="temp-btn" style="display:none">Proceed</button>
+      <button id="btn-proceed-event" class="temp-btn" style="display:none">Proceed</button>
       <button id="btn-light-fire" class="temp-btn" style="display:none">Light the Fire</button>
       <button id="btn-end-day" class="temp-btn" style="display:none">End Day</button>
     </div>
@@ -144,6 +145,11 @@ function renderStarted(day) {
   document.getElementById('btn-proceed').addEventListener('click', () => {
     socket.emit('proceed-day');
     debug('Proceed requested', 'phase');
+  });
+  document.getElementById('btn-proceed-event').addEventListener('click', () => {
+    socket.emit('proceed-event');
+    document.getElementById('btn-proceed-event').style.display = 'none';
+    debug('Proceed to event', 'phase');
   });
   document.getElementById('btn-light-fire').addEventListener('click', () => {
     socket.emit('light-fire');
@@ -163,6 +169,23 @@ function renderNarration() {
   if (showingFull) {
     proseEl.classList.add('full');
     proseEl.textContent = fullNarrative || '(no narration yet)';
+  } else if (sceneBeats.length > 0) {
+    // Scene event in progress — render each segment as its own element.
+    // Character voices get curly quotes; narrator stays plain.
+    proseEl.classList.remove('full');
+    proseEl.innerHTML = '';
+    for (const seg of sceneBeats) {
+      const div = document.createElement('div');
+      div.className = `segment voice-${seg.voice}`;
+      div.dataset.text = seg.text;
+      let display = seg.text;
+      if (seg.voice !== 'narrator') {
+        const stripped = seg.text.replace(/^["“”'']+|["“”'']+$/g, '').trim();
+        display = `“${stripped}”`;
+      }
+      div.textContent = display;
+      proseEl.appendChild(div);
+    }
   } else {
     proseEl.classList.remove('full');
     proseEl.textContent = currentChunk ? currentChunk.text : 'Loading…';
@@ -431,18 +454,45 @@ socket.on('campfire-log', ({ name, action, what }) => {
   updateCampfireScroll();
 });
 
-// Scene event beats. The runner emits one of these per beat. We append to
-// the displayed narration so the scene flows visually from the day prose.
+// --- Scene event state ---
+// sceneBeats: array of { voice, text } currently on-screen for the active
+//   event. Cleared on event-start (or new day).
+// sceneVoices: keyed voice config map (key → character config) for TTS.
+let sceneBeats = [];
+let sceneVoices = {};
+
+// Day narration is in view; the server is waiting for the host to advance
+// into the scene event. Show the Proceed button. Capture voice configs so
+// TTS is ready the moment Proceed is clicked.
+socket.on('event-pending', ({ playerNames, characters }) => {
+  debug(`Event pending: ${playerNames.join(', ')}`, 'phase');
+  sceneVoices = {};
+  for (const c of characters || []) sceneVoices[c.key] = c;
+  const btn = document.getElementById('btn-proceed-event');
+  if (btn) btn.style.display = '';
+});
+
+// Scene event begins. Clear the displayed day prose so the scene takes
+// over the narration area; the canonical narrative document still keeps
+// the day prose, the visual just starts fresh.
+socket.on('event-start', ({ characters }) => {
+  if (characters) {
+    for (const c of characters) sceneVoices[c.key] = c;
+  }
+  sceneBeats = [];
+  renderNarration();
+  const btn = document.getElementById('btn-proceed-event');
+  if (btn) btn.style.display = 'none';
+});
+
+// Scene event beats. Append segments to sceneBeats and re-render. Speak
+// each segment in turn with its voice config.
 socket.on('event-beat', ({ segments }) => {
   if (!segments || !segments.length) return;
-  const beatText = segments.map((s) => s.text).join(' ');
-  if (!currentChunk || currentChunk.day !== currentDay || currentChunk.kind !== 'day') {
-    currentChunk = { kind: 'day', day: currentDay, text: beatText };
-  } else {
-    currentChunk.text = currentChunk.text + '\n\n' + beatText;
-  }
-  fullNarrative += beatText + '\n\n';
+  for (const seg of segments) sceneBeats.push(seg);
+  fullNarrative += segments.map((s) => s.text).join(' ') + '\n\n';
   renderNarration();
+  speakSegments(segments);
 });
 
 socket.on('event-end', ({ summary }) => {
@@ -554,6 +604,62 @@ function speakNarration(text) {
   return speakBrowser(text);
 }
 
+// Speak event-beat segments in order with per-voice configs. Awaits each
+// segment's audio so the prose reads back as a coherent scene.
+async function speakSegments(segments) {
+  const mode = ttsModeEl.value;
+  if (mode === 'off' || !segments?.length) return;
+  stopAudio();
+  for (const seg of segments) {
+    const cfg = sceneVoices[seg.voice];
+    if (mode === 'elevenlabs') {
+      const id = cfg?.elevenLabsId || ELEVENLABS_VOICE_ID;
+      await speakElevenLabsAwait(seg.text, id);
+    } else {
+      await speakBrowserAwait(seg.text, cfg);
+    }
+  }
+}
+
+async function speakElevenLabsAwait(text, voiceId) {
+  let blobUrl = elAudioCache.get(`${voiceId}|${text}`);
+  if (!blobUrl) {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ voice_id: voiceId, text }),
+    });
+    if (!resp.ok) {
+      debug(`[TTS] HTTP ${resp.status}`, 'error');
+      return;
+    }
+    const blob = await resp.blob();
+    blobUrl = URL.createObjectURL(blob);
+    elAudioCache.set(`${voiceId}|${text}`, blobUrl);
+  }
+  return new Promise((resolve) => {
+    currentAudio = new Audio(blobUrl);
+    currentAudio.onended = resolve;
+    currentAudio.onerror = resolve;
+    currentAudio.play().catch(() => resolve());
+  });
+}
+
+async function speakBrowserAwait(text, voiceConfig) {
+  const synth = window.speechSynthesis;
+  if (!synth) return;
+  return new Promise((resolve) => {
+    const utter = new SpeechSynthesisUtterance(text);
+    if (browserVoice) utter.voice = browserVoice;
+    if (voiceConfig?.pitch != null) utter.pitch = voiceConfig.pitch;
+    if (voiceConfig?.rate != null) utter.rate = voiceConfig.rate;
+    if (voiceConfig?.volume != null) utter.volume = voiceConfig.volume;
+    utter.onend = resolve;
+    utter.onerror = resolve;
+    synth.speak(utter);
+  });
+}
+
 socket.on('narration-error', ({ kind, day, error }) => {
   debug(`Narrator error: ${kind} (day ${day}) — ${error}`, 'error');
 });
@@ -564,6 +670,8 @@ socket.on('narration-debug', ({ kind, day, raw }) => {
 
 socket.on('day-changed', ({ day }) => {
   currentDay = day;
+  sceneBeats = [];
+  sceneVoices = {};
   // If we were on the campfire screen, rebuild the action UI from scratch.
   // Otherwise just update the day label and reset the phase chrome.
   if (inCampfireView) {
@@ -577,12 +685,14 @@ socket.on('day-changed', ({ day }) => {
     const dayLabel = document.querySelector('#narration-content .day-label');
     if (dayLabel) dayLabel.textContent = `Day ${day}`;
     const proceedBtn = document.getElementById('btn-proceed');
+    const proceedEventBtn = document.getElementById('btn-proceed-event');
     const lightBtn = document.getElementById('btn-light-fire');
     const endBtn = document.getElementById('btn-end-day');
     const prompt = document.querySelector('.action-prompt-host');
     const status = document.getElementById('action-status');
     const note = document.getElementById('phase-note');
     if (proceedBtn) proceedBtn.style.display = 'none';
+    if (proceedEventBtn) proceedEventBtn.style.display = 'none';
     if (lightBtn) lightBtn.style.display = 'none';
     if (endBtn) endBtn.style.display = 'none';
     if (note) note.style.display = 'none';

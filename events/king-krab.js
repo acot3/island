@@ -14,7 +14,7 @@ A beat is an ordered array of voice segments. Two voices are available:
 NARRATOR voice:
 - Third-person, present tense.
 - Vary sentence structure and length.
-- Match the prose style of Terry Pratchett.
+- Match the prose style of Ernest Hemingway.
 - Write only flowing prose. Never use asterisks or stage directions. Any character actions must be described in prose, not bracketed off.
 
 KRAB voice:
@@ -53,10 +53,23 @@ module.exports = {
   title: 'King Krab',
 
   characters: [
-    { key: 'krab', displayName: 'Krab' },
+    {
+      key: 'krab',
+      displayName: 'Krab',
+      browserPrefs: ['Fred', 'Daniel', 'Albert', 'Ralph', 'Reed', 'Rocko', 'Google UK English Male'],
+      pitch: 0.7,
+      rate: 0.95,
+      elevenLabsId: 'YKrm0N1EAM9Bw27j8kuD',
+      volume: 1.0,
+    },
   ],
 
   storytellerSystem: STORYTELLER_SYSTEM,
+
+  // One-sentence shape the day narrator should aim for when handing off
+  // into this scene. Tonal, never literal — the narrator adapts to context.
+  handoffHint:
+    'A short transitional sentence pointing the affected player(s) toward a stretch of shore where an unusually regal aura emanates.',
 
   async run(engine) {
     const { player } = engine;

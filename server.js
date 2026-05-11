@@ -502,6 +502,14 @@ async function runDayNarration(room) {
     const krabTrigger = detectKrabTrigger(room);
     const eventPlayers = new Set(krabTrigger ? krabTrigger.playerNames : []);
 
+    // Start the event in the background (buffered) the moment we know it's
+    // triggered. By the time the host clicks Proceed the first beat is
+    // ready and the engine is parked at the first phone prompt.
+    let eventPromise = null;
+    if (krabTrigger) {
+      eventPromise = runKrabEvent(room, krabTrigger.playerNames);
+    }
+
     // The day narrator covers everyone NOT in the scene event. If the scene
     // pulled every alive player, we skip day narration entirely.
     const narratorReports = actionReports.filter((r) => !eventPlayers.has(r.player));
@@ -539,7 +547,9 @@ async function runDayNarration(room) {
           players: narratorPlayers(room),
           locations: narratorLocations,
           actionReports: narratorReports,
-          sceneHandoff: krabTrigger ? { names: krabTrigger.playerNames } : null,
+          sceneHandoff: krabTrigger
+            ? { names: krabTrigger.playerNames, hint: kingKrabEvent.handoffHint }
+            : null,
         });
 
     const [dayResult, findings] = await Promise.all([
@@ -559,12 +569,18 @@ async function runDayNarration(room) {
       }
     }
 
-    // If the Krab event triggered, run it before offering day-resolution
-    // options to the host.
-    if (krabTrigger) {
-      room.narratorBusy = false; // release lock so the event runner can manage state
-      await runKrabEvent(room, krabTrigger.playerNames);
-      room.narratorBusy = true;
+    // If an event is pre-loading in the background, surface the Proceed
+    // button now (host clicks it to release the buffered first beat). Then
+    // wait for the scene to finish before offering day-resolution-options.
+    if (krabTrigger && eventPromise) {
+      if (room.hostSocket) {
+        io.to(room.hostSocket).emit('event-pending', {
+          eventId: 'king-krab',
+          playerNames: krabTrigger.playerNames,
+          characters: kingKrabEvent.characters || [],
+        });
+      }
+      await eventPromise;
     }
 
     if (room.hostSocket) {
@@ -595,6 +611,7 @@ async function runKrabEvent(room, playerNames) {
     id: 'king-krab',
     playerName: primaryName,
     pendingResolver: null,
+    characters: kingKrabEvent.characters || [],
   };
   room.krabFired = true;
   try {
@@ -942,6 +959,25 @@ io.on('connection', (socket) => {
   });
 
   // Spend 1 daily portion of a specific food kind for +1 HP. Available any
+  // Host advances from day narration into the scene event. The event has
+  // been pre-loading in the background since the trigger was detected;
+  // here we just clear the day prose and release the engine's buffered
+  // first beat. day-resolution-options is emitted by runDayNarration once
+  // the scene completes.
+  socket.on('proceed-event', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (!room || !room.activeEvent || !room.activeEvent.release) return;
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('event-start', {
+        eventId: room.activeEvent.id,
+        playerName: room.activeEvent.playerName,
+        characters: room.activeEvent.characters || [],
+      });
+    }
+    room.activeEvent.release();
+  });
+
   // Player input during a scene event. Routes to the engine's pending
   // promise resolver. Only valid for the active scene player.
   socket.on('event-input', (value) => {
