@@ -7,6 +7,7 @@ const debugPanel = document.getElementById('debug');
 const debugToggle = document.getElementById('debug-toggle');
 
 let roomCode = null;
+let roomMode = 'normal'; // 'normal' | 'sandbox'
 
 // --- Debug console ---
 
@@ -51,6 +52,10 @@ document.getElementById('btn-create').addEventListener('click', () => {
   socket.emit('create-room');
 });
 
+document.getElementById('btn-sandbox').addEventListener('click', () => {
+  socket.emit('create-sandbox');
+});
+
 function renderLobby(code, players) {
   setNarration(`
     <h1>ISLAND</h1>
@@ -81,10 +86,11 @@ function renderPlayers(players) {
   }
 }
 
-socket.on('room-created', ({ code }) => {
+socket.on('room-created', ({ code, mode }) => {
   roomCode = code;
+  roomMode = mode || 'normal';
   sessionStorage.setItem('island-host-code', code);
-  debug(`Room created: ${code}`, 'phase');
+  debug(`Room created: ${code}${mode ? ' (' + mode + ')' : ''}`, 'phase');
   renderLobby(code, []);
 });
 
@@ -93,10 +99,11 @@ socket.on('players-update', ({ players }) => {
   renderPlayers(players);
 });
 
-socket.on('host-state', ({ code, phase, day, players }) => {
+socket.on('host-state', ({ code, phase, day, mode, players }) => {
   roomCode = code;
+  roomMode = mode || 'normal';
   sessionStorage.setItem('island-host-code', code);
-  debug(`Host state restored: ${phase}`, 'phase');
+  debug(`Host state restored: ${phase}${mode ? ' (' + mode + ')' : ''}`, 'phase');
   if (phase === 'started') {
     renderStarted(day);
   } else if (phase === 'campfire') {
@@ -121,8 +128,18 @@ let campfireMealFull = false; // set per campfire-state; gates meal-add clicks
 
 function renderStarted(day) {
   currentDay = day;
+  const sandbox = roomMode === 'sandbox';
+  // Sandbox keeps the full normal UI — narration prose still shows on the
+  // host — and adds a #sandbox-debug panel at the bottom that surfaces
+  // each react() call's outputs plus the growing character histories.
+  const sandboxPanel = sandbox
+    ? `<div id="sandbox-debug" class="sandbox-debug">
+         <p class="sandbox-label">Sandbox</p>
+         <p class="sandbox-empty">Run a day to see react() outputs and character history.</p>
+       </div>`
+    : '';
   setNarration(`
-    <p class="day-label">Day ${day}</p>
+    <p class="day-label">Day ${day}${sandbox ? ' — Sandbox' : ''}</p>
     <div id="narration-prose" class="narration-prose"></div>
     <div class="narration-controls">
       <button id="btn-toggle-full" class="link-btn"></button>
@@ -136,6 +153,7 @@ function renderStarted(day) {
       <button id="btn-light-fire" class="temp-btn" style="display:none">Light the Fire</button>
       <button id="btn-end-day" class="temp-btn" style="display:none">End Day</button>
     </div>
+    ${sandboxPanel}
   `);
   renderNarration();
   document.getElementById('btn-toggle-full').addEventListener('click', () => {
@@ -276,11 +294,11 @@ socket.on('narration-chunk', async ({ kind, day, text, segments, voices, full })
     // Day narrator emits segments now — multi-voice if a character spoke.
     let blobUrls = null;
     if (mode === 'elevenlabs') {
-      blobUrls = await Promise.all(segments.map((seg) => {
+      blobUrls = await mapLimit(segments, TTS_CONCURRENCY, (seg) => {
         const cfg = sceneVoices[seg.voice];
         const id = cfg?.elevenLabsId || ELEVENLABS_VOICE_ID;
-        return prefetchElevenLabs(seg.text, id);
-      }));
+        return prefetchElevenLabs(seg.ttsText || seg.text, id, cfg);
+      });
     }
     sceneBeats = segments.slice();
     currentChunk = { kind, day, segments };
@@ -288,9 +306,15 @@ socket.on('narration-chunk', async ({ kind, day, text, segments, voices, full })
     renderNarration();
     if (mode === 'elevenlabs' && blobUrls) {
       stopAudio();
-      for (const url of blobUrls) {
-        if (!url) continue;
-        await playBlobAwait(url);
+      for (let i = 0; i < blobUrls.length; i++) {
+        if (!blobUrls[i]) continue;
+        const cfg = sceneVoices[segments[i].voice];
+        await playBlobAwait(blobUrls[i], cfg?.volume ?? 1);
+        // Breathing room before the next segment — a voice's pauseAfterMs
+        // overrides the default paragraph gap. No pause after the last one.
+        if (i < blobUrls.length - 1) {
+          await new Promise((r) => setTimeout(r, cfg?.pauseAfterMs ?? SEGMENT_GAP_MS));
+        }
       }
     } else if (mode === 'browser') {
       speakSegments(segments);
@@ -500,6 +524,42 @@ socket.on('campfire-log', ({ name, action, what }) => {
 // sceneVoices: keyed voice config map (key → character config) for TTS.
 let sceneBeats = [];
 let sceneVoices = {};
+// event-beat defers its prose render behind TTS prefetch. A host-status
+// line arrives right after its beat in the stream, so rendering it
+// immediately would beat the prose to screen. eventBeatPending is true
+// while a beat is mid-render; if a status lands then, it's stashed in
+// pendingEventStatus and applied once the beat actually paints.
+let eventBeatPending = false;
+let pendingEventStatus = null;
+// Same deferral for the arrival scene's hand-back to the action phase:
+// event-end arrives right behind the final beat, which may still be
+// painting. Restore the action chrome only once that beat is on screen.
+let pendingArrivalChrome = false;
+
+function applyEventStatus(text) {
+  const note = document.getElementById('phase-note');
+  if (!note) return;
+  note.textContent = text || '';
+  note.style.display = text ? '' : 'none';
+}
+
+// Bring back Day 1's action-selection chrome that a scene event hid.
+function restoreActionChrome() {
+  const prompt = document.querySelector('.action-prompt-host');
+  const status = document.getElementById('action-status');
+  const note = document.getElementById('phase-note');
+  if (prompt) prompt.style.display = '';
+  if (status) status.style.display = '';
+  if (note) note.style.display = 'none';
+}
+
+// The arrival scene's final beat is on screen now: restore the host chrome
+// AND tell the server, which is parked waiting on this before it releases
+// the phones into Day 1's action picker.
+function finishArrival() {
+  restoreActionChrome();
+  socket.emit('event-render-complete');
+}
 
 // Day narration is in view; the server is waiting for the host to advance
 // into the scene event. Show the Proceed button. Capture voice configs so
@@ -523,38 +583,138 @@ socket.on('event-start', ({ characters }) => {
   renderNarration();
   const btn = document.getElementById('btn-proceed-event');
   if (btn) btn.style.display = 'none';
+  // The scene owns the screen now — hide the action-selection chrome
+  // ("What will you do?" + the per-player status list).
+  const prompt = document.querySelector('.action-prompt-host');
+  const status = document.getElementById('action-status');
+  const note = document.getElementById('phase-note');
+  if (prompt) prompt.style.display = 'none';
+  if (status) status.style.display = 'none';
+  if (note) note.style.display = 'none';
+});
+
+// Host-screen status line during a scene event — e.g. shown while the
+// active player is answering a character's prompt. Rendered into the
+// shared #phase-note element; cleared by the next beat or by event-end.
+// If a beat is still painting, defer until it lands (see eventBeatPending).
+socket.on('event-status', ({ text }) => {
+  if (eventBeatPending) {
+    pendingEventStatus = text || '';
+  } else {
+    applyEventStatus(text);
+  }
 });
 
 // Scene event beats. Prefetch all segment audio first (if ElevenLabs),
 // then render the beat and start playback together.
-socket.on('event-beat', async ({ segments }) => {
+socket.on('event-beat', async ({ segments, replace }) => {
   if (!segments || !segments.length) return;
+  // A beat landing means any "player is answering" status is now stale.
+  eventBeatPending = true;
+  pendingEventStatus = null;
+  const note = document.getElementById('phase-note');
+  if (note) note.style.display = 'none';
   const mode = ttsModeEl.value;
   let blobUrls = null;
   if (mode === 'elevenlabs') {
-    blobUrls = await Promise.all(segments.map((seg) => {
+    blobUrls = await mapLimit(segments, TTS_CONCURRENCY, (seg) => {
       const cfg = sceneVoices[seg.voice];
       const id = cfg?.elevenLabsId || ELEVENLABS_VOICE_ID;
-      return prefetchElevenLabs(seg.text, id);
-    }));
+      // ttsText carries audio tags (e.g. [dying]) for the voice model only;
+      // seg.text stays clean for the on-screen prose.
+      return prefetchElevenLabs(seg.ttsText || seg.text, id, cfg);
+    });
   }
+  // A "page turn" beat replaces the on-screen scene prose instead of
+  // appending to it. The full-story document (fullNarrative) still grows.
+  if (replace) sceneBeats = [];
   for (const seg of segments) sceneBeats.push(seg);
   fullNarrative += segments.map((s) => s.text).join(' ') + '\n\n';
   renderNarration();
+  // The beat's prose is on screen now — apply anything that was deferred
+  // until it painted: a host-status line, or the arrival scene's hand-back
+  // to the action phase.
+  eventBeatPending = false;
+  if (pendingEventStatus !== null) {
+    applyEventStatus(pendingEventStatus);
+    pendingEventStatus = null;
+  }
+  if (pendingArrivalChrome) {
+    finishArrival();
+    pendingArrivalChrome = false;
+  }
   if (mode === 'off') return;
   if (mode === 'elevenlabs') {
     stopAudio();
-    for (const url of blobUrls) {
-      if (!url) continue;
-      await playBlobAwait(url);
+    for (let i = 0; i < blobUrls.length; i++) {
+      if (!blobUrls[i]) continue;
+      const cfg = sceneVoices[segments[i].voice];
+      await playBlobAwait(blobUrls[i], cfg?.volume ?? 1);
+      // Breathing room before the next segment — a voice's pauseAfterMs
+      // overrides the default paragraph gap. No pause after the last one.
+      if (i < blobUrls.length - 1) {
+        await new Promise((r) => setTimeout(r, cfg?.pauseAfterMs ?? SEGMENT_GAP_MS));
+      }
     }
   } else {
     speakSegments(segments);
   }
 });
 
-socket.on('event-end', ({ summary }) => {
+socket.on('event-end', ({ eventId, summary }) => {
   if (summary) debug(`Event ended: ${summary}`, 'phase');
+  // The arrival scene hands straight back to Day 1's action phase — restore
+  // the action-selection chrome it hid. Other events (e.g. King Krab) hand
+  // off to day-resolution instead, so leave their chrome alone.
+  if (eventId === 'arrival') {
+    // Defer the hand-back if the final beat is still painting, so "What
+    // will you do?" + the player list (and the phones) don't reappear
+    // before Skipper's death narration is on screen.
+    if (eventBeatPending) pendingArrivalChrome = true;
+    else finishArrival();
+  }
+});
+
+// Sandbox-only payload: this day's react() calls + the full character state
+// for every character that has ever fired. Replaces the narration prose
+// view in sandbox mode.
+socket.on('sandbox-debug', ({ day, reactions, characterState }) => {
+  const el = document.getElementById('sandbox-debug');
+  if (!el) return;
+  const reactionBlock = (reactions && reactions.length)
+    ? reactions.map((r) => {
+        const outs = (r.outputs || []).length
+          ? r.outputs.map((o) => `<li><span class="kind-${o.kind}">${o.kind}</span> ${escapeHtml(o.text)}</li>`).join('')
+          : '<li class="empty">(no visible reaction — character chose silence)</li>';
+        return `
+          <div class="sandbox-reaction">
+            <p class="sandbox-h"><strong>${escapeHtml(r.characterName)}</strong> reacted to ${escapeHtml(r.playerName)}: "${escapeHtml(r.action)}"</p>
+            <ul class="sandbox-outputs">${outs}</ul>
+          </div>
+        `;
+      }).join('')
+    : '<p class="sandbox-empty">No react() calls this day.</p>';
+
+  const historyBlock = Object.entries(characterState || {}).map(([key, state]) => {
+    const entries = (state.history || []).map((h) => `
+      <div class="sandbox-history-entry">
+        <p class="sandbox-memory">Day ${h.day}: ${escapeHtml(h.memory || '')}</p>
+      </div>
+    `).join('');
+    return `
+      <div class="sandbox-character">
+        <p class="sandbox-label">${escapeHtml(key)} — memories (${(state.history || []).length})</p>
+        ${entries || '<p class="sandbox-empty">(empty)</p>'}
+      </div>
+    `;
+  }).join('');
+
+  el.innerHTML = `
+    <p class="sandbox-label">Day ${day} — react()</p>
+    ${reactionBlock}
+    <p class="sandbox-label" style="margin-top:24px">Character state</p>
+    ${historyBlock || '<p class="sandbox-empty">(no characters have reacted yet)</p>'}
+  `;
 });
 
 socket.on('feeding-result', ({ fed, deaths }) => {
@@ -643,30 +803,101 @@ async function speakElevenLabs(text) {
 
 // Resolve to a playable blob URL for the given text+voice. Cached after
 // the first fetch. Used to gate visual narration on audio readiness.
-async function prefetchElevenLabs(text, voiceId) {
-  const key = `${voiceId}|${text}`;
+// `voiceConfig` (optional) provides per-character model_id + voice_settings.
+async function prefetchElevenLabs(text, voiceId, voiceConfig) {
+  const settingsKey = voiceConfig
+    ? JSON.stringify({ m: voiceConfig.elevenLabsModel, s: voiceConfig.elevenLabsSettings })
+    : '';
+  const key = `${voiceId}|${settingsKey}|${text}`;
   let blobUrl = elAudioCache.get(key);
   if (blobUrl) return blobUrl;
-  const resp = await fetch('/api/tts', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ voice_id: voiceId, text }),
-  });
-  if (!resp.ok) {
+  const body = { voice_id: voiceId, text };
+  if (voiceConfig?.elevenLabsModel) body.model_id = voiceConfig.elevenLabsModel;
+  if (voiceConfig?.elevenLabsSettings) body.voice_settings = voiceConfig.elevenLabsSettings;
+  // Retry once on a 429 (ElevenLabs concurrency cap) after a short backoff.
+  // mapLimit keeps a single beat under the cap, but a stray overlap can
+  // still trip it — the retry mops that up.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const resp = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (resp.ok) {
+      const blob = await resp.blob();
+      blobUrl = URL.createObjectURL(blob);
+      elAudioCache.set(key, blobUrl);
+      return blobUrl;
+    }
+    if (resp.status === 429 && attempt === 0) {
+      await new Promise((r) => setTimeout(r, 800));
+      continue;
+    }
     debug(`[TTS] HTTP ${resp.status}`, 'error');
     return null;
   }
-  const blob = await resp.blob();
-  blobUrl = URL.createObjectURL(blob);
-  elAudioCache.set(key, blobUrl);
-  return blobUrl;
+  return null;
 }
 
-function playBlobAwait(blobUrl) {
+// Run async `fn` over `items` with at most `limit` in flight at once — keeps
+// TTS prefetch under ElevenLabs' per-subscription concurrency cap (5 on the
+// Creator plan). Preserves input order in the results array.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+// Max concurrent TTS prefetches (under the ElevenLabs cap of 5, with margin).
+const TTS_CONCURRENCY = 4;
+// Default gap between consecutive narration segments (paragraphs) so the
+// reader doesn't jump straight into the next one. A voice's pauseAfterMs
+// overrides this.
+const SEGMENT_GAP_MS = 700;
+
+// Shared Web Audio context, created lazily on first non-unity-gain playback.
+let audioCtx = null;
+function getAudioCtx() {
+  if (!audioCtx) {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (Ctx) audioCtx = new Ctx();
+  }
+  return audioCtx;
+}
+
+// Play a TTS blob to completion. `volume` routes playback through a Web
+// Audio gain node so values ABOVE 1.0 are possible — HTMLAudioElement.volume
+// is hard-capped at 1.0, which can't lift a quiet character voice to match
+// the narrator. volume === 1 skips Web Audio entirely (plain playback).
+function playBlobAwait(blobUrl, volume = 1) {
   return new Promise((resolve) => {
     currentAudio = new Audio(blobUrl);
     currentAudio.onended = resolve;
     currentAudio.onerror = resolve;
+    if (volume !== 1) {
+      const ctx = getAudioCtx();
+      if (ctx) {
+        try {
+          const src = ctx.createMediaElementSource(currentAudio);
+          const gain = ctx.createGain();
+          gain.gain.value = volume;
+          src.connect(gain).connect(ctx.destination);
+          if (ctx.state === 'suspended') ctx.resume();
+        } catch {
+          // Routing failed — fall back to plain element volume (≤ 1.0).
+          currentAudio.volume = Math.min(1, volume);
+        }
+      } else {
+        currentAudio.volume = Math.min(1, volume);
+      }
+    }
     currentAudio.play().catch(() => resolve());
   });
 }
@@ -689,17 +920,17 @@ async function speakSegments(segments) {
     const cfg = sceneVoices[seg.voice];
     if (mode === 'elevenlabs') {
       const id = cfg?.elevenLabsId || ELEVENLABS_VOICE_ID;
-      await speakElevenLabsAwait(seg.text, id);
+      await speakElevenLabsAwait(seg.text, id, cfg);
     } else {
       await speakBrowserAwait(seg.text, cfg);
     }
   }
 }
 
-async function speakElevenLabsAwait(text, voiceId) {
-  const blobUrl = await prefetchElevenLabs(text, voiceId);
+async function speakElevenLabsAwait(text, voiceId, voiceConfig) {
+  const blobUrl = await prefetchElevenLabs(text, voiceId, voiceConfig);
   if (!blobUrl) return;
-  return playBlobAwait(blobUrl);
+  return playBlobAwait(blobUrl, voiceConfig?.volume ?? 1);
 }
 
 async function speakBrowserAwait(text, voiceConfig) {
@@ -721,9 +952,10 @@ socket.on('narration-error', ({ kind, day, error }) => {
   debug(`Narrator error: ${kind} (day ${day}) — ${error}`, 'error');
 });
 
-socket.on('narration-debug', ({ kind, day, raw }) => {
-  debug(`Narrator raw (${kind}, day ${day}): ${raw}`, 'api');
-});
+// Raw narration is noisy in the debug console. The prose itself displays
+// on the host; if you need to inspect the structured form, check the
+// sandbox panel (sandbox mode) or server logs.
+socket.on('narration-debug', () => {});
 
 socket.on('day-changed', ({ day }) => {
   currentDay = day;
@@ -784,8 +1016,8 @@ socket.on('action-public', ({ name, action }) => {
 socket.on('categorizer-result', ({ player, action, location, result, outcome }) => {
   const possible = result.possible ? 'possible' : 'impossible';
   const seeking = Array.isArray(result.seeking) && result.seeking.length ? result.seeking.join(',') : 'none';
-  const addressing = result.addressing || 'none';
-  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} | seeking:${seeking} | addressing:${addressing} — ${result.rationale}`;
+  const involves = result.involves || 'none';
+  let line = `[CAT] ${player} at ${location}: "${action}" → ${possible} | ${result.attribute} | ${result.difficulty} | seeking:${seeking} | involves:${involves} — ${result.rationale}`;
   if (outcome.reason === 'impossible') {
     line += `\n      → auto-fail (impossible)`;
   } else if (outcome.kind === 'search') {

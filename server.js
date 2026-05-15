@@ -14,10 +14,17 @@ const { resolveAction } = require('./lib/resolver');
 const { narrateMorning, narrateDay } = require('./lib/narrator');
 const { narrateFinding } = require('./lib/findings');
 const { runEvent } = require('./lib/event-runner');
+const arrivalEvent = require('./events/arrival');
 const kingKrabCharacter = require('./characters/king-krab');
+const { setupSandbox, maxCharacter } = require('./sandbox');
 // Registry of characters by key — lookups go through here so the day flow
-// stays generic.
-const CHARACTERS = { [kingKrabCharacter.key]: kingKrabCharacter };
+// stays generic. Max only ever appears in sandbox rooms (he isn't placed
+// in normal createRoom), but his voice config lives here so the host can
+// route TTS for his segments.
+const CHARACTERS = {
+  [kingKrabCharacter.key]: kingKrabCharacter,
+  [maxCharacter.key]: maxCharacter,
+};
 
 const PLAYER_COLORS = [
   '#5b9eda', '#d65b9e', '#b87bd6', '#f08c42', '#ffffff', '#6a6a6a',
@@ -34,9 +41,14 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/play', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'phone.html')));
 
+// Defaults applied when a request doesn't override. Per-character overrides
+// flow through `model_id` and `voice_settings` in the request body.
+const TTS_DEFAULT_MODEL = 'eleven_turbo_v2_5';
+const TTS_DEFAULT_SETTINGS = { stability: 0.3, similarity_boost: 0.8, speed: 1.0 };
+
 app.post('/api/tts', async (req, res) => {
   try {
-    const { voice_id, text } = req.body || {};
+    const { voice_id, text, model_id, voice_settings } = req.body || {};
     if (!voice_id || !text) return res.status(400).json({ error: 'voice_id and text required' });
     const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voice_id}`, {
       method: 'POST',
@@ -46,8 +58,8 @@ app.post('/api/tts', async (req, res) => {
       },
       body: JSON.stringify({
         text,
-        model_id: 'eleven_turbo_v2_5',
-        voice_settings: { stability: 0.3, similarity_boost: 0.8, speed: 1.0 },
+        model_id: model_id || TTS_DEFAULT_MODEL,
+        voice_settings: { ...TTS_DEFAULT_SETTINGS, ...(voice_settings || {}) },
       }),
     });
     if (!resp.ok) {
@@ -78,12 +90,13 @@ function generateRoomCode() {
   return code;
 }
 
-function createRoom() {
+function createRoom({ mode = 'normal' } = {}) {
   const code = generateRoomCode();
   const room = {
     hostSocket: null,
     players: new Map(), // name -> { socketId, pronouns, mbti, hp, dead, ... }
     phase: 'lobby',     // 'lobby' | 'started' | 'campfire' | 'event'
+    mode,               // 'normal' | 'sandbox'
     day: 1,
     narrative: '',          // the canonical growing prose document
     currentChunk: null,     // { kind: 'morning' | 'day', day, text }
@@ -113,6 +126,12 @@ function createRoom() {
     const target = CORNERS[Math.floor(Math.random() * CORNERS.length)];
     [room.nodeState[wreckageNode], room.nodeState[target]] =
       [room.nodeState[target], room.nodeState[wreckageNode]];
+  }
+  // Sandbox mode: suppress the Krab encounter so the focus stays on the
+  // character being iterated on. Everything else (campfire, HP, etc.) is
+  // still in play.
+  if (mode === 'sandbox') {
+    room.krabFired = true;
   }
   rooms.set(code, room);
   return code;
@@ -531,7 +550,7 @@ async function buildActionReports(room) {
           isSearch,
           finds,
           sceneDescription: sceneContext ? sceneContext.description : null,
-          addressing: verdict.addressing || null,
+          involves: verdict.involves || null,
         };
       } catch (err) {
         if (room.hostSocket) {
@@ -607,26 +626,29 @@ async function runDayNarration(room) {
       );
     }
 
-    // Character respond() calls — one per addressing action that targets a
+    // Character react() calls — one per action that notably involves a
     // present, known character. Skip if the player is already in the scene
-    // event roster.
-    const addressingCalls = [];
+    // event roster. Each call returns { outputs: [{kind, text}, ...] }.
+    const reactionCalls = [];
     for (const r of narratorReports) {
-      if (!r.addressing) continue;
-      const ch = CHARACTERS[r.addressing];
-      if (!ch || typeof ch.respond !== 'function') continue;
+      if (!r.involves) continue;
+      const ch = CHARACTERS[r.involves];
+      if (!ch || typeof ch.react !== 'function') continue;
       const cs = room.characterState[ch.key];
       if (!cs || !cs.nodes.includes(r.nodeId)) continue;
-      addressingCalls.push(
-        ch.respond({
+      reactionCalls.push(
+        ch.react({
           playerName: r.player,
           playerAction: r.action,
           history: cs.history.slice(),
         })
-          .then((reply) => {
-            // Update character memory for next turn.
+          .then(({ outputs, memory }) => {
+            // Persist only the character's own brief memory of the moment.
+            // The verbatim outputs are used for narration this turn but
+            // are NOT retained — character memory is summarized, not stored.
             cs.history.push({
-              day: room.day, playerName: r.player, action: r.action, reply,
+              day: room.day,
+              memory: memory || '(no memory recorded)',
             });
             return {
               playerName: r.player,
@@ -636,17 +658,17 @@ async function runDayNarration(room) {
               action: r.action,
               nodeId: r.nodeId,
               biome: r.biome,
-              reply,
+              outputs: outputs || [],
             };
           })
           .catch((err) => {
-            console.error(`[${ch.key}.respond] ${err.message}`);
+            console.error(`[${ch.key}.react] ${err.message}`);
             return null;
           })
       );
     }
-    // Resolve character replies first so the day narrator's prompt has them.
-    const characterReplies = (await Promise.all(addressingCalls)).filter(Boolean);
+    // Resolve character reactions first so the day narrator's prompt has them.
+    const characterReactions = (await Promise.all(reactionCalls)).filter(Boolean);
 
     const dayCall = skipDayNarration
       ? Promise.resolve(null)
@@ -659,7 +681,7 @@ async function runDayNarration(room) {
           sceneHandoff: krabTrigger
             ? { names: krabTrigger.playerNames, hint: kingKrabCharacter.handoffHint }
             : null,
-          characterReplies,
+          characterReactions,
         });
 
     const [dayResult, findings] = await Promise.all([
@@ -668,6 +690,17 @@ async function runDayNarration(room) {
     ]);
 
     if (dayResult) appendNarrationSegments(room, 'day', dayResult.segments);
+
+    // Sandbox: stream the character debug payload to the host so the user
+    // can see exactly what the character react() call returned and how
+    // their memory has grown across the run.
+    if (room.mode === 'sandbox' && room.hostSocket) {
+      io.to(room.hostSocket).emit('sandbox-debug', {
+        day: room.day,
+        reactions: characterReactions,
+        characterState: room.characterState,
+      });
+    }
     for (const f of findings) {
       if (!f) continue;
       io.to(f.socketId).emit('private-narration', { day: room.day, text: f.text });
@@ -693,7 +726,14 @@ async function runDayNarration(room) {
       await eventPromise;
     }
 
-    if (room.hostSocket) {
+    if (room.mode === 'sandbox') {
+      // Sandbox: no day-pass cycle, no Light-the-Fire / End-Day buttons.
+      // Auto-loop: reset chosenAction and re-prompt the player so they
+      // can bounce back-and-forth with the character.
+      room.narratorBusy = false; // release before endDay re-enters anything
+      endDay(room);
+      room.narratorBusy = true;
+    } else if (room.hostSocket) {
       io.to(room.hostSocket).emit('day-resolution-options', {
         day: room.day,
         playersAtCamp: aliveAtWreckage(room).map(([name]) => name),
@@ -758,6 +798,76 @@ async function runKrabEvent(room, playerNames) {
   }
 }
 
+// Run the Arrival scene event — the game's opening, played once at start
+// in place of Day 1's morning narration. The first alive player drives the
+// single phone prompt; every phone is parked on a loading screen until the
+// scene closes, then released into Day 1's action picker. Skipper dies in
+// the prose; there is nothing mechanical to apply afterward.
+async function runArrivalEvent(room) {
+  const aliveList = alivePlayerEntries(room);
+  if (aliveList.length === 0) return;
+  const [primaryName, player] = aliveList[0];
+  room.phase = 'event';
+  room.activeEvent = {
+    id: 'arrival',
+    playerName: primaryName,
+    pendingResolver: null,
+    characters: arrivalEvent.characters || [],
+  };
+  ensureDayHeader(room);
+  // Park every phone for the duration of the opening scene. The primary
+  // player's phone is taken over by the event runner the moment the host
+  // releases the first beat; the rest stay parked until the scene closes.
+  for (const [, p] of aliveList) {
+    if (p.socketId) io.to(p.socketId).emit('day-locked', { day: room.day });
+  }
+  try {
+    const eventPromise = runEvent({ room, event: arrivalEvent, player, io });
+    // The opening has no host-driven "Proceed" gate — release the scene
+    // immediately so it plays the moment the game starts. (runEvent sets
+    // activeEvent.release synchronously before its first await.)
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('event-start', {
+        eventId: 'arrival',
+        playerName: primaryName,
+        characters: arrivalEvent.characters || [],
+      });
+    }
+    if (room.activeEvent && room.activeEvent.release) room.activeEvent.release();
+    await eventPromise;
+  } catch (err) {
+    console.error(`[Arrival event] ${err.message}`);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('narration-error', {
+        kind: 'event', day: room.day, error: err.message,
+      });
+    }
+  } finally {
+    room.activeEvent = null;
+    room.phase = 'started';
+  }
+  // The scene's final beat has been *sent* to the host, but the host is
+  // still prefetching/rendering it. Wait for the host to confirm it's on
+  // screen before releasing phones — otherwise the action picker appears
+  // while Skipper's death is still loading. Falls back after a timeout in
+  // case the host never signals (disconnect, etc.).
+  await new Promise((resolve) => {
+    let done = false;
+    const finish = () => { if (!done) { done = true; resolve(); } };
+    room.arrivalRenderResolver = finish;
+    setTimeout(finish, 20000);
+  });
+  room.arrivalRenderResolver = null;
+  // Release every phone into Day 1's action picker.
+  for (const [name, p] of alivePlayerEntries(room)) {
+    if (p.socketId) {
+      io.to(p.socketId).emit('your-location', buildLocationPayload(room, name));
+      io.to(p.socketId).emit('action-cancelled');
+    }
+  }
+  emitActionStatus(room);
+}
+
 // Reset chosen actions, increment day, fire the morning narrator. Phones
 // reset their action UI via action-cancelled.
 function endDay(room) {
@@ -777,7 +887,11 @@ function endDay(room) {
     if (p.socketId) io.to(p.socketId).emit('day-changed', { day: room.day });
   }
   emitActionStatus(room);
-  runMorningNarration(room);
+  // Sandbox: no morning narration — the player goes straight back to the
+  // action picker for the next round.
+  if (room.mode !== 'sandbox') {
+    runMorningNarration(room);
+  }
 }
 
 function moveActionLabel(fromNodeId, targetNodeId) {
@@ -803,6 +917,19 @@ io.on('connection', (socket) => {
     console.log(`[Room ${code}] created by host ${socket.id}`);
   });
 
+  // Sandbox: same as create-room but the room is flagged sandbox-mode and
+  // start-game will place players beside the sandbox character (Max).
+  socket.on('create-sandbox', () => {
+    const code = createRoom({ mode: 'sandbox' });
+    const room = rooms.get(code);
+    room.hostSocket = socket.id;
+    currentRoom = code;
+    isHost = true;
+    socket.join(code);
+    socket.emit('room-created', { code, mode: 'sandbox' });
+    console.log(`[Room ${code}] sandbox created by host ${socket.id}`);
+  });
+
   socket.on('rejoin-host', ({ code }) => {
     code = (code || '').toUpperCase().trim();
     const room = rooms.get(code);
@@ -812,7 +939,8 @@ io.on('connection', (socket) => {
     isHost = true;
     socket.join(code);
     socket.emit('host-state', {
-      code, phase: room.phase, day: room.day, players: playerSummary(room),
+      code, phase: room.phase, day: room.day, mode: room.mode,
+      players: playerSummary(room),
     });
     if (room.phase === 'started') {
       socket.emit('map-state', buildMapPayload(room));
@@ -863,6 +991,9 @@ io.on('connection', (socket) => {
 
     const color = PLAYER_COLORS[room.players.size % PLAYER_COLORS.length];
     room.players.set(name, {
+      // `name` is the Map key, but events receive the player record directly
+      // (engine.player) and need the name on it — keep the two in sync.
+      name,
       socketId: socket.id, pronouns, mbti, color,
       chosenAction: null, isPublic: false, pendingMove: null,
       hp: 5, // half-hearts; 5 = 2½ hearts. -1 per unfed day at the campfire.
@@ -913,6 +1044,18 @@ io.on('connection', (socket) => {
           }
         }
       }
+    } else if (room.phase === 'event' && player.nodeId) {
+      // Reconnecting mid-scene. Restore the map view, then either hand the
+      // active event player back their pending prompt (re-sent verbatim
+      // from the event runner's stash) or park everyone else on a loading
+      // screen until the scene closes.
+      socket.emit('your-location', buildLocationPayload(room, name));
+      const ae = room.activeEvent;
+      if (ae && ae.playerName === name && ae.pendingPhone) {
+        socket.emit('event-phone', ae.pendingPhone);
+      } else {
+        socket.emit('day-locked', { day: room.day });
+      }
     } else if (room.phase === 'campfire' && player.nodeId) {
       // Restore the player's view based on whether they're at the wreckage.
       // At-camp players go back into the deposit/withdraw UI; everyone else
@@ -940,7 +1083,12 @@ io.on('connection', (socket) => {
 
     room.phase = 'started';
     room.day = 1;
-    room.startNodeId = findSceneNode(room, 'wreckage-site');
+    if (room.mode === 'sandbox') {
+      // Sandbox: place the test character (Max) and spawn players beside him.
+      setupSandbox(room);
+    } else {
+      room.startNodeId = findSceneNode(room, 'wreckage-site');
+    }
     for (const [, p] of room.players) {
       p.nodeId = room.startNodeId;
       p.visited = new Set([room.startNodeId]);
@@ -956,7 +1104,13 @@ io.on('connection', (socket) => {
       }
     }
     console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s) at ${room.startNodeId}`);
-    runMorningNarration(room);
+    // Sandbox: skip the opening entirely — the player drops straight into
+    // the action picker and bounces back-and-forth with the character.
+    // Normal play: the Arrival scene event stands in for Day 1's morning
+    // narration. Day 2+ mornings run through runMorningNarration as usual.
+    if (room.mode !== 'sandbox') {
+      runArrivalEvent(room);
+    }
   });
 
   socket.on('submit-move', ({ targetNodeId } = {}) => {
@@ -1105,6 +1259,15 @@ io.on('connection', (socket) => {
       });
     }
     room.activeEvent.release();
+  });
+
+  // Host confirms the arrival scene's final beat is rendered on screen.
+  // runArrivalEvent is parked waiting on this before it releases the phones
+  // into Day 1's action picker.
+  socket.on('event-render-complete', () => {
+    if (!isHost || !currentRoom) return;
+    const room = rooms.get(currentRoom);
+    if (room && room.arrivalRenderResolver) room.arrivalRenderResolver();
   });
 
   // Player input during a scene event. Routes to the engine's pending

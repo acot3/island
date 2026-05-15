@@ -552,6 +552,13 @@ button:disabled {
   border-left: 2px solid #b5a06a;
 }
 
+.narration-prose .segment.voice-skipper {
+  color: #9db4c0;
+  font-style: italic;
+  padding-left: 16px;
+  border-left: 2px solid #6e8896;
+}
+
 .narration-controls {
   text-align: right;
   margin: 4px 0 16px;
@@ -585,6 +592,84 @@ button:disabled {
   font-size: 13px;
   font-style: italic;
   margin-top: 16px;
+}
+
+/* Sandbox debug panel — visible only in sandbox-mode rooms. */
+.sandbox-debug {
+  margin-top: 32px;
+  padding: 16px;
+  border-top: 1px solid #fff;
+  font-size: 13px;
+  color: #ddd;
+  line-height: 1.5;
+}
+
+.sandbox-label {
+  color: #b5a06a;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 3px;
+  margin: 0 0 8px;
+}
+
+.sandbox-empty {
+  color: #666;
+  font-style: italic;
+  margin: 4px 0;
+}
+
+.sandbox-reaction,
+.sandbox-history-entry {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #222;
+}
+
+.sandbox-h {
+  margin: 0 0 4px;
+  color: #ccc;
+}
+
+.sandbox-memory {
+  margin: 4px 0;
+  color: #cbb88a;
+  font-style: italic;
+}
+
+.sandbox-outputs {
+  margin: 0;
+  padding-left: 18px;
+  color: #aaa;
+}
+
+.sandbox-outputs li {
+  margin-bottom: 2px;
+}
+
+.sandbox-outputs .kind-action {
+  color: #7c8a5c;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-right: 6px;
+}
+
+.sandbox-outputs .kind-dialogue {
+  color: #d6c08a;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-right: 6px;
+}
+
+.sandbox-outputs .empty {
+  color: #555;
+  font-style: italic;
+  list-style: none;
+}
+
+.sandbox-character {
+  margin-bottom: 16px;
 }
 
 .phase-controls .temp-btn {

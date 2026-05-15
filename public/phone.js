@@ -527,7 +527,7 @@ function renderEventPicker({ prompt, items, allowDecline }) {
     : '';
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
-    <p class="action-prompt">${escapeHtml(prompt || '')}</p>
+    <p class="event-prompt">${escapeHtml(prompt || '')}</p>
     <div class="suggestions">
       ${list || '<p class="status-msg">(no items)</p>'}
       ${decline}
@@ -551,7 +551,7 @@ function renderEventPicker({ prompt, items, allowDecline }) {
 function renderEventPrompt({ prompt, placeholder }) {
   contentEl.innerHTML = `
     <p class="day-label">Day ${currentDay}</p>
-    <p class="action-prompt">${escapeHtml(prompt || '')}</p>
+    <p class="event-prompt">${escapeHtml(prompt || '')}</p>
     <div class="custom-action">
       <input type="text" id="event-input-text" maxlength="80" autocomplete="off" placeholder="${escapeHtml(placeholder || '')}">
       <button id="event-input-submit">Send</button>

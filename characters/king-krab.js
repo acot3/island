@@ -148,31 +148,58 @@ async function firstEncounter(engine) {
   }
 }
 
-// ----------------- One-shot response (subsequent visits) -----------------
+// ----------------- One-shot reaction (subsequent visits) -----------------
 //
-// Called when a player addresses King Krab on a regular day (post-first
-// encounter). Returns just Krab's dialogue text — the day narrator weaves
-// it into the prose with the right voice tag.
+// Called when a player notably involves King Krab (speech or action). Returns
+// a list of outputs: action (third-person, narrator voice) and/or dialogue
+// (verbatim, character voice). Either or both can be present; the list can
+// be empty if Krab chooses not to react visibly.
 
-const RESPOND_SYSTEM = `${PERSONALITY}
+const REACT_SYSTEM = `${PERSONALITY}
 
-A landwalker has approached you again. They have spoken or acted toward you. Respond in one short utterance — at most two sentences — in your own voice. Output only what you say aloud. No stage directions, no asterisks, no narrator prose.`;
+A landwalker has done something that involves you. Decide how you react AND write the brief memory you'll keep of this moment.
 
-const RESPOND_TOOL = {
-  name: 'krab_response',
-  description: "Emit King Krab's one-shot spoken reply.",
+OUTPUTS — your reaction this turn
+- An ordered list. Each item is either an "action" or "dialogue":
+  - "action" is a plain factual statement of what you physically do — written like a stage direction or a bullet point in a log, NOT prose. Example: "snaps both claws at the air" or "turns sideways and refuses to look at the landwalker". The narrator will paraphrase it.
+  - "dialogue" is your verbatim spoken line, in YOUR voice. No quotation marks, no stage directions, no narrator wrapping. Whatever you write here will be read aloud as you.
+- Most reactions are one or two outputs. Keep each output short — a sentence at most.
+- You may choose to do nothing visible: return outputs: [].
+- You may speak without acting, act without speaking, or both. Order them as they naturally play.
+
+MEMORY — what you take away
+- A single short sentence in YOUR voice, from your point of view, capturing what happened and how you felt. Real-memory short. Not a transcript.
+- Include the player's name if relevant. Skip details that don't matter.`;
+
+const REACT_TOOL = {
+  name: 'krab_react',
+  description: "Emit King Krab's reaction (outputs) and his brief memory of the moment.",
   input_schema: {
     type: 'object',
     properties: {
-      reply: { type: 'string', description: "King Krab's spoken reply — at most two sentences. No stage directions." },
+      outputs: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            kind: { type: 'string', enum: ['action', 'dialogue'] },
+            text: { type: 'string' },
+          },
+          required: ['kind', 'text'],
+        },
+      },
+      memory: {
+        type: 'string',
+        description: "One short sentence in King Krab's voice — the memory he keeps of this turn.",
+      },
     },
-    required: ['reply'],
+    required: ['outputs', 'memory'],
   },
 };
 
-async function respond({ playerName, playerAction, history }) {
+async function react({ playerName, playerAction, history }) {
   const historyBlock = (history || [])
-    .map((h) => `- Day ${h.day}, ${h.playerName}: "${h.action}" → "${h.reply}"`)
+    .map((h) => `- Day ${h.day}: ${h.memory}`)
     .join('\n') || '(no prior interactions)';
 
   const userMessage = `<your-memory>
@@ -180,22 +207,25 @@ ${historyBlock}
 </your-memory>
 
 <approach>
-${playerName} approaches you and says/does: "${playerAction}"
+${playerName} does: "${playerAction}"
 </approach>
 
-Respond in your voice with a single short utterance.`;
+How do you react, and what will you remember?`;
 
   const message = await anthropic.messages.create({
     model: MODEL,
-    max_tokens: 200,
-    system: RESPOND_SYSTEM,
+    max_tokens: 400,
+    system: REACT_SYSTEM,
     messages: [{ role: 'user', content: userMessage }],
-    tools: [RESPOND_TOOL],
-    tool_choice: { type: 'tool', name: RESPOND_TOOL.name },
+    tools: [REACT_TOOL],
+    tool_choice: { type: 'tool', name: REACT_TOOL.name },
   });
   const toolUse = message.content.find((b) => b.type === 'tool_use');
-  if (!toolUse) throw new Error('Krab respond did not return a tool call');
-  return toolUse.input.reply;
+  if (!toolUse) throw new Error('Krab react did not return a tool call');
+  return {
+    outputs: toolUse.input.outputs || [],
+    memory: toolUse.input.memory || '',
+  };
 }
 
 // ----------------- Module export -----------------
@@ -242,6 +272,6 @@ module.exports = {
   title: 'King Krab',
   run: firstEncounter,
 
-  // One-shot conversational reply for subsequent visits.
-  respond,
+  // One-shot reaction to any action that notably involves Krab.
+  react,
 };

@@ -329,6 +329,15 @@ button.inventory-slot:active {
   margin: 16px 0 8px;
 }
 
+/* Scene-event prompts are full sentences, not the short "WHAT WILL YOU
+   DO?" label — sentence-cased, and matched to the grey .status-msg style. */
+.event-prompt {
+  color: #888;
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 16px 0 10px;
+}
+
 .suggestion-btn {
   width: 100%;
   background: none;
