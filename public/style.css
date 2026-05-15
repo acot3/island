@@ -150,6 +150,17 @@ html, body {
   margin-bottom: 8px;
 }
 
+/* Appended under the homecoming scene's closing prose when the game ends.
+   Keeps the final beat visible above and adds a small terminal marker. */
+.game-over-note {
+  margin: 32px 0 0;
+  color: #888;
+  font-size: 13px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  text-align: center;
+}
+
 .player-list {
   margin: 16px 0;
 }

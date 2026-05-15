@@ -8,6 +8,7 @@ const {
   NODES, neighborsOf, nodeLabel,
   buildMapPayload, buildLocationPayload,
   distributeScenes, findSceneNode, getNodeView, markItemFound,
+  annotateNode, replaceNodeAnnotations,
 } = require('./lib/map');
 const { categorizeAction } = require('./lib/categorizer');
 const { resolveAction } = require('./lib/resolver');
@@ -15,8 +16,10 @@ const { narrateMorning, narrateDay } = require('./lib/narrator');
 const { narrateFinding } = require('./lib/findings');
 const { runEvent } = require('./lib/event-runner');
 const arrivalEvent = require('./events/arrival');
+const chestEvent = require('./events/chest');
+const homecomingEvent = require('./events/homecoming');
 const kingKrabCharacter = require('./characters/king-krab');
-const { setupSandbox, maxCharacter } = require('./sandbox');
+const { setupSandbox, setupEndgameTest, maxCharacter } = require('./sandbox');
 // Registry of characters by key — lookups go through here so the day flow
 // stays generic. Max only ever appears in sandbox rooms (he isn't placed
 // in normal createRoom), but his voice config lives here so the host can
@@ -127,10 +130,18 @@ function createRoom({ mode = 'normal' } = {}) {
     [room.nodeState[wreckageNode], room.nodeState[target]] =
       [room.nodeState[target], room.nodeState[wreckageNode]];
   }
-  // Sandbox mode: suppress the Krab encounter so the focus stays on the
-  // character being iterated on. Everything else (campfire, HP, etc.) is
-  // still in play.
-  if (mode === 'sandbox') {
+  // Seed the cave with the locked-chest fact so the categorizer + narrator
+  // treat the chest as inaccessible until the chest event runs and replaces
+  // this annotation with the opened state.
+  const caveNode = findSceneNode(room, 'echoing-hollow');
+  if (caveNode) {
+    annotateNode(room, caveNode,
+      'The oak chest is sealed shut by a heavy lock. Nothing short of a key will turn it.');
+  }
+  // Sandbox + Endgame test modes both suppress the Krab encounter so it
+  // doesn't intrude on what the test is actually exercising. Everything
+  // else (campfire, HP, etc.) is still in play.
+  if (mode === 'sandbox' || mode === 'endgame') {
     room.krabFired = true;
   }
   rooms.set(code, room);
@@ -323,6 +334,46 @@ function detectKrabTrigger(room) {
   };
 }
 
+// Returns { playerName } if a key-holder MOVED INTO the cave this turn
+// (and the chest hasn't been opened yet), otherwise null. Fires only on
+// entry — parking at the cave doesn't re-fire after a decline.
+function detectChestTrigger(room, actionReports) {
+  if (room.chestOpened || room.gameOver) return null;
+  const caveNode = findSceneNode(room, 'echoing-hollow');
+  if (!caveNode) return null;
+  for (const r of actionReports) {
+    if (r.type !== 'move') continue;
+    if (r.nodeId !== caveNode || r.fromNodeId === caveNode) continue;
+    const p = room.players.get(r.player);
+    if (!p || p.dead) continue;
+    const hasKey = (p.inventory || []).some((s) => s.name === 'skeleton key');
+    if (!hasKey) continue;
+    return { playerName: r.player };
+  }
+  return null;
+}
+
+// Returns { playerName, action } if any action this turn was the
+// categorizer-flagged spoken request to leave the island, otherwise null.
+// Gated on room.chestOpened — the categorizer can only flag escapeRequest
+// when that's true.
+function detectEscapeTrigger(room, actionReports) {
+  if (!room.chestOpened || room.gameOver) return null;
+  const r = actionReports.find((rep) => rep.type === 'free' && rep.escapeRequest);
+  if (!r) return null;
+  const p = room.players.get(r.player);
+  if (!p || p.dead) return null;
+  return { playerName: r.player, action: r.action };
+}
+
+// "he/him" → "his", "she/her" → "her", anything else → "their".
+function possessivePronoun(pronouns) {
+  const p = (pronouns || '').toLowerCase();
+  if (p.startsWith('he')) return 'his';
+  if (p.startsWith('she')) return 'her';
+  return 'their';
+}
+
 // Build a snapshot of player profiles passed to every narrator call.
 // Dead players are excluded from narration after their death day.
 function narratorPlayers(room) {
@@ -488,6 +539,9 @@ async function buildActionReports(room) {
           description: fromView ? fromView.description : null,
           annotations: fromView ? fromView.annotations : [],
           characters: presentCharacters,
+          // Only true once the chest scene has revealed the parchment.
+          // The categorizer ignores escapeRequest unless this is set.
+          escapeUnlocked: !!room.chestOpened,
         });
         const sceneContext = fromView;
         const playerContext = {
@@ -551,6 +605,10 @@ async function buildActionReports(room) {
           finds,
           sceneDescription: sceneContext ? sceneContext.description : null,
           involves: verdict.involves || null,
+          // True only when chest is opened AND the categorizer judged this
+          // action a spoken request to leave the island. Drives the
+          // homecoming trigger in runDayNarration.
+          escapeRequest: !!verdict.escapeRequest,
         };
       } catch (err) {
         if (room.hostSocket) {
@@ -585,25 +643,66 @@ async function runDayNarration(room) {
   try {
     const actionReports = await buildActionReports(room);
 
-    // Detect the Krab encounter trigger now that moves have applied.
-    const krabTrigger = detectKrabTrigger(room);
-    const eventPlayers = new Set(krabTrigger ? krabTrigger.playerNames : []);
+    // Detect every possible trigger this turn. Priority — only ONE event
+    // can run per day: escape (the win) > chest (the milestone) > krab.
+    const escapeTrigger = detectEscapeTrigger(room, actionReports);
+    const chestTrigger = !escapeTrigger ? detectChestTrigger(room, actionReports) : null;
+    const krabTrigger = !escapeTrigger && !chestTrigger ? detectKrabTrigger(room) : null;
 
-    // Start the event in the background (buffered) the moment we know it's
-    // triggered. By the time the host clicks Proceed the first beat is
-    // ready and the engine is parked at the first phone prompt.
+    const eventPlayers = new Set();
+    if (escapeTrigger) eventPlayers.add(escapeTrigger.playerName);
+    if (chestTrigger) eventPlayers.add(chestTrigger.playerName);
+    if (krabTrigger) for (const n of krabTrigger.playerNames) eventPlayers.add(n);
+
+    // Stash the escape request so the event can quote it back verbatim.
+    if (escapeTrigger) {
+      room.pendingEscape = {
+        playerName: escapeTrigger.playerName,
+        action: escapeTrigger.action,
+      };
+    }
+
+    // Start the triggered event in the background (buffered) the moment we
+    // know it's triggered. By the time the host clicks Proceed the first
+    // beat is ready and the engine is parked at the first phone prompt
+    // (or runs straight through for narrator-only events).
     let eventPromise = null;
-    if (krabTrigger) {
+    let pendingEventDescriptor = null;
+    if (escapeTrigger) {
+      eventPromise = runHomecomingEvent(room, escapeTrigger.playerName);
+      pendingEventDescriptor = {
+        eventId: 'homecoming',
+        playerNames: [escapeTrigger.playerName],
+        characters: homecomingEvent.characters || [],
+      };
+    } else if (chestTrigger) {
+      eventPromise = runChestEvent(room, chestTrigger.playerName);
+      pendingEventDescriptor = {
+        eventId: 'chest',
+        playerNames: [chestTrigger.playerName],
+        characters: chestEvent.characters || [],
+      };
+    } else if (krabTrigger) {
       eventPromise = runKrabEvent(room, krabTrigger.playerNames);
+      pendingEventDescriptor = {
+        eventId: 'king-krab',
+        playerNames: krabTrigger.playerNames,
+        characters: kingKrabCharacter.characters || [],
+      };
     }
 
     // The day narrator covers everyone NOT in the scene event. If the scene
-    // pulled every alive player, we skip day narration entirely.
+    // pulled every alive player, we skip day narration entirely. Skipping
+    // also occurs for the homecoming event when the escape requester is the
+    // only one left — handled by the same allAlivePresent rule below.
     const narratorReports = actionReports.filter((r) => !eventPlayers.has(r.player));
     const narratorLocations = locationsSnapshot(room).filter(
       (l) => !eventPlayers.has(l.name)
     );
-    const skipDayNarration = krabTrigger && krabTrigger.allAlivePresent;
+    const aliveCount = alivePlayerEntries(room).length;
+    const skipDayNarration =
+      (krabTrigger && krabTrigger.allAlivePresent) ||
+      (eventPlayers.size > 0 && eventPlayers.size >= aliveCount);
 
     // Findings only fire for players whose day was actually narrated and who
     // performed a search this day.
@@ -670,6 +769,28 @@ async function runDayNarration(room) {
     // Resolve character reactions first so the day narrator's prompt has them.
     const characterReactions = (await Promise.all(reactionCalls)).filter(Boolean);
 
+    // Build a sceneHandoff for the day narrator — the transitional line
+    // that closes the day prose and points the audience to the event that
+    // is about to begin. Each event provides its own hint phrasing.
+    let sceneHandoff = null;
+    if (escapeTrigger) {
+      const ep = room.players.get(escapeTrigger.playerName);
+      sceneHandoff = {
+        names: [escapeTrigger.playerName],
+        hint: homecomingEvent.handoffHintFor(
+          escapeTrigger.playerName,
+          ep ? ep.pronouns : null
+        ),
+      };
+    } else if (chestTrigger) {
+      sceneHandoff = {
+        names: [chestTrigger.playerName],
+        hint: chestEvent.handoffHint,
+      };
+    } else if (krabTrigger) {
+      sceneHandoff = { names: krabTrigger.playerNames, hint: kingKrabCharacter.handoffHint };
+    }
+
     const dayCall = skipDayNarration
       ? Promise.resolve(null)
       : narrateDay({
@@ -678,9 +799,7 @@ async function runDayNarration(room) {
           players: narratorPlayers(room),
           locations: narratorLocations,
           actionReports: narratorReports,
-          sceneHandoff: krabTrigger
-            ? { names: krabTrigger.playerNames, hint: kingKrabCharacter.handoffHint }
-            : null,
+          sceneHandoff,
           characterReactions,
         });
 
@@ -715,18 +834,18 @@ async function runDayNarration(room) {
     // If an event is pre-loading in the background, surface the Proceed
     // button now (host clicks it to release the buffered first beat). Then
     // wait for the scene to finish before offering day-resolution-options.
-    if (krabTrigger && eventPromise) {
+    if (eventPromise && pendingEventDescriptor) {
       if (room.hostSocket) {
-        io.to(room.hostSocket).emit('event-pending', {
-          eventId: 'king-krab',
-          playerNames: krabTrigger.playerNames,
-          characters: kingKrabCharacter.characters || [],
-        });
+        io.to(room.hostSocket).emit('event-pending', pendingEventDescriptor);
       }
       await eventPromise;
     }
 
-    if (room.mode === 'sandbox') {
+    // If the game ended during the scene (homecoming → win), don't roll
+    // into day-resolution-options — just leave the victory screen up.
+    if (room.gameOver) {
+      // no-op
+    } else if (room.mode === 'sandbox') {
       // Sandbox: no day-pass cycle, no Light-the-Fire / End-Day buttons.
       // Auto-loop: reset chosenAction and re-prompt the player so they
       // can bounce back-and-forth with the character.
@@ -795,6 +914,92 @@ async function runKrabEvent(room, playerNames) {
   } finally {
     room.activeEvent = null;
     room.phase = 'started';
+  }
+}
+
+// Run the Chest scene — fired when the key-holder enters the cave for the
+// first time with the skeleton key in inventory. Game continues afterward;
+// success flips room.chestOpened so the categorizer can later spot the
+// escape request.
+async function runChestEvent(room, primaryName) {
+  const player = room.players.get(primaryName);
+  if (!player) return;
+  room.phase = 'event';
+  room.activeEvent = {
+    id: 'chest',
+    playerName: primaryName,
+    pendingResolver: null,
+    characters: chestEvent.characters || [],
+  };
+  try {
+    await runEvent({ room, event: chestEvent, player, io });
+  } catch (err) {
+    console.error(`[Chest event] ${err.message}`);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('narration-error', {
+        kind: 'event', day: room.day, error: err.message,
+      });
+    }
+  } finally {
+    room.activeEvent = null;
+    room.phase = 'started';
+  }
+}
+
+// Run the Homecoming scene — the closing event. Fires the turn a player
+// makes an aloud request to leave the island (categorizer-flagged). The
+// scene quotes their words back, unwinds time, and lands the party on the
+// dock with a still-alive Skipper. On clean completion: room.won.
+async function runHomecomingEvent(room, primaryName) {
+  const player = room.players.get(primaryName);
+  if (!player) return;
+  room.phase = 'event';
+  room.activeEvent = {
+    id: 'homecoming',
+    playerName: primaryName,
+    pendingResolver: null,
+    characters: homecomingEvent.characters || [],
+  };
+  let completed = false;
+  try {
+    await runEvent({ room, event: homecomingEvent, player, io });
+    completed = true;
+    // runEvent resolves as soon as the storyteller's beats are GENERATED;
+    // for this pure-narrator scene there's nothing parking it on the host
+    // Proceed click. Wait HERE (still inside the try, before the finally
+    // clears activeEvent) so the proceed-event handler can still find
+    // room.activeEvent.release when the host clicks. Long timeout fallback
+    // in case the host disconnects or never signals.
+    await new Promise((resolve) => {
+      let done = false;
+      const finish = () => { if (!done) { done = true; resolve(); } };
+      room.homecomingRenderResolver = finish;
+      setTimeout(finish, 120000);
+    });
+    room.homecomingRenderResolver = null;
+  } catch (err) {
+    console.error(`[Homecoming event] ${err.message}`);
+    if (room.hostSocket) {
+      io.to(room.hostSocket).emit('narration-error', {
+        kind: 'event', day: room.day, error: err.message,
+      });
+    }
+  } finally {
+    room.activeEvent = null;
+    room.phase = 'started';
+    room.pendingEscape = null;
+  }
+  if (!completed) return;
+  room.won = true;
+  room.gameOver = true;
+  const survivors = alivePlayerEntries(room).map(([n]) => n);
+  if (room.hostSocket) {
+    io.to(room.hostSocket).emit('game-won', { day: room.day, survivors });
+  }
+  for (const [, p] of room.players) {
+    if (p.socketId && !p.dead) {
+      io.to(p.socketId).emit('game-won', { day: room.day });
+    }
   }
 }
 
@@ -887,9 +1092,9 @@ function endDay(room) {
     if (p.socketId) io.to(p.socketId).emit('day-changed', { day: room.day });
   }
   emitActionStatus(room);
-  // Sandbox: no morning narration — the player goes straight back to the
-  // action picker for the next round.
-  if (room.mode !== 'sandbox') {
+  // Sandbox + Endgame test: no morning narration — the player goes
+  // straight back to the action picker for the next round.
+  if (room.mode !== 'sandbox' && room.mode !== 'endgame') {
     runMorningNarration(room);
   }
 }
@@ -928,6 +1133,21 @@ io.on('connection', (socket) => {
     socket.join(code);
     socket.emit('room-created', { code, mode: 'sandbox' });
     console.log(`[Room ${code}] sandbox created by host ${socket.id}`);
+  });
+
+  // Endgame test: skips the wreck/arrival/search loop. start-game will
+  // spawn players one move away from the cave with the skeleton key
+  // already in inventory, so the chest + homecoming events can be
+  // exercised end-to-end in two day turns.
+  socket.on('create-endgame-test', () => {
+    const code = createRoom({ mode: 'endgame' });
+    const room = rooms.get(code);
+    room.hostSocket = socket.id;
+    currentRoom = code;
+    isHost = true;
+    socket.join(code);
+    socket.emit('room-created', { code, mode: 'endgame' });
+    console.log(`[Room ${code}] endgame test created by host ${socket.id}`);
   });
 
   socket.on('rejoin-host', ({ code }) => {
@@ -1086,6 +1306,9 @@ io.on('connection', (socket) => {
     if (room.mode === 'sandbox') {
       // Sandbox: place the test character (Max) and spawn players beside him.
       setupSandbox(room);
+    } else if (room.mode === 'endgame') {
+      // Endgame test: spawn one move from the cave with the key in hand.
+      setupEndgameTest(room);
     } else {
       room.startNodeId = findSceneNode(room, 'wreckage-site');
     }
@@ -1104,11 +1327,11 @@ io.on('connection', (socket) => {
       }
     }
     console.log(`[Room ${currentRoom}] started with ${room.players.size} player(s) at ${room.startNodeId}`);
-    // Sandbox: skip the opening entirely — the player drops straight into
-    // the action picker and bounces back-and-forth with the character.
-    // Normal play: the Arrival scene event stands in for Day 1's morning
-    // narration. Day 2+ mornings run through runMorningNarration as usual.
-    if (room.mode !== 'sandbox') {
+    // Sandbox + Endgame test: skip the opening entirely — the player drops
+    // straight into the action picker. Normal play: the Arrival scene
+    // event stands in for Day 1's morning narration. Day 2+ mornings run
+    // through runMorningNarration as usual.
+    if (room.mode !== 'sandbox' && room.mode !== 'endgame') {
       runArrivalEvent(room);
     }
   });
@@ -1261,13 +1484,20 @@ io.on('connection', (socket) => {
     room.activeEvent.release();
   });
 
-  // Host confirms the arrival scene's final beat is rendered on screen.
-  // runArrivalEvent is parked waiting on this before it releases the phones
-  // into Day 1's action picker.
-  socket.on('event-render-complete', () => {
+  // Host confirms a scene's final beat is rendered on screen. Each event
+  // that needs render gating parks a resolver on the room and awaits it.
+  // Arrival uses this to release phones into Day 1; homecoming uses it to
+  // gate the game-won broadcast until the final beat actually paints.
+  socket.on('event-render-complete', ({ eventId } = {}) => {
     if (!isHost || !currentRoom) return;
     const room = rooms.get(currentRoom);
-    if (room && room.arrivalRenderResolver) room.arrivalRenderResolver();
+    if (!room) return;
+    if ((eventId === 'arrival' || !eventId) && room.arrivalRenderResolver) {
+      room.arrivalRenderResolver();
+    }
+    if (eventId === 'homecoming' && room.homecomingRenderResolver) {
+      room.homecomingRenderResolver();
+    }
   });
 
   // Player input during a scene event. Routes to the engine's pending

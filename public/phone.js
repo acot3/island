@@ -498,6 +498,18 @@ socket.on('you-died', ({ deathDay }) => {
   if (inventoryEl) inventoryEl.innerHTML = '';
 });
 
+// The party left the island — game won. Freeze the UI on a victory note.
+// Sets myDead so all the other handlers' guards short-circuit and the
+// phone doesn't drift back into the action picker.
+socket.on('game-won', ({ day }) => {
+  myDead = true;
+  contentEl.innerHTML = `
+    <p class="day-label">Day ${day || currentDay}</p>
+    <p class="status-msg">You made it home.</p>
+  `;
+  if (inventoryEl) inventoryEl.innerHTML = '';
+});
+
 // --- Scene event UI ----------------------------------------------------
 // The player is the active participant in a scene event. The server pushes
 // custom UI states (loading, picker, prompt, end) via 'event-phone'; the

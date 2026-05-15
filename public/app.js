@@ -56,6 +56,10 @@ document.getElementById('btn-sandbox').addEventListener('click', () => {
   socket.emit('create-sandbox');
 });
 
+document.getElementById('btn-endgame').addEventListener('click', () => {
+  socket.emit('create-endgame-test');
+});
+
 function renderLobby(code, players) {
   setNarration(`
     <h1>ISLAND</h1>
@@ -558,7 +562,7 @@ function restoreActionChrome() {
 // the phones into Day 1's action picker.
 function finishArrival() {
   restoreActionChrome();
-  socket.emit('event-render-complete');
+  socket.emit('event-render-complete', { eventId: 'arrival' });
 }
 
 // Day narration is in view; the server is waiting for the host to advance
@@ -607,7 +611,19 @@ socket.on('event-status', ({ text }) => {
 
 // Scene event beats. Prefetch all segment audio first (if ElevenLabs),
 // then render the beat and start playback together.
-socket.on('event-beat', async ({ segments, replace }) => {
+// Serialize event-beat handling. Two beats flushed back-to-back (e.g. the
+// homecoming scene, which has no player interaction between them) would
+// otherwise race their async prefetch/render/audio chains and land out of
+// order on screen. Each beat now waits for the previous one to fully play
+// out before starting.
+let eventBeatQueue = Promise.resolve();
+socket.on('event-beat', (payload) => {
+  eventBeatQueue = eventBeatQueue.then(() => handleEventBeat(payload)).catch((err) => {
+    debug(`[event-beat] ${err && err.message ? err.message : err}`, 'error');
+  });
+});
+
+async function handleEventBeat({ segments, replace, sceneComplete, eventId }) {
   if (!segments || !segments.length) return;
   // A beat landing means any "player is answering" status is now stale.
   eventBeatPending = true;
@@ -643,6 +659,14 @@ socket.on('event-beat', async ({ segments, replace }) => {
     finishArrival();
     pendingArrivalChrome = false;
   }
+  // Any beat the storyteller marks scene_complete fires the render-complete
+  // signal back to the server. The server uses it to gate post-scene work
+  // (e.g. holding the game-won broadcast until the homecoming's last beat
+  // is actually on screen). Arrival's pendingArrivalChrome path already
+  // signals via finishArrival, so guard against double-emit.
+  if (sceneComplete && !pendingArrivalChrome && eventId !== 'arrival') {
+    socket.emit('event-render-complete', { eventId });
+  }
   if (mode === 'off') return;
   if (mode === 'elevenlabs') {
     stopAudio();
@@ -659,7 +683,7 @@ socket.on('event-beat', async ({ segments, replace }) => {
   } else {
     speakSegments(segments);
   }
-});
+}
 
 socket.on('event-end', ({ eventId, summary }) => {
   if (summary) debug(`Event ended: ${summary}`, 'phase');
@@ -729,6 +753,21 @@ socket.on('game-over', ({ day }) => {
     <p class="room-info">All players have died.</p>
     <p class="room-info">Day ${day}.</p>
   `);
+});
+
+// The party left the island. Don't replace the narration — the homecoming
+// scene's closing prose should stay on screen. Just append a small game-
+// over marker beneath it.
+socket.on('game-won', ({ day }) => {
+  debug(`Game won — day ${day}`, 'phase');
+  const content = document.getElementById('narration-content');
+  if (!content) return;
+  // Avoid double-appending if game-won fires twice for any reason.
+  if (content.querySelector('.game-over-note')) return;
+  const note = document.createElement('p');
+  note.className = 'game-over-note';
+  note.textContent = 'Game over.';
+  content.appendChild(note);
 });
 
 // --- TTS ---

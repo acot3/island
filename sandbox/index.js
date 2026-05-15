@@ -33,7 +33,21 @@ function setupSandbox(room) {
   annotateNode(room, startNode, maxCharacter.presenceAnnotation);
 }
 
+// Endgame test setup — spawns players on the northwest jungle node, one
+// move away from the cave, with a skeleton key already in inventory. Lets
+// the chest + homecoming events be exercised in two real day turns without
+// going through the wreck, the old camp, or the search loop.
+function setupEndgameTest(room) {
+  // j_nw is adjacent to the cave (see EDGES in lib/map.js). Any jungle
+  // node would work; we pick one deterministically for predictable tests.
+  room.startNodeId = 'j_nw';
+  for (const [, p] of room.players) {
+    p.inventory.push({ name: 'skeleton key', count: 1, type: 'item' });
+  }
+}
+
 module.exports = {
   setupSandbox,
+  setupEndgameTest,
   maxCharacter,
 };
